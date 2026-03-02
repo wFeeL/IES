@@ -1,0 +1,38 @@
+{
+  "game": {
+    "ticks_per_day": 48,
+    "horizon_ticks": 48
+  },
+  "budget": {
+    "cash": 9999,
+    "allpay_spent": 0
+  },
+  "owned_lots": [],
+  "owned_objects_override": [],
+  "network_plan": {
+    "mode": "branches",
+    "branches": [
+      {
+        "name": "GEN",
+        "role": "gen",
+        "objects": [],
+        "soft_flow_limit_mw": 30
+      },
+      {
+        "name": "LOAD",
+        "role": "load",
+        "objects": [],
+        "soft_flow_limit_mw": 30
+      }
+    ]
+  },
+  "assumptions": {
+    "pwin_default": 0.35,
+    "risk_mode": "conservative",
+    "corridor": {
+      "wind_mul": 0.1,
+      "solar_mul": 0.1,
+      "load_mul": 0.1
+    }
+  }
+}
