@@ -8,6 +8,7 @@ from lottool.model.types import DeltaBreakdown
 def summarize_delta(d: DeltaBreakdown, top_k: int = 3) -> Tuple[list, list]:
     contrib = [
         ("income", d.delta_income),
+        ("penalties", -d.delta_penalties),
         ("contracts", -d.delta_contracts),
         ("fuel+tax", -d.delta_fuel_and_taxes),
         ("market", -d.delta_market_net),

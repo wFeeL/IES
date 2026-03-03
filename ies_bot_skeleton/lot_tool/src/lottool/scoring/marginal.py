@@ -32,7 +32,7 @@ def marginal_value(state: State, owned_items: List[ObjectItem], lot: Lot, foreca
             reasons=[],
         )
         for n in b.notes:
-            if n.startswith("NETPLAN:") or n.startswith("OVERLOAD_RISK:"):
+            if n.startswith("NETPLAN:") or n.startswith("OVERLOAD_RISK:") or n.startswith("WEAR_OUTAGE:") or n.startswith("INSTANT_"):
                 out.flags.append(n)
         return out
 

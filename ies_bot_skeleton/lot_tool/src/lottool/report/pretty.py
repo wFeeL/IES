@@ -8,6 +8,7 @@ from lottool.model.types import DeltaBreakdown
 def fmt_delta(tag: str, d: DeltaBreakdown, reasons: List[str]) -> str:
     lines = [f"{tag}: ΔScore {d.delta_total:+.1f}"]
     lines.append(f"  Δincome: {d.delta_income:+.1f}")
+    lines.append(f"  Δpenalties: {-d.delta_penalties:+.1f}")
     lines.append(f"  Δcontracts: {-d.delta_contracts:+.1f}")
     lines.append(f"  Δfuel+tax: {-d.delta_fuel_and_taxes:+.1f}")
     lines.append(f"  Δmarket: {-d.delta_market_net:+.1f}")

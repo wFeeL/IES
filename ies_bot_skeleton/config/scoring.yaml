@@ -1,0 +1,26 @@
+{
+  "scenarios": {
+    "base": { "wind": 1.0, "solar": 1.0, "load": 1.0 },
+    "worst": { "wind": 0.9, "solar": 0.9, "load": 1.1 },
+    "best": { "wind": 1.1, "solar": 1.1, "load": 0.9 }
+  },
+  "market": {
+    "market_max_power": 60,
+    "instant_buy_max_power": 1000000,
+    "instant_sell_max_power": 1000000
+  },
+  "network": {
+    "wear_threshold_mw": 40,
+    "wear_limit": 14,
+    "wear_k": 0.2,
+    "outage_ticks": 1,
+    "outage_penalty_rub": 0.0,
+    "outage_loss_scale": 1.0
+  },
+  "ranking": {
+    "ev_weight_base": 0.50,
+    "ev_weight_worst": 0.35,
+    "ev_weight_best": 0.15,
+    "risk_lambda": 0.25
+  }
+}
