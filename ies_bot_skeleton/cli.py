@@ -1,49 +1,39 @@
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 from typing import Sequence
 
-
-ROOT_DIR = Path(__file__).resolve().parent
-LOTTOOL_SRC = ROOT_DIR / "lot_tool" / "src"
-
-
-def _ensure_lottool_path() -> None:
-    src = str(LOTTOOL_SRC)
-    if src not in sys.path:
-        sys.path.insert(0, src)
+from .offline.cli import main as offline_main
+from .online.main import main as online_main
 
 
-def _run_bot() -> int:
-    from main import main as bot_main
-
+def _run_online() -> int:
     try:
-        bot_main()
+        online_main()
     except RuntimeError as exc:
+        import sys
+
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     return 0
 
 
-def _run_lottool(args: Sequence[str]) -> int:
-    _ensure_lottool_path()
-    from lottool.cli import main as lottool_main
-
-    lottool_main(list(args))
-    return 0
+def _run_offline(args: Sequence[str]) -> int:
+    return offline_main(list(args))
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ies",
-        description="Unified launcher for IES bot and lot valuation tool.",
+        description="Unified launcher for online (ips) and offline modes.",
     )
     parser.add_argument(
         "mode",
-        choices=("bot", "lottool"),
-        help="Launch mode: 'bot' for stand controller, 'lottool' for lot valuation CLI.",
+        choices=("online", "offline", "bot", "lottool"),
+        help=(
+            "Mode: 'online' for ips runtime, 'offline' for lot utilities. "
+            "'bot' and 'lottool' are compatibility aliases."
+        ),
     )
     parser.add_argument(
         "args",
@@ -59,13 +49,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     if mode_args and mode_args[0] == "--":
         mode_args = mode_args[1:]
 
-    if ns.mode == "bot":
+    if ns.mode in ("online", "bot"):
         if mode_args:
-            raise SystemExit(f"'bot' mode does not accept extra args: {' '.join(mode_args)}")
-        return _run_bot()
+            if ns.mode == "online" and mode_args == ["run"]:
+                mode_args = []
+            else:
+                raise SystemExit(f"'{ns.mode}' mode does not accept extra args: {' '.join(mode_args)}")
+        return _run_online()
 
     if ns.mode == "lottool":
-        return _run_lottool(mode_args)
+        return _run_offline(["lottool", *mode_args])
+
+    if ns.mode == "offline":
+        if not mode_args:
+            raise SystemExit("offline mode requires a subcommand: lottool | fill-lots")
+        return _run_offline(mode_args)
 
     raise SystemExit(f"Unsupported mode: {ns.mode}")
 

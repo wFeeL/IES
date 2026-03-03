@@ -1,29 +1,45 @@
 ИЭС / НТО — каркас управляющего скрипта и инструмент оценки лотов.
 
-## Единая логика запуска (рекомендуется)
+## Режимы проекта
 
-Все режимы запускаются из корня репозитория через единый CLI-модуль:
+Проект разделен на 2 модуля:
+- `online` — работа со стендом через `ips` (рынок, линии, такты, объекты).
+- `offline` — работа без `ips` (оценка и подготовка лотов).
+
+Запуск из корня репозитория через единый CLI-модуль:
 
 ```bash
-# 1) Управляющий скрипт стенда
-python -m ies_bot_skeleton.cli bot
+# 1) ONLINE: управляющий скрипт стенда (требует ips)
+python -m ies_bot_skeleton.cli online
 
-# 2) Оценка лотов
-python -m ies_bot_skeleton.cli lottool rank
-python -m ies_bot_skeleton.cli lottool eval --lot ies_bot_skeleton/lot_tool/data/lots/L12.json
-python -m ies_bot_skeleton.cli lottool suggest-bid --lot ies_bot_skeleton/lot_tool/data/lots/L12.json --pwin 0.35
+# 2) OFFLINE: оценка лотов
+python -m ies_bot_skeleton.cli offline lottool rank
+python -m ies_bot_skeleton.cli offline lottool eval --lot ies_bot_skeleton/lot_tool/data/lots/L12.json
+python -m ies_bot_skeleton.cli offline lottool suggest-bid --lot ies_bot_skeleton/lot_tool/data/lots/L12.json --pwin 0.35
+
+# 3) OFFLINE: заполнение/нормализация существующих лотов
+python -m ies_bot_skeleton.cli offline fill-lots --lots-dir ies_bot_skeleton/lot_tool/data/lots
+python -m ies_bot_skeleton.cli offline fill-lots --dry-run
 ```
+
+`offline fill-lots` автоматически:
+- дополняет `lot_id` (из имени файла), `title`, `note`, `items`;
+- нормализует поля item: `kind`, `id`, `qty`, `contract_rub_per_tick`, `tariff_rub_per_mw_tick`, `meta`.
 
 Совместимость:
 - `python -m ies ...` поддерживается как алиас и вызывает тот же CLI.
+- старые алиасы сохранены: `python -m ies_bot_skeleton.cli bot` и `python -m ies_bot_skeleton.cli lottool ...`.
 
 Примечание:
-- режим `bot` требует модуль `ips` (API стенда);
-- режим `lottool` работает из любого `cwd`, пути к конфигам/данным по умолчанию вычисляются автоматически.
+- режим `online` требует модуль `ips` (API стенда);
+- режим `offline lottool` работает из любого `cwd`, пути к конфигам/данным по умолчанию вычисляются автоматически.
 
 Файлы:
-- ies.py — единая точка входа проекта
-- main.py — запуск управляющего скрипта (режим `bot`)
+- ies.py — алиас запуска
+- ies_bot_skeleton/cli.py — единая точка входа проекта
+- ies_bot_skeleton/online/ — online-модуль (работа через `ips`)
+- ies_bot_skeleton/offline/ — offline-модуль (оценка/подготовка лотов без `ips`)
+- main.py — совместимый legacy-вход для online-режима
 - constants.py — настройки (проверь перед запуском)
 - adapters.py — авто-детект orders (TPS/аккумы/рынок/линии/кСЭС)
 - controllers_* — логика управления (износ, кСЭС, баланс)
