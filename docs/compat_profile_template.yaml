@@ -1,0 +1,27 @@
+{
+  "season": "2027",
+  "storage_sign_convention": "pos_discharge",
+  "required_operations": ["buy", "sell", "line_off", "robot", "tps"],
+  "feature_flags": {
+    "storage_optional": true
+  },
+  "method_candidates": {
+    "line_off": ["line_off", "lineOff"],
+    "robot": ["robot", "solarRobot"],
+    "buy": ["buy"],
+    "sell": ["sell"],
+    "tps": ["tps", "tps_fuel"],
+    "storage": ["storage"],
+    "storage_charge": ["storage_charge"],
+    "storage_discharge": ["storage_discharge"]
+  },
+  "constants_paths": {
+    "wear_limit": ["config.wear", "settings.wear"],
+    "period_ticks": ["config.time", "settings.time"]
+  },
+  "forecast_aliases": {
+    "wind": ["wind"],
+    "solar": ["solar"],
+    "consumption_base": ["load", "consumption_base"]
+  }
+}

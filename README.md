@@ -11,9 +11,12 @@
 ```bash
 # 1) ONLINE: управляющий скрипт стенда (требует ips)
 python -m ies_bot_skeleton.cli online
+python -m ies_bot_skeleton.cli online --season 2026 --dry-run
+python -m ies_bot_skeleton.cli online --season 2026 --strict
 
 # 2) OFFLINE: оценка лотов
 python -m ies_bot_skeleton.cli offline lottool rank
+python -m ies_bot_skeleton.cli offline lottool rank --sort risk_adjusted
 python -m ies_bot_skeleton.cli offline lottool eval --lot ies_bot_skeleton/lot_tool/data/lots/L12.json
 python -m ies_bot_skeleton.cli offline lottool suggest-bid --lot ies_bot_skeleton/lot_tool/data/lots/L12.json --pwin 0.35
 
@@ -33,6 +36,47 @@ python -m ies_bot_skeleton.cli offline fill-lots --dry-run
 Примечание:
 - режим `online` требует модуль `ips` (API стенда);
 - режим `offline lottool` работает из любого `cwd`, пути к конфигам/данным по умолчанию вычисляются автоматически.
+
+## Совместимость сезонов (compat)
+
+- Профили совместимости лежат в `ies_bot_skeleton/compat/*.yaml`.
+- Шаблон для нового сезона: `docs/compat_profile_template.yaml`.
+- Выбор профиля:
+  - `--season 2026`
+  - или `IES_SEASON=2026`
+  - если не указан, включается авто-детект по сигнатуре `psm.orders` с предупреждением в логе.
+- Проверка совместимости:
+  - `--dry-run` — не отправляет команды в `ips`, но проверяет методы и сигнатуры.
+  - `--strict` — fail-fast при критической несовместимости.
+
+## Наблюдаемость online
+
+На старте online-режим пишет структурные события:
+- выбранный compat профиль;
+- summary capabilities (доступные/недоступные операции);
+- источники adaptive-констант (path + confidence).
+
+На такте:
+- `TICK_SUMMARY` с `tick`, `net_load`, `generation`, `actions_decided`, `actions_applied`, `actions_failed`.
+
+Ошибки API логируются явно:
+- `IPS_CALL_FAILED`
+- `IPS_METHOD_MISSING`
+- `SIGNATURE_MISMATCH`
+
+## Offline scoring
+
+- Общий конфиг скоринга: `ies_bot_skeleton/config/scoring.yaml`.
+- `lottool` учитывает:
+  - штрафы за недоотпуск (`fine.*`);
+  - `instant_buy` / `instant_sell`;
+  - дискретный `wear/outage` по веткам (параметры в `network.*`).
+- `rank` поддерживает сортировки: `delta_base`, `delta_worst`, `ev`, `risk_adjusted`.
+- `suggest-bid` показывает предупреждения про all-pay лимит и `dead bids` (EV < 0).
+
+## Документация схем
+
+- структура `state.json` и схема лотов: `docs/data_schema.md`.
 
 Файлы:
 - ies.py — алиас запуска
