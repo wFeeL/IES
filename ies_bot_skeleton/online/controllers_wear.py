@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, List
 
 from .adaptive import GameConst
-from .adapters import OrdersAdapter
+from .adapters import OrdersAdapter, Result
 from .utils import as_float, safe_getattr
 
 @dataclass
@@ -48,6 +48,8 @@ def wear_triggers(psm: Any, gc: GameConst) -> List[LineOff]:
     # Send at most one manual line-off per tick to avoid aggressive disconnect cascades.
     return actions[:1]
 
-def apply_wear_actions(adapter: OrdersAdapter, actions: List[LineOff]) -> None:
+def apply_wear_actions(adapter: OrdersAdapter, actions: List[LineOff]) -> List[Result]:
+    results: List[Result] = []
     for a in actions:
-        adapter.line_off(a.sub_id, a.line_no)
+        results.append(adapter.line_off(a.sub_id, a.line_no))
+    return results

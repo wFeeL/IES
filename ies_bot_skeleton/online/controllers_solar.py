@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, List
 
 from .adaptive import GameConst
-from .adapters import OrdersAdapter
+from .adapters import OrdersAdapter, Result
 from .constants import SOLAR_EPSILON, SOLAR_EXPLORE_ANGLES
 from .forecasts import ForecastPack, lookup_forecast
 from .state import CalibState
@@ -73,6 +73,8 @@ def solar_controller(psm: Any, forecasts: ForecastPack, st: CalibState, gc: Game
         st.last_solar_angle[sid] = ang
     return cmds
 
-def apply_solar(adapter: OrdersAdapter, cmds: List[SolarCmd]) -> None:
+def apply_solar(adapter: OrdersAdapter, cmds: List[SolarCmd]) -> List[Result]:
+    results: List[Result] = []
     for c in cmds:
-        adapter.robot(c.solar_id, c.angle)
+        results.append(adapter.robot(c.solar_id, c.angle))
+    return results

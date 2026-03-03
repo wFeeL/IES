@@ -1,0 +1,41 @@
+{
+  "season": "default",
+  "storage_sign_convention": "pos_discharge",
+  "required_operations": ["buy", "sell", "line_off", "robot", "tps"],
+  "feature_flags": {
+    "storage_optional": true
+  },
+  "method_candidates": {
+    "line_off": ["line_off", "lineOff", "line_off_by_id", "lineOffById"],
+    "robot": ["robot", "solar_robot", "ses", "solarRobot"],
+    "buy": ["buy", "exchange_buy", "market_buy"],
+    "sell": ["sell", "exchange_sell", "market_sell"],
+    "tps": ["tps", "tps_fuel", "thermo", "tpp", "tes"],
+    "storage": ["storage", "accumulator", "battery", "accum", "energy_storage", "es"],
+    "storage_charge": ["charge", "storage_charge", "accumulator_charge", "battery_charge"],
+    "storage_discharge": ["discharge", "storage_discharge", "accumulator_discharge", "battery_discharge"]
+  },
+  "constants_paths": {
+    "wear_limit": ["config.wear", "settings.wear", "constants.wear"],
+    "overload_threshold": ["config.network", "settings.network", "constants.network"],
+    "wear_preempt": ["config.wear", "settings.wear", "constants.wear"],
+    "loss_tax": ["config.network", "settings.network", "constants.network"],
+    "instant_buy_price": ["config.market", "settings.market", "constants.market"],
+    "instant_sell_price": ["config.market", "settings.market", "constants.market"],
+    "external_buy_price": ["config.market", "settings.market", "constants.market"],
+    "external_sell_price": ["config.market", "settings.market", "constants.market"],
+    "market_max_power": ["config.market", "settings.market", "constants.market"],
+    "solar_angle_min": ["config.solar", "settings.solar", "constants.solar"],
+    "solar_angle_max": ["config.solar", "settings.solar", "constants.solar"],
+    "solar_max_step": ["config.solar", "settings.solar", "constants.solar"],
+    "tps_fuel_max": ["config.tps", "settings.tps", "constants.tps"],
+    "fuel_price": ["config.tps", "settings.tps", "constants.tps"],
+    "eco_tax_fuel": ["config.tps", "settings.tps", "constants.tps"],
+    "period_ticks": ["config.time", "settings.time", "constants.time"]
+  },
+  "forecast_aliases": {
+    "wind": ["wind"],
+    "solar": ["solar"],
+    "consumption_base": ["load", "consumption_base"]
+  }
+}

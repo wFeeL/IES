@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List, Tuple
+from typing import Any, List, Optional, Tuple
 
 from .adaptive import GameConst
-from .adapters import OrdersAdapter
+from .adapters import OrdersAdapter, Result
 from .constants import (
     ENABLE_MARKET_BUY, ENABLE_MARKET_SELL,
     ENABLE_STORAGE,
@@ -111,6 +111,7 @@ def allocate_storage_for_deficit(
     deficit: float,
     adapter: OrdersAdapter,
     reserve_fraction: float = STORAGE_DISCHARGE_RESERVE_FRACTION,
+    results: Optional[List[Result]] = None,
 ) -> float:
     remaining = max(0.0, deficit)
     if not ENABLE_STORAGE:
@@ -123,7 +124,12 @@ def allocate_storage_for_deficit(
         if e_avail <= 0:
             continue
         p = min(p_cap, e_avail, remaining)
-        if p > 0 and adapter.set_storage_power(sid, +p):
+        if p <= 0:
+            continue
+        res = adapter.set_storage_power(sid, +p)
+        if results is not None:
+            results.append(res)
+        if res:
             remaining -= p
     return remaining
 
@@ -132,6 +138,7 @@ def allocate_storage_for_surplus(
     surplus: float,
     adapter: OrdersAdapter,
     reserve_fraction: float = STORAGE_CHARGE_RESERVE_FRACTION,
+    results: Optional[List[Result]] = None,
 ) -> float:
     remaining = max(0.0, surplus)
     if not ENABLE_STORAGE:
@@ -144,11 +151,22 @@ def allocate_storage_for_surplus(
         if cap_left <= 0:
             continue
         p = min(p_cap, cap_left, remaining)
-        if p > 0 and adapter.set_storage_power(sid, -p):
+        if p <= 0:
+            continue
+        res = adapter.set_storage_power(sid, -p)
+        if results is not None:
+            results.append(res)
+        if res:
             remaining -= p
     return remaining
 
-def allocate_tps_for_deficit(tps_list: List[Any], deficit: float, adapter: OrdersAdapter, gc: GameConst) -> float:
+def allocate_tps_for_deficit(
+    tps_list: List[Any],
+    deficit: float,
+    adapter: OrdersAdapter,
+    gc: GameConst,
+    results: Optional[List[Result]] = None,
+) -> float:
     remaining = max(0.0, deficit)
     if remaining <= 1e-6 or not tps_list:
         return remaining
@@ -163,15 +181,31 @@ def allocate_tps_for_deficit(tps_list: List[Any], deficit: float, adapter: Order
         tid = obj_id(tps)
         desired_power = min(unit_power_cap, remaining)
         fuel = clamp(desired_power / eta, 0.0, fuel_max)
-        if fuel > 0 and adapter.tps_fuel(tid, fuel):
+        if fuel <= 0:
+            continue
+        res = adapter.tps_fuel(tid, fuel)
+        if results is not None:
+            results.append(res)
+        if res:
             remaining = max(0.0, remaining - fuel * eta)
     return remaining
 
-def apply_market(adapter: OrdersAdapter, deficit: float, surplus: float, gc: GameConst, urgent: bool = False) -> None:
+def apply_market(
+    adapter: OrdersAdapter,
+    deficit: float,
+    surplus: float,
+    gc: GameConst,
+    urgent: bool = False,
+    results: Optional[List[Result]] = None,
+) -> None:
     if ENABLE_MARKET_BUY and deficit > 1e-6:
-        adapter.buy(min(gc.market_max_power, deficit), estimate_buy_price(gc, urgent=urgent))
+        res = adapter.buy(min(gc.market_max_power, deficit), estimate_buy_price(gc, urgent=urgent))
+        if results is not None:
+            results.append(res)
     if ENABLE_MARKET_SELL and surplus > SURPLUS_SELL_THRESHOLD:
-        adapter.sell(min(gc.market_max_power, SELL_FRACTION * surplus), estimate_sell_price(gc, urgent=urgent))
+        res = adapter.sell(min(gc.market_max_power, SELL_FRACTION * surplus), estimate_sell_price(gc, urgent=urgent))
+        if results is not None:
+            results.append(res)
 
 
 def _dynamic_discharge_reserve_fraction(psm: Any, gc: GameConst) -> float:
@@ -186,7 +220,8 @@ def _dynamic_discharge_reserve_fraction(psm: Any, gc: GameConst) -> float:
         return min(base, 0.10)
     return base
 
-def balance_controller(psm: Any, forecasts: ForecastPack, st: CalibState, gc: GameConst, adapter: OrdersAdapter) -> None:
+def balance_controller(psm: Any, forecasts: ForecastPack, st: CalibState, gc: GameConst, adapter: OrdersAdapter) -> List[Result]:
+    applied: List[Result] = []
     pess, base, optim = forecast_balance_next_tick(psm, forecasts, st, gc)
     deficit_wc = max(0.0, -pess.net)
     deficit_urgent = max(0.0, -base.net)
@@ -196,16 +231,43 @@ def balance_controller(psm: Any, forecasts: ForecastPack, st: CalibState, gc: Ga
     tps_list = groups["tps"]
 
     discharge_reserve = _dynamic_discharge_reserve_fraction(psm, gc)
-    remaining = allocate_storage_for_deficit(storages, deficit_wc, adapter, reserve_fraction=discharge_reserve)
-    remaining = allocate_tps_for_deficit(tps_list, remaining, adapter, gc)
+    remaining = allocate_storage_for_deficit(
+        storages,
+        deficit_wc,
+        adapter,
+        reserve_fraction=discharge_reserve,
+        results=applied,
+    )
+    remaining = allocate_tps_for_deficit(tps_list, remaining, adapter, gc, results=applied)
 
     if ENABLE_MARKET_BUY:
         if deficit_urgent > MARKET_URGENT_DEFICIT_THRESHOLD:
-            apply_market(adapter, deficit=max(remaining, deficit_urgent), surplus=0.0, gc=gc, urgent=True)
+            apply_market(
+                adapter,
+                deficit=max(remaining, deficit_urgent),
+                surplus=0.0,
+                gc=gc,
+                urgent=True,
+                results=applied,
+            )
         elif deficit_wc > 1.0:
-            apply_market(adapter, deficit=BUY_INSURE_FRACTION * deficit_wc, surplus=0.0, gc=gc)
+            apply_market(
+                adapter,
+                deficit=BUY_INSURE_FRACTION * deficit_wc,
+                surplus=0.0,
+                gc=gc,
+                results=applied,
+            )
 
     surplus = max(0.0, base.net)
-    leftover = allocate_storage_for_surplus(storages, surplus, adapter)
+    leftover = allocate_storage_for_surplus(storages, surplus, adapter, results=applied)
     if ENABLE_MARKET_SELL and leftover > SURPLUS_SELL_THRESHOLD:
-        apply_market(adapter, deficit=0.0, surplus=leftover, gc=gc, urgent=deficit_wc <= 0.1 and max(0.0, optim.net) > SURPLUS_SELL_THRESHOLD)
+        apply_market(
+            adapter,
+            deficit=0.0,
+            surplus=leftover,
+            gc=gc,
+            urgent=deficit_wc <= 0.1 and max(0.0, optim.net) > SURPLUS_SELL_THRESHOLD,
+            results=applied,
+        )
+    return applied

@@ -7,15 +7,14 @@ from .offline.cli import main as offline_main
 from .online.main import main as online_main
 
 
-def _run_online() -> int:
+def _run_online(args: Sequence[str]) -> int:
     try:
-        online_main()
+        return int(online_main(list(args)))
     except RuntimeError as exc:
         import sys
 
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    return 0
 
 
 def _run_offline(args: Sequence[str]) -> int:
@@ -50,12 +49,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         mode_args = mode_args[1:]
 
     if ns.mode in ("online", "bot"):
-        if mode_args:
-            if ns.mode == "online" and mode_args == ["run"]:
-                mode_args = []
-            else:
-                raise SystemExit(f"'{ns.mode}' mode does not accept extra args: {' '.join(mode_args)}")
-        return _run_online()
+        if ns.mode == "online" and mode_args == ["run"]:
+            mode_args = []
+        return _run_online(mode_args)
 
     if ns.mode == "lottool":
         return _run_offline(["lottool", *mode_args])
