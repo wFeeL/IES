@@ -29,6 +29,30 @@
 - v1 -> v2: добавляются `schema_version`, `season`, `created_at`, `updated_at`.
 - при загрузке старая версия мигрируется автоматически.
 
+## Offline `lot_tool/data/state.json`
+
+```json
+{
+  "schema_version": 1,
+  "game": { "ticks_per_day": 48, "horizon_ticks": 48 },
+  "budget": { "cash": 9999, "allpay_spent": 0 },
+  "owned_lots": [],
+  "owned_objects_override": [],
+  "network_plan": { "mode": "branches", "branches": [] },
+  "assumptions": {
+    "pwin_default": 0.35,
+    "risk_mode": "conservative",
+    "storage_soc_init_fraction": 0.5,
+    "corridor": { "wind_mul": 0.1, "solar_mul": 0.1, "load_mul": 0.1 }
+  }
+}
+```
+
+Поля:
+- `schema_version` — версия схемы offline-state (текущая `1`).
+- `assumptions.storage_soc_init_fraction` — стартовый SOC для всех накопителей (0..1).
+- `assumptions.storage_soc_init` — альтернатива в абсолютных единицах (MW*tick).
+
 ## Lot JSON (`lot_tool/data/lots/*.json`)
 
 ```json
@@ -53,4 +77,3 @@
 Нормализация `offline fill-lots`:
 - добавляет `lot_id` и `title`, если отсутствуют;
 - для каждого `item` гарантирует `kind`, `id`, `qty >= 1`, `contract_rub_per_tick`, `tariff_rub_per_mw_tick`, `meta`.
-

@@ -179,13 +179,26 @@ def _pick_candidate(
 
 
 def _apply_value(gc: GameConst, name: str, value: float) -> None:
-    if name in ("solar_angle_min", "solar_angle_max", "solar_max_step", "period_ticks", "free_offline_house_office"):
+    if name in (
+        "solar_angle_min",
+        "solar_angle_max",
+        "solar_max_step",
+        "period_ticks",
+        "free_offline_house_office",
+    ):
         setattr(gc, name, int(value))
     else:
         setattr(gc, name, float(value))
 
 
-def _record_source(gc: GameConst, name: str, value: float, path: str, confidence: str, candidates: List[Tuple[str, float]]) -> None:
+def _record_source(
+    gc: GameConst,
+    name: str,
+    value: float,
+    path: str,
+    confidence: str,
+    candidates: List[Tuple[str, float]],
+) -> None:
     gc.constant_sources[name] = ConstantSource(
         value=float(value),
         source_path=path,

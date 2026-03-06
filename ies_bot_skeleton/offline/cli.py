@@ -7,7 +7,6 @@ from typing import Sequence
 from .lots import fill_lots, summarize_report
 from .lottool import run_lottool_cli
 
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_LOTS_DIR = ROOT_DIR / "lot_tool" / "data" / "lots"
 

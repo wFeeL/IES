@@ -51,7 +51,9 @@ class OrdersAdapter:
         self.psm = psm
         self.orders = safe_getattr(psm, "orders", None)
         self.compat_profile = compat_profile
-        self.capabilities = capabilities or discover_capabilities(psm, compat_profile, logger=logger)
+        self.capabilities = capabilities or discover_capabilities(
+            psm, compat_profile, logger=logger
+        )
         self.strict = bool(strict)
         self.dry_run = bool(dry_run)
         self.logger = logger
@@ -103,8 +105,10 @@ class OrdersAdapter:
         payload = dict(details or {})
         payload["strict"] = self.strict
         payload["dry_run"] = self.dry_run
-        event = "IPS_METHOD_MISSING" if error_code == "IPS_METHOD_MISSING" else (
-            "SIGNATURE_MISMATCH" if error_code == "SIGNATURE_MISMATCH" else "IPS_CALL_FAILED"
+        event = (
+            "IPS_METHOD_MISSING"
+            if error_code == "IPS_METHOD_MISSING"
+            else ("SIGNATURE_MISMATCH" if error_code == "SIGNATURE_MISMATCH" else "IPS_CALL_FAILED")
         )
         level = "error" if self.strict else "warning"
         log_event(
@@ -267,5 +271,10 @@ class OrdersAdapter:
             "storage",
             method,
             (str(storage_id), float(signed)),
-            details={"storage_id": str(storage_id), "power_mw": power_mw, "signed_power": signed, "sign_mode": conv},
+            details={
+                "storage_id": str(storage_id),
+                "power_mw": power_mw,
+                "signed_power": signed,
+                "sign_mode": conv,
+            },
         )

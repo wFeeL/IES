@@ -4,9 +4,17 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Literal
 
 Kind = Literal[
-    "main", "miniA", "miniB",
-    "houseA", "houseB", "office", "factory",
-    "wind", "solarRobot", "tps", "storage",
+    "main",
+    "miniA",
+    "miniB",
+    "houseA",
+    "houseB",
+    "office",
+    "factory",
+    "wind",
+    "solarRobot",
+    "tps",
+    "storage",
 ]
 
 Role = Literal["gen", "load"]
@@ -61,11 +69,16 @@ class Game:
 class Assumptions:
     pwin_default: float = 0.35
     risk_mode: str = "conservative"
-    corridor: Dict[str, float] = field(default_factory=lambda: {"wind_mul": 0.10, "solar_mul": 0.10, "load_mul": 0.10})
+    corridor: Dict[str, float] = field(
+        default_factory=lambda: {"wind_mul": 0.10, "solar_mul": 0.10, "load_mul": 0.10}
+    )
+    storage_soc_init_fraction: Optional[float] = None
+    storage_soc_init: Optional[float] = None
 
 
 @dataclass
 class State:
+    schema_version: int = 1
     game: Game = field(default_factory=Game)
     budget: Budget = field(default_factory=Budget)
     owned_lots: List[str] = field(default_factory=list)

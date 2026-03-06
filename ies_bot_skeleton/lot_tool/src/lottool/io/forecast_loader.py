@@ -26,6 +26,8 @@ def load_forecasts(folder: str) -> ForecastPack:
     return bundle.to_pack()
 
 
-def lookup(forecasts: ForecastPack, kind: str, keys: Iterable[str], tick: int, default: float = 0.0) -> float:
+def lookup(
+    forecasts: ForecastPack, kind: str, keys: Iterable[str], tick: int, default: float = 0.0
+) -> float:
     out = lookup_pack_value(forecasts, kind, keys, tick, default=default)
     return float(default if out is None else out)

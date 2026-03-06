@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 LOTTOOL_SRC = ROOT_DIR / "lot_tool" / "src"
 
@@ -21,4 +20,3 @@ def run_lottool_cli(args: Sequence[str]) -> int:
 
     lottool_main(list(args))
     return 0
-

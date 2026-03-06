@@ -40,7 +40,9 @@ class Capabilities:
     def summary(self) -> Dict[str, Any]:
         supported = sorted([name for name, cap in self.operations.items() if cap.supported])
         missing = sorted([name for name, cap in self.operations.items() if not cap.supported])
-        methods = {name: cap.method_name for name, cap in self.operations.items() if cap.method_name}
+        methods = {
+            name: cap.method_name for name, cap in self.operations.items() if cap.method_name
+        }
         return {
             "season": self.season,
             "supported": supported,
@@ -88,13 +90,39 @@ def discover_capabilities(psm: Any, profile: CompatProfile, logger: Any = None) 
     ops: Dict[str, OperationCapability] = {}
 
     if orders is None:
-        for op in ("line_off", "robot", "buy", "sell", "tps", "storage", "storage_charge", "storage_discharge"):
+        for op in (
+            "line_off",
+            "robot",
+            "buy",
+            "sell",
+            "tps",
+            "storage",
+            "storage_charge",
+            "storage_discharge",
+        ):
             ops[op] = OperationCapability(operation=op, supported=False, error="orders is missing")
-        caps = Capabilities(season=profile.season, operations=ops, summary_details={"orders_missing": True})
-        log_event(logger, "error", "IPS_METHOD_MISSING", operation="orders", error_message="psm.orders is missing")
+        caps = Capabilities(
+            season=profile.season, operations=ops, summary_details={"orders_missing": True}
+        )
+        log_event(
+            logger,
+            "error",
+            "IPS_METHOD_MISSING",
+            operation="orders",
+            error_message="psm.orders is missing",
+        )
         return caps
 
-    for op in ("line_off", "robot", "buy", "sell", "tps", "storage", "storage_charge", "storage_discharge"):
+    for op in (
+        "line_off",
+        "robot",
+        "buy",
+        "sell",
+        "tps",
+        "storage",
+        "storage_charge",
+        "storage_discharge",
+    ):
         detected = _detect_method(orders, list(profile.method_candidates.get(op, [])))
         detected.operation = op
         ops[op] = detected

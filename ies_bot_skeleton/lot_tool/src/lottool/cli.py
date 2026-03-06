@@ -9,12 +9,11 @@ from typing import Dict, List, Sequence, Tuple
 
 from .io.load_json import load_json, load_lot, load_state
 from .io.forecast_loader import load_forecasts
-from .model.types import ObjectItem
+from .model.types import ObjectItem, State
 from .scoring.marginal import marginal_value
 from .scoring.scenarios import summarize_delta
 from .auction.ev import ev_allpay, recommended_bid_range
 from .report.pretty import fmt_delta
-
 
 LOT_TOOL_ROOT = Path(__file__).resolve().parents[2]
 
@@ -66,13 +65,19 @@ def _load_owned_items(lots_dir: str, owned_lot_ids: List[str]) -> List[ObjectIte
     return items
 
 
+def _collect_owned_items(state: State, lots_dir: str) -> List[ObjectItem]:
+    items = _load_owned_items(lots_dir, state.owned_lots)
+    items.extend(list(state.owned_objects_override or []))
+    return items
+
+
 def cmd_eval(args: argparse.Namespace) -> None:
     state = load_state(args.state)
     game_cfg, team_cfg = _load_cfg(args.game_cfg, args.team_cfg, args.scoring_cfg)
     forecasts = load_forecasts(args.forecasts_dir) if args.forecasts_dir else {}
 
     lot = load_lot(args.lot)
-    owned_items = _load_owned_items(args.lots_dir, state.owned_lots)
+    owned_items = _collect_owned_items(state, args.lots_dir)
 
     d_base, d_worst, d_best = marginal_value(state, owned_items, lot, forecasts, game_cfg)
 
@@ -86,7 +91,11 @@ def cmd_eval(args: argparse.Namespace) -> None:
     print()
     print(fmt_delta("BEST", d_best, r_best))
 
-    pwin = args.pwin if args.pwin is not None else float(team_cfg.get("pwin_default", state.assumptions.pwin_default))
+    pwin = (
+        args.pwin
+        if args.pwin is not None
+        else float(team_cfg.get("pwin_default", state.assumptions.pwin_default))
+    )
     v = float(d_base.delta_total)
     bmin, bmax = recommended_bid_range(v, pwin, safety=0.80)
     print()
@@ -98,7 +107,7 @@ def cmd_rank(args: argparse.Namespace) -> None:
     game_cfg, _team_cfg = _load_cfg(args.game_cfg, args.team_cfg, args.scoring_cfg)
     forecasts = load_forecasts(args.forecasts_dir) if args.forecasts_dir else {}
 
-    owned_items = _load_owned_items(args.lots_dir, state.owned_lots)
+    owned_items = _collect_owned_items(state, args.lots_dir)
     rank_cfg = game_cfg.get("ranking", {}) or {}
     ev_w_base = float(rank_cfg.get("ev_weight_base", 0.50))
     ev_w_worst = float(rank_cfg.get("ev_weight_worst", 0.35))
@@ -110,17 +119,23 @@ def cmd_rank(args: argparse.Namespace) -> None:
     for path in cand_paths:
         lot = load_lot(path)
         d_base, d_worst, d_best = marginal_value(state, owned_items, lot, forecasts, game_cfg)
-        ev = ev_w_base * d_base.delta_total + ev_w_worst * d_worst.delta_total + ev_w_best * d_best.delta_total
+        ev = (
+            ev_w_base * d_base.delta_total
+            + ev_w_worst * d_worst.delta_total
+            + ev_w_best * d_best.delta_total
+        )
         risk_adjusted = ev - risk_lambda * max(0.0, d_base.delta_total - d_worst.delta_total)
-        results.append({
-            "delta_base": d_base.delta_total,
-            "delta_worst": d_worst.delta_total,
-            "ev": ev,
-            "risk_adjusted": risk_adjusted,
-            "lot_id": lot.lot_id,
-            "title": lot.title,
-            "flags": d_base.flags,
-        })
+        results.append(
+            {
+                "delta_base": d_base.delta_total,
+                "delta_worst": d_worst.delta_total,
+                "ev": ev,
+                "risk_adjusted": risk_adjusted,
+                "lot_id": lot.lot_id,
+                "title": lot.title,
+                "flags": d_base.flags,
+            }
+        )
 
     sort_key = args.sort
     results.sort(key=lambda x: (x[sort_key], x["delta_base"]), reverse=True)
@@ -135,7 +150,9 @@ def cmd_rank(args: argparse.Namespace) -> None:
         title = item["title"]
         flags = item["flags"]
         fl = ",".join(flags[:2]) if flags else ""
-        print(f"{lid:5s} | {db:+7.1f} | {dw:+7.1f} | {ev:+7.1f} | {ra:+8.1f} | {fl:20.20s} | {title}")
+        print(
+            f"{lid:5s} | {db:+7.1f} | {dw:+7.1f} | {ev:+7.1f} | {ra:+8.1f} | {fl:20.20s} | {title}"
+        )
 
 
 def cmd_suggest_bid(args: argparse.Namespace) -> None:
@@ -144,11 +161,15 @@ def cmd_suggest_bid(args: argparse.Namespace) -> None:
     forecasts = load_forecasts(args.forecasts_dir) if args.forecasts_dir else {}
 
     lot = load_lot(args.lot)
-    owned_items = _load_owned_items(args.lots_dir, state.owned_lots)
+    owned_items = _collect_owned_items(state, args.lots_dir)
     d_base, _d_worst, _d_best = marginal_value(state, owned_items, lot, forecasts, game_cfg)
 
     v = float(d_base.delta_total)
-    pwin = float(args.pwin if args.pwin is not None else team_cfg.get("pwin_default", state.assumptions.pwin_default))
+    pwin = float(
+        args.pwin
+        if args.pwin is not None
+        else team_cfg.get("pwin_default", state.assumptions.pwin_default)
+    )
     safety = float(args.safety)
 
     bmin, bmax = recommended_bid_range(v, pwin, safety=safety)
@@ -160,7 +181,9 @@ def cmd_suggest_bid(args: argparse.Namespace) -> None:
         label = " DEAD_BID" if evr.ev < 0 else ""
         if evr.ev < 0:
             dead += 1
-        print(f"bid={bid:7.1f} => EV={evr.ev:+.1f} (bid_max_nonneg={evr.bid_max_ev_nonneg:.1f}){label}")
+        print(
+            f"bid={bid:7.1f} => EV={evr.ev:+.1f} (bid_max_nonneg={evr.bid_max_ev_nonneg:.1f}){label}"
+        )
 
     limit = float(game_cfg.get("auction", {}).get("allpay_limit", 9999))
     spent = float(state.budget.allpay_spent or 0.0)

@@ -13,11 +13,13 @@ from .state import CalibState
 from .utils import as_float, clamp, current_tick, safe_path
 from .models import obj_id, obj_type
 
+
 @dataclass
 class SolarCmd:
     solar_id: str
     angle: int
     reason: str
+
 
 def choose_angle(cur: int, desired: int, gc: GameConst) -> int:
     desired = int(clamp(desired, gc.solar_angle_min, gc.solar_angle_max))
@@ -25,6 +27,7 @@ def choose_angle(cur: int, desired: int, gc: GameConst) -> int:
     if abs(delta) <= gc.solar_max_step:
         return desired
     return cur + (gc.solar_max_step if delta > 0 else -gc.solar_max_step)
+
 
 def update_solar_learning(psm: Any, st: CalibState, gc: GameConst) -> None:
     t = current_tick(psm)
@@ -44,8 +47,11 @@ def update_solar_learning(psm: Any, st: CalibState, gc: GameConst) -> None:
             st.solar.best_power[sid][tmod] = p_obs
             st.solar.best_angle[sid][tmod] = cur_angle
 
+
 def desired_angle(sid: str, t1: int, forecasts: ForecastPack, st: CalibState, gc: GameConst) -> int:
-    ang = lookup_forecast(forecasts, "solar_best_angle", (sid, "solar_best_angle"), t1, default=None)
+    ang = lookup_forecast(
+        forecasts, "solar_best_angle", (sid, "solar_best_angle"), t1, default=None
+    )
     if ang is not None:
         return int(clamp(ang, gc.solar_angle_min, gc.solar_angle_max))
 
@@ -59,7 +65,10 @@ def desired_angle(sid: str, t1: int, forecasts: ForecastPack, st: CalibState, gc
     cycle = [0, 20, 40, 60, 80, 100, 124, 104, 84, 64, 44, 24]
     return cycle[(t1 % gc.period_ticks) % len(cycle)]
 
-def solar_controller(psm: Any, forecasts: ForecastPack, st: CalibState, gc: GameConst) -> List[SolarCmd]:
+
+def solar_controller(
+    psm: Any, forecasts: ForecastPack, st: CalibState, gc: GameConst
+) -> List[SolarCmd]:
     t1 = current_tick(psm) + 1
     cmds: List[SolarCmd] = []
     for o in psm.objects:
@@ -72,6 +81,7 @@ def solar_controller(psm: Any, forecasts: ForecastPack, st: CalibState, gc: Game
         cmds.append(SolarCmd(solar_id=sid, angle=ang, reason=f"desired={des}"))
         st.last_solar_angle[sid] = ang
     return cmds
+
 
 def apply_solar(adapter: OrdersAdapter, cmds: List[SolarCmd]) -> List[Result]:
     results: List[Result] = []

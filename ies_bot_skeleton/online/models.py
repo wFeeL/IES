@@ -6,15 +6,24 @@ from typing import Any, Dict, List
 from .forecasts import ForecastPack, lookup_forecast
 from .utils import as_float, clamp, safe_getattr, safe_path, current_tick
 
+
 def obj_id(o: Any) -> str:
     return str(safe_getattr(o, "id", ""))
+
 
 def obj_type(o: Any) -> str:
     t = safe_getattr(o, "type", "")
     return str(t).lower()
 
+
 def split_objects(psm: Any) -> Dict[str, List[Any]]:
-    groups: Dict[str, List[Any]] = {"wind": [], "solar": [], "tps": [], "storage": [], "consumer": []}
+    groups: Dict[str, List[Any]] = {
+        "wind": [],
+        "solar": [],
+        "tps": [],
+        "storage": [],
+        "consumer": [],
+    }
     for o in psm.objects:
         t = obj_type(o)
         if t == "wind":
@@ -42,6 +51,7 @@ def _avg_wind_now(psm: Any) -> float:
             vals.append(fv)
     return float(sum(vals) / len(vals)) if vals else float("nan")
 
+
 def calibrate_wind_k(psm: Any, forecasts: ForecastPack, wind_k: Dict[str, float]) -> None:
     t = current_tick(psm)
     for o in psm.objects:
@@ -57,15 +67,17 @@ def calibrate_wind_k(psm: Any, forecasts: ForecastPack, wind_k: Dict[str, float]
         p_obs = as_float(safe_path(o, "power.now.generated", 0.0), 0.0)
         if p_obs <= 0:
             continue
-        k = p_obs / (w ** 3)
+        k = p_obs / (w**3)
         old = wind_k.get(wid, k)
         wind_k[wid] = 0.7 * old + 0.3 * k
+
 
 def wind_power_estimate(wid: str, w: float, wind_k: Dict[str, float], p_cap: float) -> float:
     if w > 100.0:
         return clamp(w, 0.0, p_cap)
     k = wind_k.get(wid, 1.0)
-    return clamp(k * (w ** 3), 0.0, p_cap)
+    return clamp(k * (w**3), 0.0, p_cap)
+
 
 def estimate_losses_next_tick(psm: Any, gen: float, load: float) -> float:
     losses_now = 0.0
@@ -80,4 +92,4 @@ def estimate_losses_next_tick(psm: Any, gen: float, load: float) -> float:
     if losses_now <= 0.0 or flow_now <= 0.0:
         return max(0.0, 0.02 * max(gen, load))
     ratio = max(gen, load) / flow_now if flow_now > 0 else 1.0
-    return max(0.0, losses_now * (ratio ** 2))
+    return max(0.0, losses_now * (ratio**2))

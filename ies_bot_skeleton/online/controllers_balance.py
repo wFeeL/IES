@@ -7,11 +7,17 @@ from typing import Any, List, Optional, Tuple
 from .adaptive import GameConst
 from .adapters import OrdersAdapter, Result
 from .constants import (
-    ENABLE_MARKET_BUY, ENABLE_MARKET_SELL,
+    ENABLE_MARKET_BUY,
+    ENABLE_MARKET_SELL,
     ENABLE_STORAGE,
-    BUY_INSURE_FRACTION, SELL_FRACTION, SURPLUS_SELL_THRESHOLD,
-    STORAGE_DISCHARGE_RESERVE_FRACTION, STORAGE_CHARGE_RESERVE_FRACTION,
-    ENDGAME_FULL_DISCHARGE_TICKS, ENDGAME_SOFT_DISCHARGE_TICKS, ENDGAME_MEDIUM_DISCHARGE_TICKS,
+    BUY_INSURE_FRACTION,
+    SELL_FRACTION,
+    SURPLUS_SELL_THRESHOLD,
+    STORAGE_DISCHARGE_RESERVE_FRACTION,
+    STORAGE_CHARGE_RESERVE_FRACTION,
+    ENDGAME_FULL_DISCHARGE_TICKS,
+    ENDGAME_SOFT_DISCHARGE_TICKS,
+    ENDGAME_MEDIUM_DISCHARGE_TICKS,
     MARKET_URGENT_DEFICIT_THRESHOLD,
     TPS_ETA_NOMINAL,
 )
@@ -20,6 +26,7 @@ from .models import obj_id, obj_type, split_objects, wind_power_estimate, estima
 from .state import CalibState
 from .utils import as_float, clamp, current_tick, safe_getattr, safe_path
 
+
 @dataclass
 class BalanceForecast:
     gen: float
@@ -27,7 +34,10 @@ class BalanceForecast:
     losses: float
     net: float
 
-def forecast_balance_next_tick(psm: Any, forecasts: ForecastPack, st: CalibState, gc: GameConst) -> Tuple[BalanceForecast, BalanceForecast, BalanceForecast]:
+
+def forecast_balance_next_tick(
+    psm: Any, forecasts: ForecastPack, st: CalibState, gc: GameConst
+) -> Tuple[BalanceForecast, BalanceForecast, BalanceForecast]:
     t1 = current_tick(psm) + 1
 
     def compute(scale: float) -> BalanceForecast:
@@ -46,7 +56,9 @@ def forecast_balance_next_tick(psm: Any, forecasts: ForecastPack, st: CalibState
                     gen += wind_power_estimate(oid, max(0.0, w * scale), st.wind_k, p_cap)
 
             elif t in ("solarrobot", "solar"):
-                s = lookup_forecast(forecasts, "solar", (oid, "solar", "solarrobot"), t1, default=None)
+                s = lookup_forecast(
+                    forecasts, "solar", (oid, "solar", "solarrobot"), t1, default=None
+                )
                 p_cap = as_float(safe_getattr(o, "powerMax", 25.0), 25.0)
                 if s is None:
                     gen += max(0.0, as_float(safe_path(o, "power.now.generated", 0.0), 0.0))
@@ -72,17 +84,34 @@ def forecast_balance_next_tick(psm: Any, forecasts: ForecastPack, st: CalibState
 
     return compute(0.90), compute(1.00), compute(1.10)
 
+
 def estimate_buy_price(gc: GameConst, urgent: bool = False) -> float:
     if urgent:
         return float(max(gc.external_buy_price, gc.instant_buy_price))
-    return float(clamp((gc.external_buy_price + gc.external_sell_price) / 2.0, gc.external_sell_price, gc.external_buy_price))
+    return float(
+        clamp(
+            (gc.external_buy_price + gc.external_sell_price) / 2.0,
+            gc.external_sell_price,
+            gc.external_buy_price,
+        )
+    )
+
 
 def estimate_sell_price(gc: GameConst, urgent: bool = False) -> float:
     if urgent:
         return float(min(gc.external_sell_price, gc.instant_sell_price))
-    return float(clamp((gc.external_buy_price + gc.external_sell_price) / 2.0, gc.external_sell_price, gc.external_buy_price))
+    return float(
+        clamp(
+            (gc.external_buy_price + gc.external_sell_price) / 2.0,
+            gc.external_sell_price,
+            gc.external_buy_price,
+        )
+    )
 
-def storage_available_discharge(storage_obj: Any, reserve_fraction: float = STORAGE_DISCHARGE_RESERVE_FRACTION) -> Tuple[float, float]:
+
+def storage_available_discharge(
+    storage_obj: Any, reserve_fraction: float = STORAGE_DISCHARGE_RESERVE_FRACTION
+) -> Tuple[float, float]:
     p_cap = as_float(safe_getattr(storage_obj, "powerMax", 20.0), 20.0)
     charge_now = as_float(safe_path(storage_obj, "charge.now", 0.0), 0.0)
 
@@ -90,10 +119,17 @@ def storage_available_discharge(storage_obj: Any, reserve_fraction: float = STOR
     if charge_max != charge_max:
         charge_max = as_float(safe_getattr(storage_obj, "chargeMax", float("nan")), float("nan"))
 
-    reserve = (reserve_fraction * charge_max) if (charge_max == charge_max and charge_max > 0) else (reserve_fraction * charge_now)
+    reserve = (
+        (reserve_fraction * charge_max)
+        if (charge_max == charge_max and charge_max > 0)
+        else (reserve_fraction * charge_now)
+    )
     return p_cap, max(0.0, charge_now - reserve)
 
-def storage_available_charge(storage_obj: Any, reserve_fraction: float = STORAGE_CHARGE_RESERVE_FRACTION) -> Tuple[float, float]:
+
+def storage_available_charge(
+    storage_obj: Any, reserve_fraction: float = STORAGE_CHARGE_RESERVE_FRACTION
+) -> Tuple[float, float]:
     p_cap = as_float(safe_getattr(storage_obj, "powerMax", 20.0), 20.0)
     charge_now = as_float(safe_path(storage_obj, "charge.now", 0.0), 0.0)
 
@@ -105,6 +141,7 @@ def storage_available_charge(storage_obj: Any, reserve_fraction: float = STORAGE
         reserve_free = reserve_fraction * charge_max
         return p_cap, max(0.0, (charge_max - reserve_free) - charge_now)
     return p_cap, 0.0
+
 
 def allocate_storage_for_deficit(
     storages: List[Any],
@@ -133,6 +170,7 @@ def allocate_storage_for_deficit(
             remaining -= p
     return remaining
 
+
 def allocate_storage_for_surplus(
     storages: List[Any],
     surplus: float,
@@ -159,6 +197,7 @@ def allocate_storage_for_surplus(
         if res:
             remaining -= p
     return remaining
+
 
 def allocate_tps_for_deficit(
     tps_list: List[Any],
@@ -190,6 +229,7 @@ def allocate_tps_for_deficit(
             remaining = max(0.0, remaining - fuel * eta)
     return remaining
 
+
 def apply_market(
     adapter: OrdersAdapter,
     deficit: float,
@@ -203,7 +243,10 @@ def apply_market(
         if results is not None:
             results.append(res)
     if ENABLE_MARKET_SELL and surplus > SURPLUS_SELL_THRESHOLD:
-        res = adapter.sell(min(gc.market_max_power, SELL_FRACTION * surplus), estimate_sell_price(gc, urgent=urgent))
+        res = adapter.sell(
+            min(gc.market_max_power, SELL_FRACTION * surplus),
+            estimate_sell_price(gc, urgent=urgent),
+        )
         if results is not None:
             results.append(res)
 
@@ -220,7 +263,10 @@ def _dynamic_discharge_reserve_fraction(psm: Any, gc: GameConst) -> float:
         return min(base, 0.10)
     return base
 
-def balance_controller(psm: Any, forecasts: ForecastPack, st: CalibState, gc: GameConst, adapter: OrdersAdapter) -> List[Result]:
+
+def balance_controller(
+    psm: Any, forecasts: ForecastPack, st: CalibState, gc: GameConst, adapter: OrdersAdapter
+) -> List[Result]:
     applied: List[Result] = []
     pess, base, optim = forecast_balance_next_tick(psm, forecasts, st, gc)
     deficit_wc = max(0.0, -pess.net)

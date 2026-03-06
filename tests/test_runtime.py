@@ -3,27 +3,31 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from adaptive import GameConst, default_game_constants
-from controllers_balance import forecast_balance_next_tick
-from forecasts import load_forecasts
-from models import split_objects
-from state import default_state
+from ies_bot_skeleton.online.adaptive import GameConst, default_game_constants
+from ies_bot_skeleton.online.controllers_balance import forecast_balance_next_tick
+from ies_bot_skeleton.online.forecasts import load_forecasts
+from ies_bot_skeleton.online.models import split_objects
+from ies_bot_skeleton.online.state import default_state
 
 
 class RuntimeTests(unittest.TestCase):
     def test_split_objects_supports_houseA_and_houseB(self) -> None:
-        psm = SimpleNamespace(objects=[
-            SimpleNamespace(id="h1", type="houseA"),
-            SimpleNamespace(id="h2", type="houseB"),
-            SimpleNamespace(id="f1", type="factory"),
-            SimpleNamespace(id="w1", type="wind"),
-        ])
+        psm = SimpleNamespace(
+            objects=[
+                SimpleNamespace(id="h1", type="houseA"),
+                SimpleNamespace(id="h2", type="houseB"),
+                SimpleNamespace(id="f1", type="factory"),
+                SimpleNamespace(id="w1", type="wind"),
+            ]
+        )
         groups = split_objects(psm)
         self.assertEqual(len(groups["consumer"]), 3)
         self.assertEqual(len(groups["wind"]), 1)
 
     def test_default_constants_preempt_from_margin(self) -> None:
-        gc = default_game_constants(period_ticks_fallback=48, wear_preempt_margin_fallback=2.5, tps_fuel_max_fallback=19)
+        gc = default_game_constants(
+            period_ticks_fallback=48, wear_preempt_margin_fallback=2.5, tps_fuel_max_fallback=19
+        )
         self.assertEqual(gc.period_ticks, 48)
         self.assertEqual(gc.tps_fuel_max, 19.0)
         self.assertAlmostEqual(gc.wear_preempt, gc.wear_limit - 2.5, places=6)

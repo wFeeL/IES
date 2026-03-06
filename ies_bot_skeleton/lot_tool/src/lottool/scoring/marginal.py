@@ -6,12 +6,14 @@ from lottool.model.types import DeltaBreakdown, Lot, ObjectItem, State
 from lottool.scoring.score import score_state
 
 
-def marginal_value(state: State, owned_items: List[ObjectItem], lot: Lot, forecasts, cfg: Dict) -> Tuple[DeltaBreakdown, DeltaBreakdown, DeltaBreakdown]:
-    base0 = score_state(state, list(state.owned_objects_override) + list(owned_items), forecasts, dict(cfg), "base")
-    worst0 = score_state(state, list(state.owned_objects_override) + list(owned_items), forecasts, dict(cfg), "worst")
-    best0 = score_state(state, list(state.owned_objects_override) + list(owned_items), forecasts, dict(cfg), "best")
+def marginal_value(
+    state: State, owned_items: List[ObjectItem], lot: Lot, forecasts, cfg: Dict
+) -> Tuple[DeltaBreakdown, DeltaBreakdown, DeltaBreakdown]:
+    base0 = score_state(state, list(owned_items), forecasts, dict(cfg), "base")
+    worst0 = score_state(state, list(owned_items), forecasts, dict(cfg), "worst")
+    best0 = score_state(state, list(owned_items), forecasts, dict(cfg), "best")
 
-    merged = list(state.owned_objects_override) + list(owned_items) + list(lot.items)
+    merged = list(owned_items) + list(lot.items)
     base1 = score_state(state, merged, forecasts, dict(cfg), "base")
     worst1 = score_state(state, merged, forecasts, dict(cfg), "worst")
     best1 = score_state(state, merged, forecasts, dict(cfg), "best")
@@ -32,7 +34,12 @@ def marginal_value(state: State, owned_items: List[ObjectItem], lot: Lot, foreca
             reasons=[],
         )
         for n in b.notes:
-            if n.startswith("NETPLAN:") or n.startswith("OVERLOAD_RISK:") or n.startswith("WEAR_OUTAGE:") or n.startswith("INSTANT_"):
+            if (
+                n.startswith("NETPLAN:")
+                or n.startswith("OVERLOAD_RISK:")
+                or n.startswith("WEAR_OUTAGE:")
+                or n.startswith("INSTANT_")
+            ):
                 out.flags.append(n)
         return out
 

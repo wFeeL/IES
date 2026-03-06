@@ -24,9 +24,15 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         description="Run IES online controller (ips-backed).",
     )
     parser.add_argument("--season", default=None, help="Compat season profile (e.g. 2026).")
-    parser.add_argument("--strict", action="store_true", help="Fail fast on critical incompatibilities.")
-    parser.add_argument("--dry-run", action="store_true", help="Probe API compatibility without sending orders.")
-    parser.add_argument("--log-level", default="INFO", help="Logging level: DEBUG/INFO/WARNING/ERROR")
+    parser.add_argument(
+        "--strict", action="store_true", help="Fail fast on critical incompatibilities."
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Probe API compatibility without sending orders."
+    )
+    parser.add_argument(
+        "--log-level", default="INFO", help="Logging level: DEBUG/INFO/WARNING/ERROR"
+    )
     return parser.parse_args(argv)
 
 
@@ -59,7 +65,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         import ips
     except ModuleNotFoundError as exc:
-        raise RuntimeError("Module 'ips' is not installed. Bot mode requires the stand API package.") from exc
+        raise RuntimeError(
+            "Module 'ips' is not installed. Bot mode requires the stand API package."
+        ) from exc
 
     psm = ips.init()
     profile, _auto = resolve_compat_profile(psm, season=args.season, logger=logger)
@@ -108,7 +116,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     if constants.DEBUG_PRINT_ONCE and not st.printed_once:
-        log_event(logger, "info", "ONLINE_DEBUG_DETECTED", detected_methods=adapter.detected.__dict__)
+        log_event(
+            logger, "info", "ONLINE_DEBUG_DETECTED", detected_methods=adapter.detected.__dict__
+        )
         log_event(
             logger,
             "info",

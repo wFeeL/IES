@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from .logging_utils import log_event
 from .utils import safe_getattr
 
-
 DEFAULT_METHOD_CANDIDATES: Dict[str, List[str]] = {
     "line_off": ["line_off", "lineOff", "line_off_by_id", "lineOffById"],
     "robot": ["robot", "solar_robot", "ses", "solarRobot"],
@@ -18,7 +17,12 @@ DEFAULT_METHOD_CANDIDATES: Dict[str, List[str]] = {
     "tps": ["tps", "tps_fuel", "thermo", "tpp", "tes"],
     "storage": ["storage", "accumulator", "battery", "accum", "energy_storage", "es"],
     "storage_charge": ["charge", "storage_charge", "accumulator_charge", "battery_charge"],
-    "storage_discharge": ["discharge", "storage_discharge", "accumulator_discharge", "battery_discharge"],
+    "storage_discharge": [
+        "discharge",
+        "storage_discharge",
+        "accumulator_discharge",
+        "battery_discharge",
+    ],
 }
 
 DEFAULT_CONSTANT_PATHS: Dict[str, List[str]] = {
@@ -44,9 +48,13 @@ DEFAULT_CONSTANT_PATHS: Dict[str, List[str]] = {
 @dataclass
 class CompatProfile:
     season: str
-    method_candidates: Dict[str, List[str]] = field(default_factory=lambda: dict(DEFAULT_METHOD_CANDIDATES))
+    method_candidates: Dict[str, List[str]] = field(
+        default_factory=lambda: dict(DEFAULT_METHOD_CANDIDATES)
+    )
     storage_sign_convention: str = "pos_discharge"
-    constants_paths: Dict[str, List[str]] = field(default_factory=lambda: dict(DEFAULT_CONSTANT_PATHS))
+    constants_paths: Dict[str, List[str]] = field(
+        default_factory=lambda: dict(DEFAULT_CONSTANT_PATHS)
+    )
     feature_flags: Dict[str, bool] = field(default_factory=lambda: {"storage_optional": True})
     forecast_aliases: Dict[str, List[str]] = field(
         default_factory=lambda: {
@@ -55,7 +63,9 @@ class CompatProfile:
             "consumption_base": ["load", "consumption_base"],
         }
     )
-    required_operations: List[str] = field(default_factory=lambda: ["buy", "sell", "line_off", "robot", "tps"])
+    required_operations: List[str] = field(
+        default_factory=lambda: ["buy", "sell", "line_off", "robot", "tps"]
+    )
     profile_file: Optional[str] = None
 
 
@@ -83,7 +93,13 @@ def _list_profile_files() -> List[Path]:
     root = _compat_root()
     if not root.exists():
         return []
-    return sorted([p for p in root.iterdir() if p.suffix.lower() in (".yaml", ".yml", ".json") and p.is_file()])
+    return sorted(
+        [
+            p
+            for p in root.iterdir()
+            if p.suffix.lower() in (".yaml", ".yml", ".json") and p.is_file()
+        ]
+    )
 
 
 def _find_profile_file(season: str) -> Optional[Path]:
@@ -107,7 +123,9 @@ def load_compat_profile(season: str) -> CompatProfile:
     methods.update({k: list(v or []) for k, v in (raw.get("method_candidates", {}) or {}).items()})
 
     constants_paths = dict(DEFAULT_CONSTANT_PATHS)
-    constants_paths.update({k: list(v or []) for k, v in (raw.get("constants_paths", {}) or {}).items()})
+    constants_paths.update(
+        {k: list(v or []) for k, v in (raw.get("constants_paths", {}) or {}).items()}
+    )
 
     feature_flags = {"storage_optional": True}
     feature_flags.update({k: bool(v) for k, v in (raw.get("feature_flags", {}) or {}).items()})
@@ -117,7 +135,9 @@ def load_compat_profile(season: str) -> CompatProfile:
         "solar": ["solar"],
         "consumption_base": ["load", "consumption_base"],
     }
-    forecast_aliases.update({k: list(v or []) for k, v in (raw.get("forecast_aliases", {}) or {}).items()})
+    forecast_aliases.update(
+        {k: list(v or []) for k, v in (raw.get("forecast_aliases", {}) or {}).items()}
+    )
 
     return CompatProfile(
         season=str(raw.get("season", season)),
@@ -126,7 +146,9 @@ def load_compat_profile(season: str) -> CompatProfile:
         constants_paths=constants_paths,
         feature_flags=feature_flags,
         forecast_aliases=forecast_aliases,
-        required_operations=list(raw.get("required_operations", ["buy", "sell", "line_off", "robot", "tps"])),
+        required_operations=list(
+            raw.get("required_operations", ["buy", "sell", "line_off", "robot", "tps"])
+        ),
         profile_file=str(file_path),
     )
 

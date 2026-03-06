@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from lottool.io.forecast_loader import ForecastPack, lookup
 from lottool.model.types import Breakdown, ObjectItem, State
@@ -24,23 +24,22 @@ def _consumer_group(kind: str) -> str:
     return "factory" if kind == "factory" else "class3"
 
 
-def _expand(items: List[ObjectItem]) -> List[ObjectItem]:
-    out: List[ObjectItem] = []
-    for it in items:
-        q = max(1, int(it.qty or 1))
-        for i in range(q):
-            if q == 1:
-                out.append(it)
-            else:
-                out.append(ObjectItem(
-                    kind=it.kind,
-                    id=f"{it.id}#{i+1}",
-                    qty=1,
-                    contract_rub_per_tick=it.contract_rub_per_tick,
-                    tariff_rub_per_mw_tick=it.tariff_rub_per_mw_tick,
-                    meta=dict(it.meta or {}),
-                ))
-    return out
+def _qty(item: ObjectItem) -> int:
+    try:
+        return max(1, int(item.qty or 1))
+    except Exception:
+        return 1
+
+
+def _as_float(value: object, default: float) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
 
 
 def _wind_power_mw(w: float, obj_defaults: Dict) -> float:
@@ -48,7 +47,7 @@ def _wind_power_mw(w: float, obj_defaults: Dict) -> float:
         return w
     k = float(obj_defaults.get("wind_k_default", 0.04))
     cap = float(obj_defaults.get("wind_cap_mw", 20.0))
-    p = k * (w ** 3)
+    p = k * (w**3)
     return max(0.0, min(cap, p))
 
 
@@ -83,7 +82,39 @@ def _scenario_multipliers(state: State, cfg: Dict, scenario: str) -> Dict[str, f
     return one
 
 
-def score_state(state: State, objects: List[ObjectItem], forecasts: ForecastPack, cfg: Dict, scenario: str) -> Breakdown:
+def _storage_soc_init(state: State, cap_total: float) -> float:
+    if cap_total <= 0:
+        return 0.0
+
+    fraction_raw = getattr(state.assumptions, "storage_soc_init_fraction", None)
+    absolute_raw = getattr(state.assumptions, "storage_soc_init", None)
+
+    if absolute_raw is not None:
+        return _clamp(_as_float(absolute_raw, cap_total * 0.5), 0.0, cap_total)
+
+    if fraction_raw is not None:
+        fraction = _clamp(_as_float(fraction_raw, 0.5), 0.0, 1.0)
+        return cap_total * fraction
+
+    # Default documented behavior for storage when explicit assumptions are absent.
+    return cap_total * 0.5
+
+
+def _sum_qty(items: List[ObjectItem], kind: str) -> int:
+    total = 0
+    for item in items:
+        if item.kind == kind:
+            total += _qty(item)
+    return total
+
+
+def score_state(
+    state: State,
+    objects: List[ObjectItem],
+    forecasts: ForecastPack,
+    cfg: Dict,
+    scenario: str,
+) -> Breakdown:
     horizon = int(state.game.horizon_ticks or state.game.ticks_per_day or 48)
 
     scales = _scenario_multipliers(state, cfg, scenario)
@@ -104,8 +135,12 @@ def score_state(state: State, objects: List[ObjectItem], forecasts: ForecastPack
     instant_buy = float(market_cfg.get("instant_buy_price", max(ext_buy, 20.0)))
     instant_sell = float(market_cfg.get("instant_sell_price", min(ext_sell, 0.0)))
     market_limit = float(market_cfg.get("market_max_power", market_cfg.get("max_power_mw", 60.0)))
-    instant_buy_limit = float(market_cfg.get("instant_buy_max_power", market_cfg.get("instant_max_power_mw", 1e9)))
-    instant_sell_limit = float(market_cfg.get("instant_sell_max_power", market_cfg.get("instant_max_power_mw", 1e9)))
+    instant_buy_limit = float(
+        market_cfg.get("instant_buy_max_power", market_cfg.get("instant_max_power_mw", 1e9))
+    )
+    instant_sell_limit = float(
+        market_cfg.get("instant_sell_max_power", market_cfg.get("instant_max_power_mw", 1e9))
+    )
 
     fuel_max = float(tps_cfg.get("fuel_max", 20.0))
     eta_nom = float(tps_cfg.get("eta_nominal", 0.40))
@@ -131,17 +166,20 @@ def score_state(state: State, objects: List[ObjectItem], forecasts: ForecastPack
     wear_k = float(net_cfg.get("wear_k", 0.20))
     outage_ticks = max(1, int(net_cfg.get("outage_ticks", 1)))
     outage_penalty_rub = float(net_cfg.get("outage_penalty_rub", 0.0))
-    outage_loss_scale = float(net_cfg.get("outage_loss_scale", 1.0))
-    outage_loss_scale = max(0.0, min(1.0, outage_loss_scale))
+    outage_loss_scale = _clamp(float(net_cfg.get("outage_loss_scale", 1.0)), 0.0, 1.0)
 
-    objs = _expand(objects)
-    consumers = [o for o in objs if _is_consumer(o.kind)]
-    gens = [o for o in objs if _is_gen(o.kind)]
-    storages = [o for o in objs if _is_storage(o.kind)]
+    consumers = [o for o in objects if _is_consumer(o.kind)]
+    gens = [o for o in objects if _is_gen(o.kind)]
+    storages = [o for o in objects if _is_storage(o.kind)]
+
+    storage_qty_total = sum(_qty(s) for s in storages)
+    storage_cap_total = storage_cap * storage_qty_total
+    storage_ch_rate_total = storage_ch_rate * storage_qty_total
+    storage_dis_rate_total = storage_dis_rate * storage_qty_total
 
     income = 0.0
     penalties = 0.0
-    contracts = sum(float(o.contract_rub_per_tick or 0.0) for o in objs) * horizon
+    contracts = sum(float(o.contract_rub_per_tick or 0.0) * _qty(o) for o in objects) * horizon
     fuel_and_taxes = 0.0
     market_net = 0.0
     eco_points = 0.0
@@ -155,13 +193,7 @@ def score_state(state: State, objects: List[ObjectItem], forecasts: ForecastPack
     if not ok_plan:
         notes.extend([f"NETPLAN:{x}" for x in issues])
 
-    soc = storage_cap if storages else 0.0
-    soc = max(0.0, min(storage_cap, soc))
-
-    by_id: Dict[str, List] = {}
-    for branch in state.network_plan.branches:
-        for oid in branch.objects:
-            by_id.setdefault(str(oid), []).append(branch)
+    soc = _storage_soc_init(state, storage_cap_total)
 
     wear_state: Dict[str, float] = {branch.name: 0.0 for branch in state.network_plan.branches}
     outage_left: Dict[str, int] = {branch.name: 0 for branch in state.network_plan.branches}
@@ -182,40 +214,59 @@ def score_state(state: State, objects: List[ObjectItem], forecasts: ForecastPack
             elif branch.role == "load":
                 offline_load_objects.update(str(x) for x in branch.objects)
 
-        load_by_id = {}
+        load_by_id: Dict[str, float] = {}
         load_by_group = {"class3": 0.0, "factory": 0.0}
+        unservable_by_group = {"class3": 0.0, "factory": 0.0}
+        consumer_tick_rows: List[Tuple[ObjectItem, float, float]] = []
         total_load = 0.0
-        forced_outage_load = 0.0
+        unservable_load = 0.0
+
         for c in consumers:
-            base = lookup(forecasts, "load", (c.id, c.kind, _consumer_group(c.kind)), t, default=0.0)
-            val = max(0.0, base * mw_load)
-            load_by_id[c.id] = val
-            total_load += val
-            load_by_group[_consumer_group(c.kind)] += val
+            base = lookup(
+                forecasts, "load", (c.id, c.kind, _consumer_group(c.kind)), t, default=0.0
+            )
+            demand = max(0.0, base * mw_load) * _qty(c)
+            group = _consumer_group(c.kind)
+            load_by_id[c.id] = load_by_id.get(c.id, 0.0) + demand
+            load_by_group[group] += demand
+            total_load += demand
+
+            forced_unservable = 0.0
             if c.id in offline_load_objects:
-                forced_outage_load += val * outage_loss_scale
+                forced_unservable = min(demand, demand * outage_loss_scale)
+                unservable_by_group[group] += forced_unservable
+                unservable_load += forced_unservable
+
+            consumer_tick_rows.append((c, demand, forced_unservable))
 
         gen_wind = 0.0
         gen_solar = 0.0
         gen_tps = 0.0
+        lost_generation = 0.0
         gen_by_id: Dict[str, float] = {}
+
         for g in gens:
+            qty = _qty(g)
             if g.kind == "wind":
                 w = lookup(forecasts, "wind", (g.id, "wind"), t, default=0.0)
-                p = _wind_power_mw(w * mw_wind, obj_def)
+                p = _wind_power_mw(w * mw_wind, obj_def) * qty
                 if g.id in offline_gen_objects:
-                    p *= (1.0 - outage_loss_scale)
+                    lost = min(p, p * outage_loss_scale)
+                    p -= lost
+                    lost_generation += lost
                 gen_wind += p
-                gen_by_id[g.id] = p
+                gen_by_id[g.id] = gen_by_id.get(g.id, 0.0) + p
             elif g.kind == "solarRobot":
                 s = lookup(forecasts, "solar", (g.id, "solar", "solarRobot"), t, default=0.0)
-                p = _solar_power_mw(s * mw_solar, obj_def)
+                p = _solar_power_mw(s * mw_solar, obj_def) * qty
                 if g.id in offline_gen_objects:
-                    p *= (1.0 - outage_loss_scale)
+                    lost = min(p, p * outage_loss_scale)
+                    p -= lost
+                    lost_generation += lost
                 gen_solar += p
-                gen_by_id[g.id] = p
+                gen_by_id[g.id] = gen_by_id.get(g.id, 0.0) + p
             elif g.kind == "tps":
-                gen_by_id[g.id] = 0.0
+                gen_by_id[g.id] = gen_by_id.get(g.id, 0.0)
 
         if storage_leak > 0 and soc > 0:
             soc = max(0.0, soc * (1.0 - storage_leak))
@@ -228,9 +279,9 @@ def score_state(state: State, objects: List[ObjectItem], forecasts: ForecastPack
                 gsum = 0.0
                 lsum = 0.0
                 for oid in b.objects:
-                    oid = str(oid)
-                    gsum += gen_by_id.get(oid, 0.0)
-                    lsum += load_by_id.get(oid, 0.0)
+                    obj_id = str(oid)
+                    gsum += gen_by_id.get(obj_id, 0.0)
+                    lsum += load_by_id.get(obj_id, 0.0)
                 flow = max(gsum, lsum)
                 if b.name in offline_branches:
                     flow = 0.0
@@ -258,17 +309,17 @@ def score_state(state: State, objects: List[ObjectItem], forecasts: ForecastPack
             network_losses_cost += loss_mw * float(net_cfg.get("loss_tax", 2.0))
 
         supply_eff = max(0.0, supply - loss_mw)
+        serviceable_load = max(0.0, total_load - unservable_load)
 
         discharge = 0.0
-        deficit = max(0.0, total_load + forced_outage_load - supply_eff)
-        if storages and deficit > 0 and soc > 0:
-            discharge = min(storage_dis_rate, soc, deficit)
+        deficit = max(0.0, serviceable_load - supply_eff)
+        if storage_qty_total > 0 and deficit > 0 and soc > 0:
+            discharge = min(storage_dis_rate_total, soc, deficit)
             soc -= discharge
             supply_eff += discharge
-            deficit = max(0.0, total_load + forced_outage_load - supply_eff)
+            deficit = max(0.0, serviceable_load - supply_eff)
 
-        tps_units = [g for g in gens if g.kind == "tps"]
-        tps_cap = len(tps_units) * (fuel_max * eta_nom)
+        tps_cap = _sum_qty(gens, "tps") * (fuel_max * eta_nom)
         if deficit > 0 and tps_cap > 0:
             tps_gen = min(deficit, tps_cap)
             supply_eff += tps_gen
@@ -291,12 +342,12 @@ def score_state(state: State, objects: List[ObjectItem], forecasts: ForecastPack
                 deficit -= inst
                 instant_buy_total += inst
 
-        surplus = max(0.0, supply_eff - total_load)
-        if storages and surplus > 0 and soc < storage_cap:
-            ch = min(storage_ch_rate, storage_cap - soc, surplus)
+        surplus = max(0.0, supply_eff - serviceable_load)
+        if storage_qty_total > 0 and surplus > 0 and soc < storage_cap_total:
+            ch = min(storage_ch_rate_total, storage_cap_total - soc, surplus)
             soc += ch
             supply_eff -= ch
-            surplus = max(0.0, supply_eff - total_load)
+            surplus = max(0.0, supply_eff - serviceable_load)
 
         if surplus > 0:
             normal_sell = min(surplus, market_limit)
@@ -310,24 +361,55 @@ def score_state(state: State, objects: List[ObjectItem], forecasts: ForecastPack
                 surplus -= inst_sell
                 instant_sell_total += inst_sell
 
-        unmet = max(0.0, total_load + forced_outage_load - supply_eff)
-        if unmet > 1e-9:
-            ratio = unmet / max(1e-9, total_load + forced_outage_load)
-            class3_unserved = load_by_group["class3"] * ratio
-            factory_unserved = load_by_group["factory"] * ratio
-            pen = max(0.0, class3_unserved - class3_pardon) * class3_fine + factory_unserved * factory_fine
+        unmet_service = max(0.0, serviceable_load - supply_eff)
+        unmet_total_effective = unservable_load + unmet_service
+        unmet_service_ratio = (
+            unmet_service / max(1e-9, serviceable_load) if serviceable_load > 1e-9 else 0.0
+        )
+
+        if unmet_total_effective > 1e-9:
+            class3_serviceable = max(0.0, load_by_group["class3"] - unservable_by_group["class3"])
+            factory_serviceable = max(
+                0.0, load_by_group["factory"] - unservable_by_group["factory"]
+            )
+            class3_unserved = (
+                unservable_by_group["class3"] + class3_serviceable * unmet_service_ratio
+            )
+            factory_unserved = (
+                unservable_by_group["factory"] + factory_serviceable * unmet_service_ratio
+            )
+            pen = (
+                max(0.0, class3_unserved - class3_pardon) * class3_fine
+                + factory_unserved * factory_fine
+            )
             penalties += pen
 
-        for c in consumers:
-            income += float(c.tariff_rub_per_mw_tick or 0.0) * load_by_id.get(c.id, 0.0)
+        for consumer, demand, forced_unservable in consumer_tick_rows:
+            serviceable = max(0.0, demand - forced_unservable)
+            unmet_for_consumer = serviceable * unmet_service_ratio
+            served = max(0.0, serviceable - unmet_for_consumer)
+            income += float(consumer.tariff_rub_per_mw_tick or 0.0) * served
 
         eco_points += wind_pts * gen_wind + solar_pts * gen_solar + stor_pts * discharge
 
         if gen_tps > 0:
             notes.append(f"TPS_USED:t={t},mw={gen_tps:.2f}")
+        if unservable_load > 0:
+            notes.append(f"UNSERVABLE_LOAD:t={t},mw={unservable_load:.2f}")
+        if lost_generation > 0:
+            notes.append(f"LOST_GENERATION:t={t},mw={lost_generation:.2f}")
 
     eco_value = eco_points * eco_point_value
-    score_total = income - penalties - contracts - fuel_and_taxes - market_net - network_losses_cost - risk_penalty + eco_value
+    score_total = (
+        income
+        - penalties
+        - contracts
+        - fuel_and_taxes
+        - market_net
+        - network_losses_cost
+        - risk_penalty
+        + eco_value
+    )
 
     if instant_buy_total > 0:
         notes.append(f"INSTANT_BUY:mw={instant_buy_total:.2f},price={instant_buy:.2f}")

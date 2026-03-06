@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
@@ -57,11 +56,13 @@ def _detect_delimiter(sample: str) -> str:
 def _list_csv_files(folder: str) -> List[str]:
     if not os.path.isdir(folder):
         return []
-    return sorted([
-        os.path.join(folder, fn)
-        for fn in os.listdir(folder)
-        if fn.lower().endswith(".csv") and os.path.isfile(os.path.join(folder, fn))
-    ])
+    return sorted(
+        [
+            os.path.join(folder, fn)
+            for fn in os.listdir(folder)
+            if fn.lower().endswith(".csv") and os.path.isfile(os.path.join(folder, fn))
+        ]
+    )
 
 
 def _guess_kind(filename: str) -> str:
@@ -95,7 +96,10 @@ def _is_long(header: Sequence[str]) -> bool:
     h = set(header)
     has_t = any(x in h for x in ("t", "tick", "step", "time"))
     has_id = any(x in h for x in ("id", "obj", "object", "name", "key", "type"))
-    has_v = any(x in h for x in ("v", "val", "value", "p", "power", "w", "wind", "solar", "load", "consumption"))
+    has_v = any(
+        x in h
+        for x in ("v", "val", "value", "p", "power", "w", "wind", "solar", "load", "consumption")
+    )
     return bool(has_t and has_id and has_v)
 
 
@@ -123,10 +127,14 @@ def _sanitize_series(series: Dict[str, Dict[int, float]]) -> Dict[str, Dict[int,
     return out
 
 
-def _parse_long(header: Sequence[str], rows: Sequence[Sequence[str]]) -> Dict[str, Dict[int, float]]:
+def _parse_long(
+    header: Sequence[str], rows: Sequence[Sequence[str]]
+) -> Dict[str, Dict[int, float]]:
     it = _col(header, "tick", "t", "step", "time")
     ik = _col(header, "id", "obj", "object", "name", "key", "type")
-    iv = _col(header, "value", "val", "v", "power", "p", "w", "wind", "solar", "load", "consumption")
+    iv = _col(
+        header, "value", "val", "v", "power", "p", "w", "wind", "solar", "load", "consumption"
+    )
     if it is None or ik is None or iv is None:
         return {}
 
@@ -142,7 +150,9 @@ def _parse_long(header: Sequence[str], rows: Sequence[Sequence[str]]) -> Dict[st
     return _sanitize_series(out)
 
 
-def _parse_wide(header: Sequence[str], rows: Sequence[Sequence[str]]) -> Dict[str, Dict[int, float]]:
+def _parse_wide(
+    header: Sequence[str], rows: Sequence[Sequence[str]]
+) -> Dict[str, Dict[int, float]]:
     if len(header) < 2:
         return {}
     keys = [str(k) for k in header[1:]]
@@ -297,7 +307,11 @@ def load_forecast_bundle(
     require_any: bool = False,
 ) -> ForecastBundle:
     bundle = load_bundle_from_csv(csv_dir)
-    if allow_psm_fallback and not (bundle.wind or bundle.solar or bundle.consumption_base) and psm is not None:
+    if (
+        allow_psm_fallback
+        and not (bundle.wind or bundle.solar or bundle.consumption_base)
+        and psm is not None
+    ):
         bundle = load_bundle_from_psm(psm)
     validate_bundle(bundle, require_any=require_any)
     return bundle

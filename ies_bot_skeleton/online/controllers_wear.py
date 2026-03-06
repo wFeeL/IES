@@ -8,11 +8,13 @@ from .adaptive import GameConst
 from .adapters import OrdersAdapter, Result
 from .utils import as_float, safe_getattr
 
+
 @dataclass
 class LineOff:
     sub_id: str
     line_no: int
     reason: str
+
 
 def wear_triggers(psm: Any, gc: GameConst) -> List[LineOff]:
     actions: List[LineOff] = []
@@ -42,11 +44,14 @@ def wear_triggers(psm: Any, gc: GameConst) -> List[LineOff]:
             for item in loc:
                 if isinstance(item, (list, tuple)) and len(item) >= 2:
                     sub_id, line_no = item[0], item[1]
-                    actions.append(LineOff(str(sub_id), int(line_no), f"wear={wear:.1f}, flow={flow:.1f}"))
+                    actions.append(
+                        LineOff(str(sub_id), int(line_no), f"wear={wear:.1f}, flow={flow:.1f}")
+                    )
                     break
 
     # Send at most one manual line-off per tick to avoid aggressive disconnect cascades.
     return actions[:1]
+
 
 def apply_wear_actions(adapter: OrdersAdapter, actions: List[LineOff]) -> List[Result]:
     results: List[Result] = []

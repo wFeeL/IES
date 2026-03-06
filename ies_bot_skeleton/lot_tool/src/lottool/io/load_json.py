@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import fields
-from typing import Any, Dict, List, Type, TypeVar
+from typing import Any, Dict, Type, TypeVar
 
 from ..model.types import Assumptions, Branch, Budget, Game, Lot, NetworkPlan, ObjectItem, State
 
@@ -41,7 +41,9 @@ def load_state(path: str) -> State:
     game = _dict_to_dataclass(Game, d.get("game", {}) or {})
     budget = _dict_to_dataclass(Budget, d.get("budget", {}) or {})
 
-    owned_override = [_dict_to_dataclass(ObjectItem, it) for it in (d.get("owned_objects_override", []) or [])]
+    owned_override = [
+        _dict_to_dataclass(ObjectItem, it) for it in (d.get("owned_objects_override", []) or [])
+    ]
 
     np = d.get("network_plan", {}) or {}
     branches = [_dict_to_dataclass(Branch, b) for b in (np.get("branches", []) or [])]
@@ -50,6 +52,7 @@ def load_state(path: str) -> State:
     assumptions = _dict_to_dataclass(Assumptions, d.get("assumptions", {}) or {})
 
     return State(
+        schema_version=int(d.get("schema_version", 1) or 1),
         game=game,
         budget=budget,
         owned_lots=list(d.get("owned_lots", []) or []),

@@ -48,7 +48,9 @@ class CapabilitiesTests(unittest.TestCase):
         psm = SimpleNamespace(orders=_OrdersBadSig())
         profile = load_compat_profile("default")
         caps = discover_capabilities(psm, profile)
-        adapter = OrdersAdapter(psm, compat_profile=profile, capabilities=caps, strict=False, dry_run=False)
+        adapter = OrdersAdapter(
+            psm, compat_profile=profile, capabilities=caps, strict=False, dry_run=False
+        )
         result = adapter.buy(5.0, 2.0)
         self.assertFalse(result.ok)
         self.assertEqual(result.error_code, "SIGNATURE_MISMATCH")
@@ -58,7 +60,9 @@ class CapabilitiesTests(unittest.TestCase):
         profile = load_compat_profile("default")
         caps = discover_capabilities(psm, profile)
         with self.assertRaises(RuntimeError):
-            OrdersAdapter(psm, compat_profile=profile, capabilities=caps, strict=True, dry_run=False)
+            OrdersAdapter(
+                psm, compat_profile=profile, capabilities=caps, strict=True, dry_run=False
+            )
 
 
 if __name__ == "__main__":

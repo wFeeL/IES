@@ -12,8 +12,12 @@ class ForecastLoaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "wind.csv").write_text("tick,M1\n0,3\n1,4\n", encoding="utf-8")
-            (root / "load_long.csv").write_text("tick,id,value\n0,houseA,10\n1,houseA,11\n", encoding="utf-8")
-            bundle = load_forecast_bundle(csv_dir=str(root), allow_psm_fallback=False, require_any=True)
+            (root / "load_long.csv").write_text(
+                "tick,id,value\n0,houseA,10\n1,houseA,11\n", encoding="utf-8"
+            )
+            bundle = load_forecast_bundle(
+                csv_dir=str(root), allow_psm_fallback=False, require_any=True
+            )
 
             self.assertIn("m1", bundle.wind)
             self.assertIn("houseA", bundle.consumption_base)
@@ -24,7 +28,9 @@ class ForecastLoaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "solar.csv").write_text("tick,S1\n0,-1\n1,NaN\n2,0.5\n", encoding="utf-8")
-            bundle = load_forecast_bundle(csv_dir=str(root), allow_psm_fallback=False, require_any=True)
+            bundle = load_forecast_bundle(
+                csv_dir=str(root), allow_psm_fallback=False, require_any=True
+            )
             self.assertEqual(bundle.solar["s1"][0], 0.0)
             self.assertNotIn(1, bundle.solar["s1"])
             self.assertEqual(bundle.solar["s1"][2], 0.5)

@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "game": {
     "ticks_per_day": 48,
     "horizon_ticks": 48
@@ -29,6 +30,7 @@
   "assumptions": {
     "pwin_default": 0.35,
     "risk_mode": "conservative",
+    "storage_soc_init_fraction": 0.5,
     "corridor": {
       "wind_mul": 0.1,
       "solar_mul": 0.1,

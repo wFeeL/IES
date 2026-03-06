@@ -22,17 +22,17 @@ jobs:
           python -m pip install -e ".[dev]"
           python -m pip install build
 
+      - name: Compileall
+        run: python -m compileall -q .
+
       - name: Ruff
         run: ruff check .
 
       - name: Black
         run: black --check .
 
-      - name: Unit tests (root)
-        run: python -m unittest discover -s tests -p "test_*.py"
-
-      - name: Unit tests (lottool)
-        run: python -m unittest discover -s ies_bot_skeleton/lot_tool/tests -p "test_*.py"
+      - name: Pytest
+        run: pytest -q
 
       - name: Build package
         run: python -m build

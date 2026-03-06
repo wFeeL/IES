@@ -4,14 +4,17 @@ from __future__ import annotations
 import math
 from typing import Any, Optional
 
+
 def clamp(x: float, lo: float, hi: float) -> float:
     return lo if x < lo else hi if x > hi else x
+
 
 def safe_getattr(obj: Any, name: str, default: Any = None) -> Any:
     try:
         return getattr(obj, name, default)
     except Exception:
         return default
+
 
 def safe_path(obj: Any, path: str, default: Any = None) -> Any:
     cur = obj
@@ -20,6 +23,7 @@ def safe_path(obj: Any, path: str, default: Any = None) -> Any:
             return default
         cur = safe_getattr(cur, key, None)
     return default if cur is None else cur
+
 
 def as_float(x: Any, default: float = 0.0) -> float:
     try:
@@ -32,8 +36,10 @@ def as_float(x: Any, default: float = 0.0) -> float:
     except Exception:
         return default
 
+
 def normalize_key(s: str) -> str:
     return "".join(ch.lower() for ch in str(s).strip())
+
 
 def current_tick(psm: Any) -> int:
     for attr in ("tick", "t", "step"):
@@ -46,6 +52,7 @@ def current_tick(psm: Any) -> int:
         if isinstance(now, int):
             return now
     return 0
+
 
 def is_nan(x: Optional[float]) -> bool:
     return x is None or (isinstance(x, float) and math.isnan(x))
