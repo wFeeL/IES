@@ -1,26 +1,37 @@
-ИЭС / НТО — каркас управляющего скрипта и инструмент оценки лотов.
+ИЭС / НТО — web-приложение для оценки лотов ИЭС + legacy-модули online/offline.
 
 ## Режимы проекта
 
-Проект разделен на 2 модуля:
+Актуальный runtime для MVP:
+- `web` — Flask SSR + JSON API для сессий, лотов, прогнозов, оценки и рекомендаций.
+
+Legacy/runtime compatibility:
 - `online` — работа со стендом через `ips` (рынок, линии, такты, объекты).
 - `offline` — работа без `ips` (оценка и подготовка лотов).
 
 Запуск из корня репозитория через единый CLI-модуль:
 
 ```bash
-# 1) ONLINE: управляющий скрипт стенда (требует ips)
+# 1) WEB: основной интерфейс MVP
+ies-web
+# либо через Flask CLI:
+export FLASK_APP=ies_bot_skeleton.web.app:create_app
+flask db upgrade
+flask seed
+flask run
+
+# 2) ONLINE: legacy-управляющий скрипт стенда (требует ips)
 python -m ies_bot_skeleton.cli online
 python -m ies_bot_skeleton.cli online --season 2026 --dry-run
 python -m ies_bot_skeleton.cli online --season 2026 --strict
 
-# 2) OFFLINE: оценка лотов
+# 3) OFFLINE: legacy-оценка лотов
 python -m ies_bot_skeleton.cli offline lottool rank
 python -m ies_bot_skeleton.cli offline lottool rank --sort risk_adjusted
 python -m ies_bot_skeleton.cli offline lottool eval --lot ies_bot_skeleton/lot_tool/data/lots/L12.json
 python -m ies_bot_skeleton.cli offline lottool suggest-bid --lot ies_bot_skeleton/lot_tool/data/lots/L12.json --pwin 0.35
 
-# 3) OFFLINE: заполнение/нормализация существующих лотов
+# 4) OFFLINE: legacy-заполнение/нормализация существующих лотов
 python -m ies_bot_skeleton.cli offline fill-lots --lots-dir ies_bot_skeleton/lot_tool/data/lots
 python -m ies_bot_skeleton.cli offline fill-lots --dry-run
 ```
@@ -34,6 +45,7 @@ python -m ies_bot_skeleton.cli offline fill-lots --dry-run
 - старые алиасы сохранены: `python -m ies_bot_skeleton.cli bot` и `python -m ies_bot_skeleton.cli lottool ...`.
 
 Примечание:
+- `web` использует `Flask` + `SQLAlchemy` + `Flask-Migrate`, команды: `flask seed`, `flask import-legacy --session <id>`;
 - режим `online` требует модуль `ips` (API стенда);
 - режим `offline lottool` работает из любого `cwd`, пути к конфигам/данным по умолчанию вычисляются автоматически.
 
@@ -94,18 +106,14 @@ pytest -q
 Файлы:
 - ies.py — алиас запуска
 - ies_bot_skeleton/cli.py — единая точка входа проекта
-- ies_bot_skeleton/online/ — online-модуль (работа через `ips`)
-- ies_bot_skeleton/offline/ — offline-модуль (оценка/подготовка лотов без `ips`)
+- ies_bot_skeleton/web/ — Flask web-модуль (SSR, API, формы, сервисы, статика)
 - main.py — совместимый legacy-вход для online-режима
-- constants.py — настройки (проверь перед запуском)
-- adapters.py — авто-детект orders (TPS/аккумы/рынок/линии/кСЭС)
-- controllers_* — логика управления (износ, кСЭС, баланс)
-- forecasts.py — автозагрузка CSV прогнозов (wide и long форматы)
-- adaptive.py — попытка читать константы из движка (fallback на дефолты)
-- state.py — сохранение состояния между тактами (k по ветру, обучение углов кСЭС)
+- ies_bot_skeleton/online/ — runtime-логика online-режима (работа через `ips`)
+- ies_bot_skeleton/offline/ — offline-модуль (оценка/подготовка лотов без `ips`)
+- ies_bot_skeleton/common/ — общие утилиты и загрузка прогнозов
 
-CSV прогнозы (для bot):
-- кладите рядом с main.py
+CSV прогнозы (для online-режима):
+- кладите в текущую рабочую директорию запуска
 - желательно имена: wind*.csv, load*.csv, solar*.csv, angle*.csv
 - форматы:
   wide: tick, id1, id2, ...

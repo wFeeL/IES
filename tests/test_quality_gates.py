@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import compileall
 import unittest
 from pathlib import Path
 
@@ -8,10 +7,36 @@ from ies_bot_skeleton.common.forecast_loader import lookup_pack_value
 
 
 class QualityGateTests(unittest.TestCase):
-    def test_compileall(self) -> None:
+    def test_python_sources_have_valid_syntax(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
-        ok = compileall.compile_dir(str(repo_root), quiet=1)
-        self.assertTrue(ok)
+        excluded_dirs = {
+            ".git",
+            ".venv",
+            "dist",
+            "build",
+            "__pycache__",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".mypy_cache",
+        }
+
+        errors: list[str] = []
+        for path in repo_root.rglob("*.py"):
+            if any(part in excluded_dirs for part in path.parts):
+                continue
+            if any(part.endswith(".egg-info") for part in path.parts):
+                continue
+
+            source = path.read_text(encoding="utf-8")
+            try:
+                compile(source, str(path), "exec")
+            except SyntaxError as exc:
+                line = exc.lineno or 0
+                col = exc.offset or 0
+                errors.append(f"{path}:{line}:{col}: {exc.msg}")
+
+        if errors:
+            self.fail("Syntax errors found:\n" + "\n".join(errors))
 
     def test_forecast_loader_basic(self) -> None:
         pack = {"wind": {"W1": {0: 3.5, 1: 4.0}}}
