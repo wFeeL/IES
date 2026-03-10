@@ -4,7 +4,7 @@ import json
 from typing import Any, Dict, List
 
 from flask import Blueprint, Response, jsonify, request
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from ..extensions import db
 from ..models import (
@@ -16,15 +16,41 @@ from ..models import (
     ObjectType,
     Ruleset,
 )
-from ..services.auth import role_required
+from ..services.auth import is_admin, role_required
 from ..services.evaluation import compare_lots, evaluate_lot, recommend_best_lot, strategy_fit
 from ..services.forecast_service import parse_and_store_forecast
 from ..services.legacy_import import import_legacy_data
-from ..services.seed import START_PACK_CODES
+from ..services.lot_validation import validate_and_normalize_lot_items
+from ..services.object_type_admin import (
+    create_object_type as create_object_type_service,
+)
+from ..services.object_type_admin import (
+    deactivate_object_type,
+    get_object_type_or_error,
+    list_object_types as list_object_types_service,
+    update_object_type as update_object_type_service,
+)
+from ..services.ruleset_admin import (
+    activate_ruleset,
+    copy_ruleset,
+    create_ruleset,
+    deactivate_ruleset,
+    get_ruleset_or_error,
+    list_rulesets,
+    update_ruleset,
+)
 from ..services.session_io import (
     export_evaluations_csv,
     export_session_payload,
     import_session_payload,
+)
+from ..services.start_pack import (
+    apply_start_pack_template_to_session,
+    create_start_pack_template,
+    deactivate_start_pack_template,
+    get_start_pack_template_or_error,
+    list_start_pack_templates,
+    update_start_pack_template,
 )
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
@@ -50,24 +76,13 @@ def _get_lot_or_404(lot_id: int) -> Lot:
 
 
 def _lot_items_from_payload(lot: Lot, items_payload: List[Dict[str, Any]]) -> None:
+    normalized = validate_and_normalize_lot_items(items_payload)
     lot.items.clear()
-    for row in items_payload:
-        object_type_id = row.get("object_type_id")
-        if object_type_id is None and row.get("object_type_code"):
-            obj = (
-                db.session.query(ObjectType)
-                .filter_by(code=str(row["object_type_code"]))
-                .one_or_none()
-            )
-            if obj is not None:
-                object_type_id = obj.id
-        if object_type_id is None:
-            continue
-        quantity = max(1, int(row.get("quantity", 1) or 1))
+    for row in normalized:
         item = LotItem(
-            object_type_id=int(object_type_id),
-            quantity=quantity,
-            overrides_json=dict(row.get("overrides", {})),
+            object_type_id=int(row["object_type_id"]),
+            quantity=max(1, int(row.get("quantity", 1) or 1)),
+            overrides_json=dict(row.get("overrides", {}) or {}),
         )
         lot.items.append(item)
 
@@ -127,82 +142,18 @@ def delete_session(session_id: int):
 @api_bp.post("/sessions/<int:session_id>/add-start-pack")
 @login_required
 def add_start_pack(session_id: int):
+    payload = _json_payload()
     session = _get_session_or_404(session_id)
-    existing = (
-        db.session.query(ObjectInstance)
-        .filter_by(session_id=session.id, is_from_start_pack=True)
-        .count()
+    template_id = payload.get("template_id")
+    created = apply_start_pack_template_to_session(
+        session=session,
+        template_id=int(template_id) if template_id is not None else None,
     )
-    if existing > 0:
-        raise ValueError("Стартовый пакет уже добавлен")
-
-    types = {
-        row.code: row
-        for row in db.session.query(ObjectType).filter(ObjectType.code.in_(START_PACK_CODES)).all()
-    }
-
-    missing = [code for code in START_PACK_CODES if code not in types]
-    if missing:
-        raise ValueError(f"В справочнике нет типов стартового пакета: {', '.join(missing)}")
-
-    main_obj = ObjectInstance(
-        session_id=session.id,
-        object_type_id=types["main_substation"].id,
-        custom_name="Main Substation",
-        current_parameters_json={},
-        is_from_start_pack=True,
-        district="core",
-        is_active=True,
-    )
-    db.session.add(main_obj)
-    db.session.flush()
-
-    mini_obj = ObjectInstance(
-        session_id=session.id,
-        object_type_id=types["mini_substation_a"].id,
-        custom_name="Mini A",
-        current_parameters_json={},
-        is_from_start_pack=True,
-        parent_instance_id=main_obj.id,
-        district="core",
-        is_active=True,
-    )
-    db.session.add(mini_obj)
-    db.session.flush()
-
-    solar_obj = ObjectInstance(
-        session_id=session.id,
-        object_type_id=types["cyber_solar"].id,
-        custom_name="Cyber SES",
-        current_parameters_json={},
-        is_from_start_pack=True,
-        parent_instance_id=mini_obj.id,
-        district="core",
-        is_active=True,
-    )
-    house_obj = ObjectInstance(
-        session_id=session.id,
-        object_type_id=types["house"].id,
-        custom_name="House",
-        current_parameters_json={},
-        is_from_start_pack=True,
-        parent_instance_id=mini_obj.id,
-        district="core",
-        is_active=True,
-    )
-    db.session.add(solar_obj)
-    db.session.add(house_obj)
-    db.session.commit()
-
     return jsonify(
         {
             "ok": True,
-            "created": [
-                main_obj.to_dict(),
-                mini_obj.to_dict(),
-                solar_obj.to_dict(),
-                house_obj.to_dict(),
-            ],
+            "created": [row.to_dict() for row in created],
+            "template_id": template_id or session.ruleset.active_start_pack_template_id,
         }
     )
 
@@ -236,10 +187,121 @@ def export_evaluations(session_id: int):
     )
 
 
+@api_bp.get("/rulesets")
+@login_required
+def rulesets_list_endpoint():
+    rows = list_rulesets()
+    return jsonify({"ok": True, "items": [row.to_dict() for row in rows]})
+
+
+@api_bp.post("/rulesets")
+@login_required
+@role_required("admin")
+def rulesets_create_endpoint():
+    payload = _json_payload()
+    row = create_ruleset(payload)
+    return jsonify({"ok": True, "item": row.to_dict()})
+
+
+@api_bp.put("/rulesets/<int:ruleset_id>")
+@login_required
+@role_required("admin")
+def rulesets_update_endpoint(ruleset_id: int):
+    row = get_ruleset_or_error(ruleset_id)
+    payload = _json_payload()
+    updated = update_ruleset(row, payload)
+    return jsonify({"ok": True, "item": updated.to_dict()})
+
+
+@api_bp.post("/rulesets/<int:ruleset_id>/copy")
+@login_required
+@role_required("admin")
+def rulesets_copy_endpoint(ruleset_id: int):
+    row = get_ruleset_or_error(ruleset_id)
+    payload = _json_payload()
+    copied = copy_ruleset(row, name=payload.get("name"), code=payload.get("code"))
+    return jsonify({"ok": True, "item": copied.to_dict()})
+
+
+@api_bp.post("/rulesets/<int:ruleset_id>/activate")
+@login_required
+@role_required("admin")
+def rulesets_activate_endpoint(ruleset_id: int):
+    row = get_ruleset_or_error(ruleset_id)
+    activate_ruleset(row)
+    return jsonify({"ok": True, "item": row.to_dict()})
+
+
+@api_bp.post("/rulesets/<int:ruleset_id>/deactivate")
+@login_required
+@role_required("admin")
+def rulesets_deactivate_endpoint(ruleset_id: int):
+    row = get_ruleset_or_error(ruleset_id)
+    deactivate_ruleset(row)
+    return jsonify({"ok": True, "item": row.to_dict()})
+
+
+@api_bp.get("/start-pack-templates")
+@login_required
+def start_pack_templates_list_endpoint():
+    include_inactive = bool(request.args.get("include_inactive", type=int))
+    if include_inactive and not is_admin():
+        include_inactive = False
+    rows = list_start_pack_templates(include_inactive=include_inactive)
+    return jsonify({"ok": True, "items": [row.to_dict(include_items=True) for row in rows]})
+
+
+@api_bp.get("/start-pack-templates/<int:template_id>")
+@login_required
+def start_pack_templates_get_endpoint(template_id: int):
+    row = get_start_pack_template_or_error(template_id)
+    return jsonify({"ok": True, "item": row.to_dict(include_items=True)})
+
+
+@api_bp.post("/start-pack-templates")
+@login_required
+@role_required("admin")
+def start_pack_templates_create_endpoint():
+    payload = _json_payload()
+    row = create_start_pack_template(
+        code=str(payload.get("code", "")),
+        name=str(payload.get("name", "")),
+        description=str(payload.get("description", "")),
+        is_active=bool(payload.get("is_active", True)),
+        is_builtin=bool(payload.get("is_builtin", False)),
+        items_payload=payload.get("items") or [],
+    )
+    return jsonify({"ok": True, "item": row.to_dict(include_items=True)})
+
+
+@api_bp.put("/start-pack-templates/<int:template_id>")
+@login_required
+@role_required("admin")
+def start_pack_templates_update_endpoint(template_id: int):
+    row = get_start_pack_template_or_error(template_id)
+    payload = _json_payload()
+    out = update_start_pack_template(row=row, payload=payload)
+    return jsonify({"ok": True, "item": out.to_dict(include_items=True)})
+
+
+@api_bp.delete("/start-pack-templates/<int:template_id>")
+@login_required
+@role_required("admin")
+def start_pack_templates_delete_endpoint(template_id: int):
+    row = get_start_pack_template_or_error(template_id)
+    deactivate_start_pack_template(row)
+    return jsonify({"ok": True})
+
+
 @api_bp.get("/object-types")
 @login_required
 def list_object_types():
-    rows = db.session.query(ObjectType).filter_by(is_active=True).order_by(ObjectType.code).all()
+    include_inactive = bool(request.args.get("include_inactive", type=int))
+    if include_inactive and not current_user.is_authenticated:
+        include_inactive = False
+    if include_inactive and not is_admin():
+        include_inactive = False
+    rows = list_object_types_service(include_inactive=include_inactive)
     return jsonify({"ok": True, "items": [row.to_dict() for row in rows]})
 
 
@@ -248,21 +310,7 @@ def list_object_types():
 @role_required("admin")
 def create_object_type():
     payload = _json_payload()
-    row = ObjectType(
-        code=str(payload.get("code", "")).strip(),
-        name=str(payload.get("name", "")).strip(),
-        category=str(payload.get("category", "infrastructure")),
-        subtype=str(payload.get("subtype", "")),
-        description=str(payload.get("description", "")),
-        default_parameters_json=dict(payload.get("default_parameters", {})),
-        editable_fields_json=list(payload.get("editable_fields", [])),
-        rules_json=dict(payload.get("rules", {})),
-        is_active=bool(payload.get("is_active", True)),
-    )
-    if not row.code or not row.name:
-        raise ValueError("code и name обязательны")
-    db.session.add(row)
-    db.session.commit()
+    row = create_object_type_service(payload)
     return jsonify({"ok": True, "item": row.to_dict()})
 
 
@@ -270,36 +318,18 @@ def create_object_type():
 @login_required
 @role_required("admin")
 def update_object_type(object_type_id: int):
-    row = db.session.get(ObjectType, object_type_id)
-    if row is None:
-        raise ValueError(f"ObjectType {object_type_id} not found")
+    row = get_object_type_or_error(object_type_id)
     payload = _json_payload()
-    for key in ("name", "category", "subtype", "description"):
-        if key in payload:
-            setattr(row, key, str(payload[key]))
-    if "default_parameters" in payload:
-        row.default_parameters_json = dict(payload["default_parameters"] or {})
-    if "editable_fields" in payload:
-        row.editable_fields_json = list(payload["editable_fields"] or [])
-    if "rules" in payload:
-        row.rules_json = dict(payload["rules"] or {})
-    if "is_active" in payload:
-        row.is_active = bool(payload["is_active"])
-    db.session.add(row)
-    db.session.commit()
-    return jsonify({"ok": True, "item": row.to_dict()})
+    out = update_object_type_service(row, payload)
+    return jsonify({"ok": True, "item": out.to_dict()})
 
 
 @api_bp.delete("/object-types/<int:object_type_id>")
 @login_required
 @role_required("admin")
 def delete_object_type(object_type_id: int):
-    row = db.session.get(ObjectType, object_type_id)
-    if row is None:
-        raise ValueError(f"ObjectType {object_type_id} not found")
-    row.is_active = False
-    db.session.add(row)
-    db.session.commit()
+    row = get_object_type_or_error(object_type_id)
+    deactivate_object_type(row)
     return jsonify({"ok": True})
 
 
@@ -406,12 +436,7 @@ def create_lot():
     db.session.add(lot)
     db.session.flush()
 
-    items_payload = payload.get("items", []) or []
-    if not isinstance(items_payload, list):
-        raise ValueError("items должен быть массивом")
-    _lot_items_from_payload(lot, items_payload)
-    if not lot.items:
-        raise ValueError("Лот не может быть пустым")
+    _lot_items_from_payload(lot, payload.get("items", []) or [])
 
     db.session.add(lot)
     db.session.commit()
@@ -432,12 +457,7 @@ def update_lot(lot_id: int):
     if "available_round" in payload:
         lot.available_round = int(payload["available_round"] or 1)
     if "items" in payload:
-        items_payload = payload.get("items", []) or []
-        if not isinstance(items_payload, list):
-            raise ValueError("items должен быть массивом")
-        _lot_items_from_payload(lot, items_payload)
-        if not lot.items:
-            raise ValueError("Лот не может быть пустым")
+        _lot_items_from_payload(lot, payload.get("items", []) or [])
 
     db.session.add(lot)
     db.session.commit()
@@ -493,7 +513,7 @@ def compare_lots_endpoint():
 
     session = _get_session_or_404(session_id)
     lots = db.session.query(Lot).filter(Lot.id.in_(lot_ids), Lot.session_id == session_id).all()
-    if not lots:
+    if len(lots) < 2:
         raise ValueError("Лоты не найдены")
 
     forecast = None

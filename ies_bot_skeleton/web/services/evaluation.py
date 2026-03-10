@@ -64,6 +64,28 @@ def _to_dict(delta_obj: Any) -> Dict[str, Any]:
     return asdict(delta_obj)
 
 
+def _risk_commentary(*, delta_risk: float, flags: List[str], confidence: float) -> str:
+    if any(flag.startswith("NETPLAN:") for flag in flags):
+        return "Высокий риск: есть сетевые ограничения."
+    if delta_risk >= 60:
+        return "Риск выше среднего: возможна высокая вариативность результата."
+    if delta_risk >= 20:
+        return "Умеренный риск: рекомендуется осторожная ставка."
+    if confidence < 0.45:
+        return "Риск неопределенности: низкая уверенность модели."
+    return "Риск контролируемый: критических ограничений не выявлено."
+
+
+def _strategy_fit_text(*, strategy: str, score: float, hard_bid: float) -> str:
+    if hard_bid <= 0:
+        return f"Стратегия '{strategy}' не рекомендует ставку по этому лоту."
+    if score >= 80:
+        return f"Сильное соответствие стратегии '{strategy}'."
+    if score >= 25:
+        return f"Базовое соответствие стратегии '{strategy}'."
+    return f"Слабое соответствие стратегии '{strategy}', нужен дополнительный анализ."
+
+
 def evaluate_lot(
     *,
     session: GameSession,
@@ -157,6 +179,16 @@ def evaluate_lot(
     if hard_errors:
         confidence -= 0.2
     confidence = _clamp(confidence, 0.0, 1.0)
+    risk_commentary = _risk_commentary(
+        delta_risk=float(delta_risk),
+        flags=list(d_base.flags),
+        confidence=float(confidence),
+    )
+    strategy_fit_text = _strategy_fit_text(
+        strategy=selected_strategy,
+        score=float(score),
+        hard_bid=float(hard_bid),
+    )
 
     metrics = {
         "score": float(score),
@@ -178,6 +210,8 @@ def evaluate_lot(
         "weighted_expected": float(weighted_expected),
         "flags": list(d_base.flags),
         "network_issues": [x.to_dict() for x in network_issues],
+        "risk_commentary": risk_commentary,
+        "strategy_fit_text": strategy_fit_text,
         "scenario_delta": {
             "base": _to_dict(d_base),
             "worst": _to_dict(d_worst),
@@ -196,6 +230,8 @@ def evaluate_lot(
         "recommended_bid_soft": float(soft_bid),
         "recommended_bid_hard": float(hard_bid),
         "confidence": float(confidence),
+        "risk_commentary": risk_commentary,
+        "strategy_fit_text": strategy_fit_text,
     }
 
     if persist:

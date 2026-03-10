@@ -40,6 +40,94 @@ class User(UserMixin, db.Model):
         }
 
 
+class StartPackTemplate(db.Model):
+    __tablename__ = "start_pack_templates"
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(64), unique=True, nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    description = db.Column(db.Text, nullable=False, default="")
+    is_builtin = db.Column(db.Boolean, nullable=False, default=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+    )
+
+    items = db.relationship(
+        "StartPackTemplateItem",
+        back_populates="template",
+        cascade="all, delete-orphan",
+        order_by="StartPackTemplateItem.sort_order",
+    )
+    active_for_rulesets = db.relationship(
+        "Ruleset",
+        back_populates="active_start_pack_template",
+        foreign_keys="Ruleset.active_start_pack_template_id",
+    )
+
+    def to_dict(self, *, include_items: bool = True) -> Dict[str, Any]:
+        payload = {
+            "id": self.id,
+            "code": self.code,
+            "name": self.name,
+            "description": self.description,
+            "is_builtin": self.is_builtin,
+            "is_active": self.is_active,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_items:
+            payload["items"] = [item.to_dict() for item in self.items]
+        return payload
+
+
+class StartPackTemplateItem(db.Model):
+    __tablename__ = "start_pack_template_items"
+
+    id = db.Column(db.Integer, primary_key=True)
+    template_id = db.Column(db.Integer, db.ForeignKey("start_pack_templates.id"), nullable=False)
+    object_type_id = db.Column(db.Integer, db.ForeignKey("object_types.id"), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False, default=1)
+    custom_name = db.Column(db.String(128), nullable=False, default="")
+    district = db.Column(db.String(64), nullable=False, default="core")
+    parameters_json = db.Column(db.JSON, nullable=False, default=dict)
+    parent_item_id = db.Column(
+        db.Integer,
+        db.ForeignKey("start_pack_template_items.id"),
+        nullable=True,
+    )
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+    template = db.relationship("StartPackTemplate", back_populates="items")
+    object_type = db.relationship("ObjectType", back_populates="start_pack_items")
+    parent = db.relationship(
+        "StartPackTemplateItem",
+        remote_side=[id],
+        backref=db.backref("children", lazy="dynamic"),
+        uselist=False,
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "template_id": self.template_id,
+            "object_type_id": self.object_type_id,
+            "object_type_code": self.object_type.code if self.object_type else None,
+            "quantity": self.quantity,
+            "custom_name": self.custom_name,
+            "district": self.district,
+            "parameters": dict(self.parameters_json or {}),
+            "parent_item_id": self.parent_item_id,
+            "sort_order": self.sort_order,
+            "is_active": self.is_active,
+        }
+
+
 class Ruleset(db.Model):
     __tablename__ = "rulesets"
 
@@ -48,11 +136,22 @@ class Ruleset(db.Model):
     version = db.Column(db.String(32), nullable=False, default="1")
     name = db.Column(db.String(128), nullable=False)
     config_json = db.Column(db.JSON, nullable=False, default=dict)
+    model_settings_json = db.Column(db.JSON, nullable=False, default=dict)
+    active_start_pack_template_id = db.Column(
+        db.Integer,
+        db.ForeignKey("start_pack_templates.id"),
+        nullable=True,
+    )
     is_builtin = db.Column(db.Boolean, nullable=False, default=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
 
     sessions = db.relationship("GameSession", back_populates="ruleset", cascade="all")
+    active_start_pack_template = db.relationship(
+        "StartPackTemplate",
+        back_populates="active_for_rulesets",
+        foreign_keys=[active_start_pack_template_id],
+    )
 
     __table_args__ = (db.UniqueConstraint("code", "version", name="uq_ruleset_code_version"),)
 
@@ -63,6 +162,8 @@ class Ruleset(db.Model):
             "version": self.version,
             "name": self.name,
             "config_json": self.config_json,
+            "model_settings": self.model_settings_json,
+            "active_start_pack_template_id": self.active_start_pack_template_id,
             "is_builtin": self.is_builtin,
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat() if self.created_at else None,
@@ -129,6 +230,7 @@ class ObjectType(db.Model):
 
     instances = db.relationship("ObjectInstance", back_populates="object_type")
     lot_items = db.relationship("LotItem", back_populates="object_type")
+    start_pack_items = db.relationship("StartPackTemplateItem", back_populates="object_type")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -346,6 +448,9 @@ class EvaluationResult(db.Model):
     recommended_bid_soft = db.Column(db.Float, nullable=False, default=0.0)
     recommended_bid_hard = db.Column(db.Float, nullable=False, default=0.0)
     confidence = db.Column(db.Float, nullable=False, default=0.0)
+    is_stale = db.Column(db.Boolean, nullable=False, default=False)
+    stale_reason = db.Column(db.Text, nullable=False, default="")
+    stale_marked_at = db.Column(db.DateTime(timezone=True), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
 
     session = db.relationship("GameSession", back_populates="evaluations")
@@ -364,6 +469,9 @@ class EvaluationResult(db.Model):
             "recommended_bid_soft": self.recommended_bid_soft,
             "recommended_bid_hard": self.recommended_bid_hard,
             "confidence": self.confidence,
+            "is_stale": self.is_stale,
+            "stale_reason": self.stale_reason,
+            "stale_marked_at": self.stale_marked_at.isoformat() if self.stale_marked_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -373,5 +481,11 @@ Index(
     EvaluationResult.session_id,
     EvaluationResult.lot_id,
     EvaluationResult.mode,
+    EvaluationResult.created_at.desc(),
+)
+Index(
+    "ix_eval_session_stale_created_desc",
+    EvaluationResult.session_id,
+    EvaluationResult.is_stale,
     EvaluationResult.created_at.desc(),
 )

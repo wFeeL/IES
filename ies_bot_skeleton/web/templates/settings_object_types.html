@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Object Types | IES{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="actions">
+    <h1 class="h1">Типы объектов</h1>
+    <a class="btn btn-primary" href="{{ url_for('pages.settings_object_type_new_page') }}">Новый тип</a>
+  </div>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead><tr><th>ID</th><th>Code</th><th>Name</th><th>Category</th><th>Subtype</th><th>Active</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for row in object_types %}
+        <tr>
+          <td>{{ row.id }}</td>
+          <td>{{ row.code }}</td>
+          <td>{{ row.name }}</td>
+          <td>{{ row.category }}</td>
+          <td>{{ row.subtype }}</td>
+          <td>{{ 'yes' if row.is_active else 'no' }}</td>
+          <td>
+            <div class="actions">
+              <a class="btn btn-secondary" href="{{ url_for('pages.settings_object_type_edit_page', object_type_id=row.id) }}">Edit</a>
+              {% if row.is_active %}
+              <form method="post" action="{{ url_for('pages.settings_object_type_deactivate_action', object_type_id=row.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <button class="btn btn-secondary" type="submit">Deactivate</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

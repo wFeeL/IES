@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Ruleset {{ mode }} | IES{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="h1">{% if mode == 'new' %}Новый ruleset{% else %}Редактирование ruleset{% endif %}</h1>
+  <form method="post" class="stack gap-3 mt-3">
+    {{ form.hidden_tag() }}
+    <div class="grid cols-3 gap-3">
+      <label class="label">{{ form.code.label }} {{ form.code(class_='input') }}</label>
+      <label class="label">{{ form.version.label }} {{ form.version(class_='input') }}</label>
+      <label class="label">{{ form.name.label }} {{ form.name(class_='input') }}</label>
+    </div>
+    <label class="label">{{ form.active_start_pack_template_id.label }} {{ form.active_start_pack_template_id(class_='input') }}</label>
+    <label class="label">{{ form.config_json.label }} {{ form.config_json(class_='input h-48') }}</label>
+    <label class="label">{{ form.model_settings_json.label }} {{ form.model_settings_json(class_='input h-48') }}</label>
+    <div class="actions">
+      <label class="inline">{{ form.is_active() }} <span>Активный</span></label>
+      <label class="inline">{{ form.is_builtin() }} <span>Builtin</span></label>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">Сохранить</button>
+      {% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>{% endif %}
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -4,9 +4,25 @@
 <section class="card">
   <h1 class="h1">Сравнение лотов</h1>
   <p class="muted">Сессия {{ session.title }}</p>
+
+  {% if top_pair and top_pair|length >= 2 %}
+  <div class="grid cols-2 gap-4 mt-4">
+    {% for row in top_pair %}
+    <article class="card card-lot">
+      <h2 class="h2">Lot {{ row.lot_id }}</h2>
+      <p>Score: {{ '%.2f'|format(row.summary_score) }}</p>
+      <p>Bid: {{ '%.1f'|format(row.recommended_bid_hard) }}</p>
+      <p class="muted">{{ row.strategy_fit_text }}</p>
+      <div class="explanation-block mt-2">{{ row.explanation }}</div>
+      <div class="risk-block mt-2">{{ row.risk_commentary }}</div>
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <div class="table-wrap mt-3">
     <table class="table">
-      <thead><tr><th>#</th><th>Lot</th><th>Score</th><th>Δscore</th><th>Hard bid</th><th>Confidence</th></tr></thead>
+      <thead><tr><th>#</th><th>Lot</th><th>Score</th><th>Δscore</th><th>Hard bid</th><th>Risk</th><th>Strategy fit</th><th>Explanation</th></tr></thead>
       <tbody>
         {% for row in ranking %}
         <tr>
@@ -15,10 +31,12 @@
           <td>{{ '%.2f'|format(row.summary_score) }}</td>
           <td>{{ '%.2f'|format(row.metrics.delta_score) }}</td>
           <td>{{ '%.1f'|format(row.recommended_bid_hard) }}</td>
-          <td>{{ '%.2f'|format(row.confidence) }}</td>
+          <td>{{ '%.2f'|format(row.metrics.delta_risk) }}</td>
+          <td>{{ row.strategy_fit_text }}</td>
+          <td>{{ row.risk_commentary or row.explanation }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="muted">Добавьте минимум 2 лота</td></tr>
+        <tr><td colspan="8" class="muted">Добавьте минимум 2 лота</td></tr>
         {% endfor %}
       </tbody>
     </table>

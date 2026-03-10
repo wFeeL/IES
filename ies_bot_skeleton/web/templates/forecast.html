@@ -8,7 +8,10 @@
     <input type="hidden" name="session_id" value="{{ session.id }}" />
     <label class="label">Название <input class="input" type="text" name="name" value="forecast-{{ session.id }}" /></label>
     <label class="label">CSV <input class="input" type="file" name="file" accept=".csv" /></label>
-    <button class="btn btn-primary" type="submit">Загрузить</button>
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">Загрузить</button>
+      {% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>{% endif %}
+    </div>
   </form>
   <pre id="forecastOut" class="mini-output mt-3"></pre>
 

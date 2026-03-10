@@ -57,11 +57,16 @@ def test_admin_end_to_end_flow(client, app):
     start_pack_resp = client.post(f"/api/sessions/{session_id}/add-start-pack", json={})
     assert start_pack_resp.status_code == 200
     assert start_pack_resp.get_json()["ok"] is True
+    assert "template_id" in start_pack_resp.get_json()
 
     object_types_resp = client.get("/api/object-types")
     assert object_types_resp.status_code == 200
     types = object_types_resp.get_json()["items"]
     assert any(x["code"] == "wind" for x in types)
+
+    rulesets_resp = client.get("/api/rulesets")
+    assert rulesets_resp.status_code == 200
+    assert any("model_settings" in row for row in rulesets_resp.get_json()["items"])
 
     wind_id = next(x["id"] for x in types if x["code"] == "wind")
     storage_id = next(x["id"] for x in types if x["code"] == "storage")
@@ -150,6 +155,7 @@ def test_admin_end_to_end_flow(client, app):
     export_json_resp = client.get(f"/api/sessions/{session_id}/export.json")
     assert export_json_resp.status_code == 200
     assert export_json_resp.get_json()["ok"] is True
+    assert "schema_version" in export_json_resp.get_json()["item"]
 
     export_csv_resp = client.get(f"/api/sessions/{session_id}/evaluations.csv")
     assert export_csv_resp.status_code == 200

@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from flask_wtf import FlaskForm
-from wtforms import FloatField, IntegerField, SelectField, StringField, SubmitField, TextAreaField
+from wtforms import (
+    FloatField,
+    HiddenField,
+    IntegerField,
+    SelectField,
+    StringField,
+    SubmitField,
+    TextAreaField,
+)
 from wtforms.validators import DataRequired, NumberRange, Optional
 
 
@@ -31,5 +39,6 @@ class LotForm(FlaskForm):
     current_bid = FloatField("Текущая ставка", validators=[Optional(), NumberRange(min=0.0)])
     available_round = IntegerField("Раунд", validators=[Optional(), NumberRange(min=1)])
     note = TextAreaField("Заметки", validators=[Optional()])
+    items_state_json = HiddenField("Состав (визуальный редактор)", validators=[Optional()])
     items_json = TextAreaField("Состав JSON", validators=[Optional()])
     submit = SubmitField("Сохранить")

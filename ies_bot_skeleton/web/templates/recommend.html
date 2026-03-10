@@ -11,13 +11,20 @@
       <p>Lot {{ recommendation.best.lot_id }}</p>
       <p>Score: {{ '%.2f'|format(recommendation.best.summary_score) }}</p>
       <p>Hard bid: {{ '%.1f'|format(recommendation.best.metrics.recommended_bid_hard) }}</p>
-      <p>Причина: {{ recommendation.best.explanation }}</p>
+      <p class="muted">Strategy fit: {{ recommendation.best.strategy_fit_text }}</p>
+      <div class="explanation-block mt-2">{{ recommendation.best.explanation }}</div>
+      <div class="risk-block mt-2">{{ recommendation.best.risk_commentary }}</div>
     </article>
     <article class="card card-lot">
       <h2 class="h2">Альтернативы</h2>
       <ul class="stack gap-2 mt-2">
         {% for row in recommendation.alternatives %}
-        <li>Lot {{ row.lot_id }}: score {{ '%.2f'|format(row.summary_score) }}, bid {{ '%.1f'|format(row.recommended_bid_hard) }}</li>
+        <li class="alt-row">
+          <strong>Lot {{ row.lot_id }}</strong>
+          <div>score {{ '%.2f'|format(row.summary_score) }}, bid {{ '%.1f'|format(row.recommended_bid_hard) }}</div>
+          <div class="muted">{{ row.strategy_fit_text }}</div>
+          <div class="risk-block mt-2">{{ row.risk_commentary }}</div>
+        </li>
         {% else %}
         <li class="muted">Нет альтернатив</li>
         {% endfor %}

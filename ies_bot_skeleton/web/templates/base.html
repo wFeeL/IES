@@ -34,13 +34,50 @@
         <div class="tabs">
           <a href="{{ url_for('pages.dashboard') }}">Dashboard</a>
           <a href="{{ url_for('pages.catalog') }}">Справочник</a>
-          <a href="{{ url_for('pages.settings_model_page') if current_user.role == 'admin' else '#' }}">Модель</a>
+          {% if current_user.role == 'admin' %}
+          <a href="{{ url_for('pages.settings_model_page') }}">Rulesets</a>
+          <a href="{{ url_for('pages.settings_start_packs_page') }}">Start Packs</a>
+          <a href="{{ url_for('pages.settings_object_types_page') }}">Object Types</a>
+          {% else %}
+          <span class="tab-disabled">Rulesets</span>
+          {% endif %}
         </div>
       </nav>
       {% endif %}
     </header>
 
     <main class="container py-6">
+      {% if back_url or breadcrumbs %}
+      <section class="page-nav mb-3">
+        <div class="page-nav-row">
+          {% if back_url %}
+          <a class="btn btn-secondary" href="{{ back_url }}">Back</a>
+          {% endif %}
+          {% if breadcrumbs %}
+          <ol class="breadcrumbs">
+            {% for crumb in breadcrumbs %}
+            <li class="breadcrumb-item {{ 'is-current' if crumb.is_current else '' }}">
+              {% if crumb.url %}
+              <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+              {% else %}
+              <span>{{ crumb.label }}</span>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ol>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if stale_warning and stale_warning.has_stale %}
+      <section class="flash-stack">
+        <div class="flash flash-warning">
+          Обнаружены устаревшие оценки ({{ stale_warning.stale_count }}). Причина: {{ stale_warning.last_reason or 'ruleset/object type changed' }}.
+        </div>
+      </section>
+      {% endif %}
+
       {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
       <section class="flash-stack">

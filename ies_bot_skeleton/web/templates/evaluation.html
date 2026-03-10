@@ -5,7 +5,7 @@
   <h1 class="h1">История оценок: {{ session.title }}</h1>
   <div class="table-wrap mt-3">
     <table class="table">
-      <thead><tr><th>ID</th><th>Lot</th><th>Mode</th><th>Score</th><th>Soft/Hard bid</th><th>Confidence</th><th>Explanation</th></tr></thead>
+      <thead><tr><th>ID</th><th>Lot</th><th>Mode</th><th>Score</th><th>Soft/Hard bid</th><th>Confidence</th><th>Stale</th><th>Explanation</th></tr></thead>
       <tbody>
         {% for row in evaluations %}
         <tr>
@@ -15,10 +15,11 @@
           <td>{{ '%.2f'|format(row.summary_score) }}</td>
           <td>{{ '%.1f'|format(row.recommended_bid_soft) }} / {{ '%.1f'|format(row.recommended_bid_hard) }}</td>
           <td>{{ '%.2f'|format(row.confidence) }}</td>
-          <td>{{ row.explanation }}</td>
+          <td>{% if row.is_stale %}<span class="status-badge status-stale">stale</span>{% else %}<span class="status-badge status-fresh">fresh</span>{% endif %}</td>
+          <td>{{ row.explanation }} {% if row.is_stale and row.stale_reason %}<span class="muted">({{ row.stale_reason }})</span>{% endif %}</td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="muted">Оценок пока нет</td></tr>
+        <tr><td colspan="8" class="muted">Оценок пока нет</td></tr>
         {% endfor %}
       </tbody>
     </table>

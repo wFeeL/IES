@@ -3,10 +3,11 @@
 {% block content %}
 <section class="card">
   <h1 class="h1">Добавить лот в сессию #{{ session.id }}</h1>
-  <p class="muted">`items_json` формат: [{"object_type_code":"wind","quantity":1,"overrides":{...}}]</p>
-  <form method="post" class="stack gap-3 mt-3">
+  <form method="post" class="stack gap-3 mt-3" id="lotEditorForm">
     {{ form.hidden_tag() }}
     {{ form.session_id(value=session.id, type='hidden') }}
+    {{ form.items_state_json(id='itemsStateJson') }}
+
     <label class="label">{{ form.name.label }} {{ form.name(class_='input') }}</label>
     <div class="grid cols-3 gap-3">
       <label class="label">{{ form.scope.label }} {{ form.scope(class_='input') }}</label>
@@ -18,8 +19,53 @@
       <label class="label">{{ form.current_bid.label }} {{ form.current_bid(class_='input') }}</label>
     </div>
     <label class="label">{{ form.note.label }} {{ form.note(class_='input') }}</label>
-    <label class="label">{{ form.items_json.label }} {{ form.items_json(class_='input h-48', placeholder='[{"object_type_code":"wind","quantity":1}]') }}</label>
-    <button class="btn btn-primary" type="submit">Сохранить</button>
+
+    <div class="card mt-3">
+      <div class="actions">
+        <h2 class="h2">Визуальный редактор состава лота</h2>
+        <button type="button" class="btn btn-secondary" id="lotRowAddBtn">Добавить строку</button>
+      </div>
+      <div class="table-wrap mt-2">
+        <table class="table" id="lotEditorTable">
+          <thead>
+            <tr>
+              <th>Object type</th>
+              <th>Количество</th>
+              <th>Parent key</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="lotEditorRows"></tbody>
+        </table>
+      </div>
+      <div id="lotEditorSummary" class="muted mt-2"></div>
+    </div>
+
+    <details class="mt-3">
+      <summary>Advanced fallback: raw JSON</summary>
+      <label class="label mt-2">
+        {{ form.items_json.label }}
+        {{ form.items_json(class_='input h-48', placeholder='[{"object_type_code":"wind","quantity":1}]') }}
+      </label>
+    </details>
+
+    <div class="actions mt-3">
+      <button class="btn btn-primary" type="submit">Сохранить</button>
+      {% if cancel_url %}
+      <a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>
+      {% endif %}
+    </div>
   </form>
 </section>
+<script>
+window.IES_LOT_EDITOR = {
+  initialItemsRaw: {{ (form.items_state_json.data or form.items_json.data or '[]')|tojson }},
+  objectTypes: [
+    {% for row in object_types %}
+    {id: {{ row.id }}, code: {{ row.code|tojson }}, name: {{ row.name|tojson }}}{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ],
+};
+</script>
+<script defer src="{{ url_for('static', filename='js/lot_editor.js') }}"></script>
 {% endblock %}

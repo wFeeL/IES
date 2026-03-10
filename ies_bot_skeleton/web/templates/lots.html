@@ -3,6 +3,7 @@
 {% block content %}
 <section class="card">
   <h1 class="h1">Лоты сессии #{{ session.id }}</h1>
+  <p class="muted">Ruleset: {{ session.ruleset.code if session.ruleset else 'n/a' }} / Start pack: {{ session.ruleset.active_start_pack_template.name if session.ruleset and session.ruleset.active_start_pack_template else 'n/a' }}</p>
   <div class="actions mt-3">
     <a class="btn btn-primary" href="{{ url_for('pages.lots_edit', session_id=session.id) }}">Добавить лот</a>
     <button class="btn btn-secondary" id="addStartPackBtn">Добавить стартовый пакет</button>

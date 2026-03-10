@@ -15,13 +15,20 @@ from ..models import (
     ObjectInstance,
     ObjectType,
     Ruleset,
+    StartPackTemplate,
 )
 
 
 def export_session_payload(session: GameSession) -> Dict[str, Any]:
+    ruleset_payload = session.ruleset.to_dict() if session.ruleset else None
+    start_pack_payload = None
+    if session.ruleset and session.ruleset.active_start_pack_template is not None:
+        start_pack_payload = session.ruleset.active_start_pack_template.to_dict(include_items=True)
     return {
+        "schema_version": 2,
         "session": session.to_dict(),
-        "ruleset": session.ruleset.to_dict() if session.ruleset else None,
+        "ruleset": ruleset_payload,
+        "ruleset_start_pack_template": start_pack_payload,
         "objects": [obj.to_dict() for obj in session.objects],
         "lots": [lot.to_dict() for lot in session.lots],
         "forecasts": [
@@ -88,6 +95,26 @@ def _resolve_ruleset(payload: Dict[str, Any]) -> Ruleset:
         )
         if row is not None:
             return row
+        start_pack_template_id = ruleset_payload.get("active_start_pack_template_id")
+        if start_pack_template_id is not None:
+            try:
+                template = db.session.get(StartPackTemplate, int(start_pack_template_id))
+                start_pack_template_id = template.id if template is not None else None
+            except Exception:
+                start_pack_template_id = None
+        row = Ruleset(
+            code=str(code),
+            version=str(version),
+            name=str(ruleset_payload.get("name") or f"{code}:{version}"),
+            config_json=dict(ruleset_payload.get("config_json") or {}),
+            model_settings_json=dict(ruleset_payload.get("model_settings") or {}),
+            active_start_pack_template_id=start_pack_template_id,
+            is_builtin=bool(ruleset_payload.get("is_builtin", False)),
+            is_active=False,
+        )
+        db.session.add(row)
+        db.session.flush()
+        return row
 
     fallback = db.session.query(Ruleset).filter_by(is_active=True).first()
     if fallback is not None:
@@ -238,6 +265,8 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
                 recommended_bid_soft=float(ev.get("recommended_bid_soft", 0.0) or 0.0),
                 recommended_bid_hard=float(ev.get("recommended_bid_hard", 0.0) or 0.0),
                 confidence=float(ev.get("confidence", 0.0) or 0.0),
+                is_stale=bool(ev.get("is_stale", False)),
+                stale_reason=str(ev.get("stale_reason", "")),
             )
         )
 

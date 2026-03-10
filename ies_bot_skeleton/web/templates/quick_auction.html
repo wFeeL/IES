@@ -29,28 +29,68 @@
     </article>
   </div>
 
+  <div class="card mt-4">
+    <div class="grid cols-3 gap-3">
+      <label class="label">Сортировка
+        <select id="qaSort" class="input">
+          <option value="score_desc">Score ↓</option>
+          <option value="risk_asc">Risk ↑</option>
+          <option value="bid_desc">Bid ↓</option>
+        </select>
+      </label>
+      <label class="label">Min score <input id="qaMinScore" class="input" type="number" step="0.1" /></label>
+      <label class="label">Max risk <input id="qaMaxRisk" class="input" type="number" step="0.1" /></label>
+    </div>
+    <div class="actions mt-3">
+      <button id="qaApplyFilters" class="btn btn-secondary" type="button">Применить</button>
+    </div>
+  </div>
+
   <div class="table-wrap mt-4">
     <table class="table" id="rankingTable">
-      <thead><tr><th>#</th><th>Lot</th><th>Score</th><th>Hard bid</th><th>Risk</th></tr></thead>
-      <tbody>
-        {% for row in ranking %}
+      <thead>
         <tr>
+          <th>#</th>
+          <th>Lot</th>
+          <th>Score</th>
+          <th>Risk</th>
+          <th>Recommended bid</th>
+          <th>Strategy fit</th>
+          <th>Explanation</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="rankingTableBody">
+        {% for row in ranking %}
+        <tr data-lot-id="{{ row.lot_id }}">
           <td>{{ loop.index }}</td>
           <td>{{ row.lot_id }}</td>
           <td>{{ '%.2f'|format(row.summary_score) }}</td>
-          <td>{{ '%.1f'|format(row.recommended_bid_hard) }}</td>
           <td>{{ '%.2f'|format(row.metrics.delta_risk) }}</td>
+          <td>{{ '%.1f'|format(row.recommended_bid_hard) }}</td>
+          <td>{{ row.strategy_fit_text or '-' }}</td>
+          <td>{{ row.risk_commentary or row.explanation }}</td>
+          <td>
+            <div class="actions">
+              <button class="btn btn-secondary quickEvalRow" data-lot-id="{{ row.lot_id }}" type="button">Evaluate</button>
+              <a class="btn btn-secondary" href="{{ url_for('pages.strategy_fit_page', lot_id=row.lot_id) }}">Strategy fit</a>
+              <a class="btn btn-secondary" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Open lot/session</a>
+            </div>
+          </td>
         </tr>
+        {% else %}
+        <tr><td colspan="8" class="muted">Нет данных для ранжирования</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
-<script defer src="{{ url_for('static', filename='js/quick_auction.js') }}"></script>
 <script>
 window.IES_QUICK_AUCTION = {
   sessionId: {{ session.id }},
   csrfToken: "{{ csrf_token() }}",
+  initialRanking: {{ ranking|tojson }},
 };
 </script>
+<script defer src="{{ url_for('static', filename='js/quick_auction.js') }}"></script>
 {% endblock %}

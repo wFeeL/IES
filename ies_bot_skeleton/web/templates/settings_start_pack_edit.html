@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Start Pack {{ mode }} | IES{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="h1">{% if mode == 'new' %}Новый шаблон стартового пакета{% else %}Редактирование шаблона стартового пакета{% endif %}</h1>
+  <form method="post" class="stack gap-3 mt-3" id="startPackForm">
+    {{ form.hidden_tag() }}
+    {{ form.items_state_json(id='startPackItemsState') }}
+    <div class="grid cols-2 gap-3">
+      <label class="label">{{ form.code.label }} {{ form.code(class_='input') }}</label>
+      <label class="label">{{ form.name.label }} {{ form.name(class_='input') }}</label>
+    </div>
+    <label class="label">{{ form.description.label }} {{ form.description(class_='input') }}</label>
+    <div class="actions">
+      <label class="inline">{{ form.is_active() }} <span>Активный</span></label>
+      <label class="inline">{{ form.is_builtin() }} <span>Builtin</span></label>
+    </div>
+
+    <div class="card">
+      <div class="actions">
+        <h2 class="h2">Строки шаблона</h2>
+        <button type="button" class="btn btn-secondary" id="startPackRowAddBtn">Добавить строку</button>
+      </div>
+      <div class="table-wrap mt-2">
+        <table class="table">
+          <thead><tr><th>Object type</th><th>Qty</th><th>Parent key</th><th>District</th><th>Name</th><th></th></tr></thead>
+          <tbody id="startPackRows"></tbody>
+        </table>
+      </div>
+      <div id="startPackSummary" class="muted mt-2"></div>
+    </div>
+
+    <details class="mt-3">
+      <summary>Advanced fallback: raw JSON</summary>
+      <label class="label mt-2">{{ form.items_json.label }} {{ form.items_json(class_='input h-48') }}</label>
+    </details>
+
+    <div class="actions mt-3">
+      <button class="btn btn-primary" type="submit">Сохранить</button>
+      {% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>{% endif %}
+    </div>
+  </form>
+</section>
+<script>
+window.IES_START_PACK_EDITOR = {
+  initialItemsRaw: {{ (form.items_state_json.data or form.items_json.data or '[]')|tojson }},
+  objectTypes: [
+    {% for row in object_types %}
+    {id: {{ row.id }}, code: {{ row.code|tojson }}, name: {{ row.name|tojson }}}{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ],
+};
+</script>
+<script>
+(() => {
+  const cfg = window.IES_START_PACK_EDITOR || {};
+  const rowsEl = document.getElementById('startPackRows');
+  const addBtn = document.getElementById('startPackRowAddBtn');
+  const summaryEl = document.getElementById('startPackSummary');
+  const hiddenEl = document.getElementById('startPackItemsState');
+  const rawEl = document.getElementById('{{ form.items_json.id }}');
+
+  const typeOptions = (cfg.objectTypes || []).map((x) => `<option value="${x.id}">${x.code} / ${x.name}</option>`).join('');
+
+  function parseInitial() {
+    try {
+      const raw = cfg.initialItemsRaw || '[]';
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function addRow(item) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><select class="input sp-object-type">${typeOptions}</select></td>
+      <td><input class="input sp-qty" type="number" min="1" value="${Number(item.quantity || 1)}" /></td>
+      <td><input class="input sp-parent" type="text" value="${item.parent_key || ''}" placeholder="row key" /></td>
+      <td><input class="input sp-district" type="text" value="${item.district || 'core'}" /></td>
+      <td><input class="input sp-name" type="text" value="${item.custom_name || ''}" /></td>
+      <td><button type="button" class="btn btn-secondary sp-remove">Remove</button></td>
+    `;
+    tr.querySelector('.sp-object-type').value = String(item.object_type_id || item.id || '');
+    tr.querySelector('.sp-remove').addEventListener('click', () => { tr.remove(); sync(); });
+    tr.querySelectorAll('input,select').forEach((el) => el.addEventListener('input', sync));
+    rowsEl.appendChild(tr);
+    sync();
+  }
+
+  function sync() {
+    const rows = Array.from(rowsEl.querySelectorAll('tr')).map((tr, idx) => ({
+      row_key: String(idx + 1),
+      parent_key: tr.querySelector('.sp-parent').value.trim() || null,
+      object_type_id: Number(tr.querySelector('.sp-object-type').value || 0),
+      quantity: Math.max(1, Number(tr.querySelector('.sp-qty').value || 1)),
+      district: tr.querySelector('.sp-district').value.trim() || 'core',
+      custom_name: tr.querySelector('.sp-name').value.trim(),
+      parameters: {},
+      sort_order: (idx + 1) * 10,
+      is_active: true,
+    })).filter((row) => row.object_type_id > 0);
+
+    hiddenEl.value = JSON.stringify(rows);
+    if (rawEl) rawEl.value = JSON.stringify(rows, null, 2);
+    summaryEl.textContent = rows.length ? `Строк: ${rows.length}` : 'Добавьте минимум одну строку.';
+  }
+
+  addBtn?.addEventListener('click', () => addRow({}));
+  const initial = parseInitial();
+  if (initial.length) {
+    initial.forEach((row) => addRow(row));
+  } else {
+    addRow({});
+  }
+})();
+</script>
+{% endblock %}

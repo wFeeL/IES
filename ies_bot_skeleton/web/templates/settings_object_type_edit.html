@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Object Type {{ mode }} | IES{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="h1">{% if mode == 'new' %}Новый тип объекта{% else %}Редактирование типа объекта{% endif %}</h1>
+  <form method="post" class="stack gap-3 mt-3">
+    {{ form.hidden_tag() }}
+    <div class="grid cols-2 gap-3">
+      <label class="label">{{ form.code.label }} {{ form.code(class_='input') }}</label>
+      <label class="label">{{ form.name.label }} {{ form.name(class_='input') }}</label>
+    </div>
+    <div class="grid cols-2 gap-3">
+      <label class="label">{{ form.category.label }} {{ form.category(class_='input') }}</label>
+      <label class="label">{{ form.subtype.label }} {{ form.subtype(class_='input') }}</label>
+    </div>
+    <label class="label">{{ form.description.label }} {{ form.description(class_='input') }}</label>
+    <label class="label">{{ form.default_parameters_json.label }} {{ form.default_parameters_json(class_='input h-48') }}</label>
+    <label class="label">{{ form.editable_fields_json.label }} {{ form.editable_fields_json(class_='input h-48') }}</label>
+    <label class="label">{{ form.rules_json.label }} {{ form.rules_json(class_='input h-48') }}</label>
+    <label class="inline">{{ form.is_active() }} <span>Активный</span></label>
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">Сохранить</button>
+      {% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>{% endif %}
+    </div>
+  </form>
+</section>
+{% endblock %}

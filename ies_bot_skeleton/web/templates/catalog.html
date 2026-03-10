@@ -5,7 +5,7 @@
   <h1 class="h1">Справочник объектов</h1>
   <div class="table-wrap mt-3">
     <table class="table">
-      <thead><tr><th>Code</th><th>Название</th><th>Категория</th><th>Подтип</th><th>Активен</th></tr></thead>
+      <thead><tr><th>Code</th><th>Название</th><th>Категория</th><th>Подтип</th><th>Активен</th><th></th></tr></thead>
       <tbody>
         {% for row in object_types %}
         <tr>
@@ -14,6 +14,11 @@
           <td>{{ row.category }}</td>
           <td>{{ row.subtype }}</td>
           <td>{{ 'да' if row.is_active else 'нет' }}</td>
+          <td>
+            {% if current_user.role == 'admin' %}
+            <a class="btn btn-secondary" href="{{ url_for('pages.settings_object_type_edit_page', object_type_id=row.id) }}">Edit</a>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>

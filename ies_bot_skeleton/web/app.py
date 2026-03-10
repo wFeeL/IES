@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from flask import Flask
+from flask import Flask, request
 from flask_wtf.csrf import generate_csrf
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -13,6 +13,12 @@ from .extensions import csrf, db, login_manager, migrate
 from .models import User
 from .routes.api import api_bp
 from .routes.pages import pages_bp
+from .services.navigation import (
+    build_breadcrumbs,
+    is_safe_internal_url,
+    safe_back_url,
+    safe_next_url,
+)
 
 
 def create_app(config_name: Optional[str] = None) -> Flask:
@@ -38,6 +44,14 @@ def create_app(config_name: Optional[str] = None) -> Flask:
     def inject_globals():
         return {
             "csrf_token": generate_csrf,
+            "build_breadcrumbs": build_breadcrumbs,
+            "is_safe_internal_url": is_safe_internal_url,
+            "safe_back_url": safe_back_url,
+            "safe_next_url": safe_next_url,
+            "breadcrumbs": [],
+            "back_url": safe_back_url(req=request),
+            "cancel_url": None,
+            "stale_warning": None,
         }
 
     app.register_blueprint(pages_bp)
