@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Edit Lots {{ session.id }} | IES{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="h1">Добавить лот в сессию #{{ session.id }}</h1>
+  <p class="muted">`items_json` формат: [{"object_type_code":"wind","quantity":1,"overrides":{...}}]</p>
+  <form method="post" class="stack gap-3 mt-3">
+    {{ form.hidden_tag() }}
+    {{ form.session_id(value=session.id, type='hidden') }}
+    <label class="label">{{ form.name.label }} {{ form.name(class_='input') }}</label>
+    <div class="grid cols-3 gap-3">
+      <label class="label">{{ form.scope.label }} {{ form.scope(class_='input') }}</label>
+      <label class="label">{{ form.status.label }} {{ form.status(class_='input') }}</label>
+      <label class="label">{{ form.available_round.label }} {{ form.available_round(class_='input') }}</label>
+    </div>
+    <div class="grid cols-2 gap-3">
+      <label class="label">{{ form.base_bid.label }} {{ form.base_bid(class_='input') }}</label>
+      <label class="label">{{ form.current_bid.label }} {{ form.current_bid(class_='input') }}</label>
+    </div>
+    <label class="label">{{ form.note.label }} {{ form.note(class_='input') }}</label>
+    <label class="label">{{ form.items_json.label }} {{ form.items_json(class_='input h-48', placeholder='[{"object_type_code":"wind","quantity":1}]') }}</label>
+    <button class="btn btn-primary" type="submit">Сохранить</button>
+  </form>
+</section>
+{% endblock %}

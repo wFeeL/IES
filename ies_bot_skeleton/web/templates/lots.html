@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Lots {{ session.id }} | IES{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="h1">Лоты сессии #{{ session.id }}</h1>
+  <div class="actions mt-3">
+    <a class="btn btn-primary" href="{{ url_for('pages.lots_edit', session_id=session.id) }}">Добавить лот</a>
+    <button class="btn btn-secondary" id="addStartPackBtn">Добавить стартовый пакет</button>
+  </div>
+  <div id="startPackStatus" class="muted mt-2"></div>
+
+  <div class="grid cols-2 gap-4 mt-4">
+    {% for lot in lots %}
+    <article class="card card-lot">
+      <h3 class="h3">{{ lot.name }}</h3>
+      <p class="muted">scope={{ lot.scope }} | status={{ lot.status }} | bid={{ '%.1f'|format(lot.current_bid) }}</p>
+      <ul class="stack gap-1 mt-2">
+        {% for item in lot.items %}
+        <li><code>{{ item.object_type.code if item.object_type else item.object_type_id }}</code> x{{ item.quantity }}</li>
+        {% else %}
+        <li class="muted">Пустой лот</li>
+        {% endfor %}
+      </ul>
+      <div class="actions mt-3">
+        <button class="btn btn-secondary evalBtn" data-lot-id="{{ lot.id }}">Оценить</button>
+        <a class="btn btn-secondary" href="{{ url_for('pages.strategy_fit_page', lot_id=lot.id) }}">Стратегии</a>
+      </div>
+      <pre class="mini-output" id="lotOut{{ lot.id }}"></pre>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+<script>
+(() => {
+  const csrf = "{{ csrf_token() }}";
+  const sessionId = {{ session.id }};
+
+  document.getElementById("addStartPackBtn")?.addEventListener("click", async () => {
+    const res = await fetch(`/api/sessions/${sessionId}/add-start-pack`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRFToken": csrf},
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    const el = document.getElementById("startPackStatus");
+    el.textContent = data.ok ? `Добавлено объектов: ${data.created.length}` : `Ошибка: ${data.error}`;
+    if (data.ok) window.location.reload();
+  });
+
+  document.querySelectorAll(".evalBtn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const lotId = btn.dataset.lotId;
+      const outEl = document.getElementById(`lotOut${lotId}`);
+      outEl.textContent = "Считаю...";
+      const res = await fetch(`/api/lots/${lotId}/evaluate`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "X-CSRFToken": csrf},
+        body: JSON.stringify({mode: "forecast"})
+      });
+      const data = await res.json();
+      outEl.textContent = JSON.stringify(data, null, 2);
+    });
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Model Settings | IES{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="h1">Настройки модели / Rulesets</h1>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead><tr><th>ID</th><th>Code</th><th>Version</th><th>Name</th><th>Builtin</th><th>Active</th></tr></thead>
+      <tbody>
+        {% for row in rulesets %}
+        <tr>
+          <td>{{ row.id }}</td>
+          <td>{{ row.code }}</td>
+          <td>{{ row.version }}</td>
+          <td>{{ row.name }}</td>
+          <td>{{ 'yes' if row.is_builtin else 'no' }}</td>
+          <td>{{ 'yes' if row.is_active else 'no' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

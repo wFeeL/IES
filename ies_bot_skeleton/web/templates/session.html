@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Session {{ session.id }} | IES{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="h1">Сессия #{{ session.id }}: {{ session.title }}</h1>
+  <p class="muted">Стратегия: {{ session.selected_strategy }} | Бюджет: {{ '%.1f'|format(session.budget_total) }} | Потрачено all-pay: {{ '%.1f'|format(session.allpay_spent) }}</p>
+  <div class="grid cols-3 gap-3 mt-4">
+    <a class="tile" href="{{ url_for('pages.system_view', session_id=session.id) }}">Текущая энергосистема</a>
+    <a class="tile" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Лоты</a>
+    <a class="tile" href="{{ url_for('pages.lots_edit', session_id=session.id) }}">Добавить/редактировать лот</a>
+    <a class="tile" href="{{ url_for('pages.forecast_page', session_id=session.id) }}">Прогнозы</a>
+    <a class="tile" href="{{ url_for('pages.evaluation_page', session_id=session.id) }}">Оценка лотов</a>
+    <a class="tile" href="{{ url_for('pages.compare_page', session_id=session.id) }}">Сравнение</a>
+    <a class="tile" href="{{ url_for('pages.recommend_page', session_id=session.id) }}">Рекомендации</a>
+    <a class="tile" href="{{ url_for('pages.quick_auction_page', session_id=session.id) }}">Быстрый аукцион</a>
+  </div>
+</section>
+{% endblock %}

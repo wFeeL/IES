@@ -1,0 +1,267 @@
+from __future__ import annotations
+
+import csv
+import io
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+from ..extensions import db
+from ..models import Forecast, ForecastPeriod, GameSession
+
+
+@dataclass
+class ForecastDiagnostics:
+    errors: List[str]
+    warnings: List[str]
+    column_map: Dict[str, Any]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "errors": list(self.errors),
+            "warnings": list(self.warnings),
+            "column_map": dict(self.column_map),
+        }
+
+
+def _norm(value: str) -> str:
+    return "".join(ch.lower() for ch in str(value or "").strip())
+
+
+def _detect_delimiter(sample: str) -> str:
+    options = [",", ";", "\t", "|"]
+    return max(options, key=sample.count)
+
+
+def _parse_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    raw = str(value).strip().replace(",", ".")
+    if not raw:
+        return None
+    try:
+        out = float(raw)
+    except ValueError:
+        return None
+    return out
+
+
+def _guess_columns(headers: List[str]) -> Dict[str, Any]:
+    h = [_norm(x) for x in headers]
+    out: Dict[str, Any] = {"consumption": {}}
+
+    def find(*names: str) -> Optional[str]:
+        for name in names:
+            key = _norm(name)
+            if key in h:
+                return headers[h.index(key)]
+        return None
+
+    out["tick"] = find("tick", "t", "step", "time")
+    out["wind"] = find("wind", "wind_speed", "ветер")
+    out["illumination"] = find("illumination", "solar", "sun", "light", "освещенность")
+    out["market_price"] = find("market_price", "price", "external_price", "рынок")
+
+    for idx, raw in enumerate(headers):
+        key = h[idx]
+        if key in {
+            _norm(out.get("tick", "")),
+            _norm(out.get("wind", "")),
+            _norm(out.get("illumination", "")),
+            _norm(out.get("market_price", "")),
+        }:
+            continue
+        if key.startswith("load_"):
+            out["consumption"][raw] = raw
+            continue
+        if key.startswith("consumption_"):
+            out["consumption"][raw] = raw
+            continue
+        if key in {"housea", "houseb", "office", "factory", "consumer"}:
+            out["consumption"][raw] = raw
+
+    if not out["consumption"]:
+        for raw in headers:
+            if _norm(raw) in {"load", "consumption", "demand"}:
+                out["consumption"][raw] = raw
+
+    return out
+
+
+def _resolved_column_map(
+    guessed: Dict[str, Any],
+    incoming_map: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    out = dict(guessed)
+    out.setdefault("consumption", {})
+    if incoming_map:
+        for key in ("tick", "wind", "illumination", "market_price"):
+            if incoming_map.get(key):
+                out[key] = incoming_map[key]
+        if isinstance(incoming_map.get("consumption"), dict):
+            out["consumption"] = dict(incoming_map["consumption"])
+    return out
+
+
+def _read_csv(content: bytes) -> Tuple[List[str], List[Dict[str, str]]]:
+    text = content.decode("utf-8", errors="replace")
+    delim = _detect_delimiter(text[:4096])
+    reader = csv.DictReader(io.StringIO(text), delimiter=delim)
+    headers = list(reader.fieldnames or [])
+    rows = [dict(row) for row in reader]
+    return headers, rows
+
+
+def parse_and_store_forecast(
+    *,
+    session_id: int,
+    name: str,
+    source_file: str,
+    content: bytes,
+    column_map: Optional[Dict[str, Any]] = None,
+) -> Tuple[Forecast, ForecastDiagnostics]:
+    session_obj = db.session.get(GameSession, session_id)
+    if session_obj is None:
+        raise ValueError(f"Session {session_id} not found")
+
+    headers, rows = _read_csv(content)
+    guessed = _guess_columns(headers)
+    resolved = _resolved_column_map(guessed, column_map)
+
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    tick_col = resolved.get("tick")
+    if not tick_col:
+        errors.append("Не найден столбец tick/time")
+
+    if not rows:
+        errors.append("CSV пустой")
+
+    periods: List[ForecastPeriod] = []
+    for row_idx, row in enumerate(rows, start=2):
+        if not tick_col:
+            break
+        tick_raw = row.get(tick_col)
+        try:
+            tick = int(float(str(tick_raw).strip().replace(",", ".")))
+        except Exception:
+            errors.append(f"Строка {row_idx}: некорректный tick '{tick_raw}'")
+            continue
+
+        wind = _parse_float(row.get(resolved.get("wind", ""))) if resolved.get("wind") else None
+        illum = (
+            _parse_float(row.get(resolved.get("illumination", "")))
+            if resolved.get("illumination")
+            else None
+        )
+        market_price = (
+            _parse_float(row.get(resolved.get("market_price", "")))
+            if resolved.get("market_price")
+            else None
+        )
+
+        consumption: Dict[str, float] = {}
+        cons_map = resolved.get("consumption", {}) or {}
+        for metric_name, col_name in cons_map.items():
+            value = _parse_float(row.get(col_name))
+            if value is None:
+                continue
+            if value < 0:
+                warnings.append(f"Строка {row_idx}: потребление {metric_name} < 0, обрезано до 0")
+                value = 0.0
+            consumption[_norm(metric_name)] = float(value)
+
+        extra: Dict[str, Any] = {}
+        known = {
+            resolved.get("tick"),
+            resolved.get("wind"),
+            resolved.get("illumination"),
+            resolved.get("market_price"),
+        }
+        known.update((resolved.get("consumption", {}) or {}).values())
+        for key, value in row.items():
+            if key in known:
+                continue
+            fv = _parse_float(value)
+            extra[_norm(key)] = fv if fv is not None else value
+
+        periods.append(
+            ForecastPeriod(
+                tick=tick,
+                illumination=illum,
+                wind=wind,
+                market_price=market_price,
+                consumption_json=consumption,
+                extra_json=extra,
+            )
+        )
+
+    if errors:
+        raise ValueError("; ".join(errors))
+
+    forecast = Forecast(
+        session_id=session_id,
+        name=name,
+        source_file=source_file,
+        column_map_json=resolved,
+        metadata_json={"rows": len(periods), "warnings": len(warnings)},
+    )
+    forecast.periods = periods
+    db.session.add(forecast)
+    db.session.commit()
+
+    return forecast, ForecastDiagnostics(errors=[], warnings=warnings, column_map=resolved)
+
+
+def build_forecast_pack(forecast: Forecast) -> Dict[str, Dict[str, Dict[int, float]]]:
+    wind: Dict[int, float] = {}
+    solar: Dict[int, float] = {}
+    market: Dict[int, float] = {}
+    load_series: Dict[str, Dict[int, float]] = {}
+
+    for period in forecast.periods:
+        if period.wind is not None:
+            wind[int(period.tick)] = float(period.wind)
+        if period.illumination is not None:
+            solar[int(period.tick)] = float(period.illumination)
+        if period.market_price is not None:
+            market[int(period.tick)] = float(period.market_price)
+        for key, value in (period.consumption_json or {}).items():
+            if value is None:
+                continue
+            load_series.setdefault(_norm(key), {})[int(period.tick)] = float(value)
+
+    class3 = {}
+    for tick in set().union(*[set(v.keys()) for v in load_series.values()] or [set()]):
+        total = 0.0
+        for key in ("housea", "houseb", "office", "consumer", "load"):
+            total += load_series.get(key, {}).get(tick, 0.0)
+        if total > 0:
+            class3[tick] = total
+
+    out = {
+        "wind": {"wind": wind} if wind else {},
+        "solar": {"solar": solar} if solar else {},
+        "load": load_series,
+        "market": {"price": market} if market else {},
+    }
+    if class3:
+        out["load"]["class3"] = class3
+    return out
+
+
+def merge_uploaded_forecasts(
+    forecasts: Iterable[Forecast],
+) -> Dict[str, Dict[str, Dict[int, float]]]:
+    merged: Dict[str, Dict[str, Dict[int, float]]] = {
+        "wind": {},
+        "solar": {},
+        "load": {},
+        "market": {},
+    }
+    for forecast in forecasts:
+        pack = build_forecast_pack(forecast)
+        for kind, bucket in pack.items():
+            for series_key, values in bucket.items():
+                merged[kind].setdefault(series_key, {}).update(values)
+    return merged

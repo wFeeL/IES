@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Forecast {{ session.id }} | IES{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="h1">Прогнозы: {{ session.title }}</h1>
+  <form id="forecastForm" class="stack gap-3 mt-3" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <input type="hidden" name="session_id" value="{{ session.id }}" />
+    <label class="label">Название <input class="input" type="text" name="name" value="forecast-{{ session.id }}" /></label>
+    <label class="label">CSV <input class="input" type="file" name="file" accept=".csv" /></label>
+    <button class="btn btn-primary" type="submit">Загрузить</button>
+  </form>
+  <pre id="forecastOut" class="mini-output mt-3"></pre>
+
+  <div class="table-wrap mt-4">
+    <table class="table">
+      <thead><tr><th>ID</th><th>Название</th><th>Файл</th><th>Периодов</th><th></th></tr></thead>
+      <tbody>
+        {% for fc in forecasts %}
+        <tr>
+          <td>{{ fc.id }}</td>
+          <td>{{ fc.name }}</td>
+          <td>{{ fc.source_file }}</td>
+          <td>{{ fc.periods|length }}</td>
+          <td><button class="btn btn-secondary analyzeBtn" data-forecast-id="{{ fc.id }}">Analyze</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+<script>
+(() => {
+  const out = document.getElementById("forecastOut");
+  document.getElementById("forecastForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    out.textContent = "Загрузка...";
+    const res = await fetch("/api/forecast/upload", {method: "POST", body: formData});
+    const data = await res.json();
+    out.textContent = JSON.stringify(data, null, 2);
+    if (data.ok) window.location.reload();
+  });
+
+  document.querySelectorAll(".analyzeBtn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.forecastId;
+      out.textContent = "Анализ...";
+      const res = await fetch(`/api/forecast/${id}/analyze`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "X-CSRFToken": "{{ csrf_token() }}"},
+        body: JSON.stringify({})
+      });
+      out.textContent = JSON.stringify(await res.json(), null, 2);
+    });
+  });
+})();
+</script>
+{% endblock %}

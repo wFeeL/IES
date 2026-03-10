@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}IES Web{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}" />
+    <script defer src="{{ url_for('static', filename='js/theme.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='vendor/chart.min.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='vendor/plotly.min.js') }}"></script>
+    {% block head_extra %}{% endblock %}
+  </head>
+  <body class="bg-page text-main">
+    <header class="border-b border-subtle bg-surface sticky top-0 z-50">
+      <div class="container flex items-center justify-between py-3">
+        <div class="flex gap-2 items-center">
+          <a class="brand" href="{{ url_for('pages.dashboard') }}">IES Lot MVP</a>
+          {% if current_user.is_authenticated %}
+          <span class="badge">{{ current_user.username }} / {{ current_user.role }}</span>
+          {% endif %}
+        </div>
+        <div class="flex gap-2 items-center">
+          <button type="button" class="btn btn-secondary" id="themeToggle">Тема</button>
+          {% if current_user.is_authenticated %}
+          <form method="post" action="{{ url_for('pages.logout') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            <button class="btn btn-danger" type="submit">Выйти</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% if current_user.is_authenticated %}
+      <nav class="container pb-3">
+        <div class="tabs">
+          <a href="{{ url_for('pages.dashboard') }}">Dashboard</a>
+          <a href="{{ url_for('pages.catalog') }}">Справочник</a>
+          <a href="{{ url_for('pages.settings_model_page') if current_user.role == 'admin' else '#' }}">Модель</a>
+        </div>
+      </nav>
+      {% endif %}
+    </header>
+
+    <main class="container py-6">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <section class="flash-stack">
+        {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </section>
+      {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

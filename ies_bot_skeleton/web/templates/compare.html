@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Compare {{ session.id }} | IES{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="h1">Сравнение лотов</h1>
+  <p class="muted">Сессия {{ session.title }}</p>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead><tr><th>#</th><th>Lot</th><th>Score</th><th>Δscore</th><th>Hard bid</th><th>Confidence</th></tr></thead>
+      <tbody>
+        {% for row in ranking %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ row.lot_id }}</td>
+          <td>{{ '%.2f'|format(row.summary_score) }}</td>
+          <td>{{ '%.2f'|format(row.metrics.delta_score) }}</td>
+          <td>{{ '%.1f'|format(row.recommended_bid_hard) }}</td>
+          <td>{{ '%.2f'|format(row.confidence) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted">Добавьте минимум 2 лота</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <canvas id="compareChart" class="chart mt-4"></canvas>
+</section>
+<script>
+(() => {
+  const rows = {{ ranking|tojson }};
+  if (!rows.length || typeof Chart === "undefined") return;
+  const ctx = document.getElementById("compareChart");
+  const labels = rows.map((x) => `Lot ${x.lot_id}`);
+  const values = rows.map((x) => x.summary_score);
+  new Chart(ctx, {
+    type: "bar",
+    data: {labels, datasets: [{label: "Summary score", data: values, backgroundColor: "#22d3ee"}]},
+    options: {responsive: true}
+  });
+})();
+</script>
+{% endblock %}

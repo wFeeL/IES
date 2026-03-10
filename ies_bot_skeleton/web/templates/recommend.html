@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Recommend {{ session.id }} | IES{% endblock %}
+{% block content %}
+<section class="card">
+  <h1 class="h1">Рекомендация по лучшему лоту</h1>
+  {% if recommendation and recommendation.best %}
+  <p class="lead">{{ recommendation.text }}</p>
+  <div class="grid cols-2 gap-4 mt-4">
+    <article class="card card-lot">
+      <h2 class="h2">Лучший</h2>
+      <p>Lot {{ recommendation.best.lot_id }}</p>
+      <p>Score: {{ '%.2f'|format(recommendation.best.summary_score) }}</p>
+      <p>Hard bid: {{ '%.1f'|format(recommendation.best.metrics.recommended_bid_hard) }}</p>
+      <p>Причина: {{ recommendation.best.explanation }}</p>
+    </article>
+    <article class="card card-lot">
+      <h2 class="h2">Альтернативы</h2>
+      <ul class="stack gap-2 mt-2">
+        {% for row in recommendation.alternatives %}
+        <li>Lot {{ row.lot_id }}: score {{ '%.2f'|format(row.summary_score) }}, bid {{ '%.1f'|format(row.recommended_bid_hard) }}</li>
+        {% else %}
+        <li class="muted">Нет альтернатив</li>
+        {% endfor %}
+      </ul>
+    </article>
+  </div>
+  {% else %}
+  <p class="muted">Нет данных для рекомендации</p>
+  {% endif %}
+</section>
+{% endblock %}
