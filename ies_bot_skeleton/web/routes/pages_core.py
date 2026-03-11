@@ -8,6 +8,7 @@ from flask_login import current_user, login_required, login_user, logout_user
 from ..extensions import db
 from ..forms import (
     AnalysisModeForm,
+    ConfirmDeleteForm,
     CorridorSettingsForm,
     ForecastSelectionForm,
     LoginForm,
@@ -17,8 +18,16 @@ from ..models import GameSession, ObjectType, Ruleset, User
 from ..services.analysis_context import session_analysis_settings, update_session_analysis_settings
 from ..services.corridor import ruleset_default_corridor_settings
 from ..services.navigation import is_safe_internal_url, safe_next_url
+from ..services.strategy_catalog import strategy_list, strategy_meta
+from ..services.ui_text import SESSION_TERMS, analysis_mode_label, strategy_label
 from .page_support import nav, session_analysis_view, session_stale_ctx
 from .shared import pages_bp
+
+
+def _fmt_datetime(value) -> str:
+    if value is None:
+        return "—"
+    return value.strftime("%d.%m.%Y %H:%M")
 
 
 def _dashboard_cards(sessions: List[GameSession]) -> List[Dict[str, object]]:
@@ -29,15 +38,16 @@ def _dashboard_cards(sessions: List[GameSession]) -> List[Dict[str, object]]:
                 "id": session.id,
                 "title": session.title,
                 "strategy": session.selected_strategy,
+                "strategy_label": strategy_label(session.selected_strategy),
                 "budget_total": float(session.budget_total or 0.0),
                 "lots_count": len(session.lots),
                 "objects_count": len(session.objects),
                 "has_forecast": bool(session.selected_forecast_id or session.forecasts),
                 "analysis_mode": session.analysis_mode,
-                "analysis_mode_label": "С прогнозом"
-                if session.analysis_mode == "forecast"
-                else "Без прогноза",
+                "analysis_mode_label": analysis_mode_label(session.analysis_mode),
+                "updated_at_label": _fmt_datetime(session.updated_at),
                 "url": url_for("pages.session_page", session_id=session.id),
+                "delete_url": url_for("pages.session_delete_confirm_page", session_id=session.id),
             }
         )
     return out
@@ -150,6 +160,9 @@ def dashboard():
         sessions=sessions,
         session_cards=_dashboard_cards(sessions),
         form=form,
+        session_terms=SESSION_TERMS,
+        selected_strategy_meta=strategy_meta(form.selected_strategy.data or "balanced"),
+        strategy_catalog=strategy_list(),
     )
 
 
@@ -191,7 +204,50 @@ def session_page(session_id: int):
         session=session,
         readiness=readiness,
         quick_links=quick_links,
+        delete_url=url_for("pages.session_delete_confirm_page", session_id=session.id),
         **_workbench_forms(session),
+        **session_analysis_view(session),
+        **ctx,
+        **session_stale_ctx(session),
+    )
+
+
+@pages_bp.route("/sessions/<int:session_id>/delete", methods=["GET", "POST"])
+@login_required
+def session_delete_confirm_page(session_id: int):
+    session = db.session.get(GameSession, session_id)
+    if session is None:
+        return redirect(url_for("pages.dashboard"))
+
+    form = ConfirmDeleteForm()
+    if form.validate_on_submit():
+        title = session.title
+        db.session.delete(session)
+        db.session.commit()
+        flash(f"Сессия «{title}» удалена", "success")
+        return redirect(url_for("pages.dashboard"))
+
+    summary = {
+        "objects_count": len(session.objects),
+        "lots_count": len(session.lots),
+        "forecasts_count": len(session.forecasts),
+        "evaluations_count": len(session.evaluations),
+    }
+    ctx = nav(
+        breadcrumb_items=[
+            ("Сессии", "pages.dashboard", None),
+            (session.title, "pages.session_page", {"session_id": session.id}),
+            ("Удаление сессии", None, None),
+        ],
+        fallback_endpoint="pages.session_page",
+        fallback_values={"session_id": session.id},
+        cancel_url=url_for("pages.session_page", session_id=session.id),
+    )
+    return render_template(
+        "core/session_delete_confirm.html",
+        session=session,
+        form=form,
+        summary=summary,
         **session_analysis_view(session),
         **ctx,
         **session_stale_ctx(session),
@@ -270,9 +326,6 @@ def session_forecast_selection_action(session_id: int):
 @login_required
 def catalog():
     rows = db.session.query(ObjectType).order_by(ObjectType.category, ObjectType.code).all()
-    sections: Dict[str, List[ObjectType]] = {}
-    for row in rows:
-        sections.setdefault(row.category, []).append(row)
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -280,4 +333,12 @@ def catalog():
         ],
         fallback_endpoint="pages.dashboard",
     )
-    return render_template("core/catalog.html", object_types=rows, sections=sections, **ctx)
+    from ..services.catalog_presenters import build_catalog_sections, glossary_groups
+
+    return render_template(
+        "core/catalog.html",
+        object_types=rows,
+        sections=build_catalog_sections(rows),
+        glossary=glossary_groups(),
+        **ctx,
+    )

@@ -2,7 +2,9 @@
 {% block title %}История оценок {{ session.id }} | IES{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
+{% if show_analysis_context is not defined or show_analysis_context %}
 {% include "components/analysis_context.html" %}
+{% endif %}
 
 <section class="card mt-4">
   <div class="section-head">
@@ -13,7 +15,7 @@
   </div>
   <div class="table-wrap mt-3">
     <table class="table">
-      <thead><tr><th>ID</th><th>Лот</th><th>Режим</th><th>Score</th><th>Bid corridor</th><th>Уверенность</th><th>Актуальность</th><th>Пояснение</th></tr></thead>
+      <thead><tr><th>ID</th><th>Лот</th><th>Режим</th><th>Оценка</th><th>Коридор ставок</th><th>Уверенность</th><th>Актуальность</th><th>Пояснение</th></tr></thead>
       <tbody>
         {% for row in evaluations %}
         <tr>

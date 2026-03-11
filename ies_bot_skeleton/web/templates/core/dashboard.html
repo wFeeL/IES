@@ -2,37 +2,52 @@
 {% block title %}Сессии | IES{% endblock %}
 {% block content %}
 <section class="page-grid">
-  <div class="stack gap-4">
+  <div class="stack gap-6">
     <article class="card">
       <p class="section-kicker">Новая сессия</p>
-      <h1 class="h1">Подготовить рабочее место</h1>
-      <p class="muted">Создайте сессию, чтобы собрать контекст, выбрать режим анализа и перейти к аукциону.</p>
+      <h1 class="h1">{{ session_terms.create_title }}</h1>
+      <p class="muted">Создайте сессию, чтобы собрать контекст, выбрать режим анализа и перейти к сравнению, рекомендациям и аукциону.</p>
       <form method="post" class="stack gap-3 mt-4">
         {{ form.hidden_tag() }}
         <label class="label">{{ form.title.label }} {{ form.title(class_='input') }}</label>
         <label class="label">{{ form.ruleset_id.label }} {{ form.ruleset_id(class_='input') }}</label>
-        <label class="label">{{ form.selected_strategy.label }} {{ form.selected_strategy(class_='input') }}</label>
+        <label class="label">{{ form.selected_strategy.label }} {{ form.selected_strategy(class_='input', id='sessionStrategySelect') }}</label>
         <label class="label">{{ form.budget_total.label }} {{ form.budget_total(class_='input') }}</label>
         <button class="btn btn-primary btn-block" type="submit">Создать сессию</button>
       </form>
+      <article class="strategy-card mt-4" id="strategySummaryCard">
+        <p class="section-kicker">Пояснение к стратегии</p>
+        <h2 class="h2" id="strategySummaryLabel">{{ selected_strategy_meta.label }}</h2>
+        <p class="lead mt-2" id="strategySummaryText">{{ selected_strategy_meta.summary }}</p>
+        <p class="muted mt-2" id="strategySummaryHint">{{ selected_strategy_meta.when_to_use }}</p>
+      </article>
+      <div class="stack gap-2 mt-4">
+        <p class="section-kicker">Все стратегии</p>
+        {% for row in strategy_catalog %}
+        <div class="strategy-list-item">
+          <strong>{{ row.label }}</strong>
+          <span class="muted">{{ row.summary }}</span>
+        </div>
+        {% endfor %}
+      </div>
     </article>
   </div>
 
-  <div class="stack gap-4">
+  <div class="stack gap-6">
     <article class="card">
       <div class="section-head">
         <div>
-          <p class="section-kicker">Рабочие сессии</p>
+          <p class="section-kicker">{{ session_terms.collection_title }}</p>
           <h2 class="h2">Готовность к анализу</h2>
         </div>
       </div>
-      <div class="stack gap-3 mt-3">
+      <div class="stack gap-4 mt-4">
         {% for row in session_cards %}
         <article class="session-card">
           <div class="session-card-main">
             <div>
               <h3 class="h3">{{ row.title }}</h3>
-              <p class="muted">Стратегия: {{ row.strategy }} · Бюджет: {{ '%.1f'|format(row.budget_total) }}</p>
+              <p class="muted">Стратегия: {{ row.strategy_label }} · Бюджет: {{ '%.1f'|format(row.budget_total) }} · Обновлено: {{ row.updated_at_label }}</p>
             </div>
             <span class="status-badge {{ 'status-fresh' if row.has_forecast else 'status-stale' }}">{{ row.analysis_mode_label }}</span>
           </div>
@@ -41,17 +56,22 @@
             <span class="pill">{{ row.objects_count }} объектов</span>
             <span class="pill">{{ 'есть прогноз' if row.has_forecast else 'без прогноза' }}</span>
           </div>
-          <div class="actions mt-3">
-            <a class="btn btn-primary" href="{{ row.url }}">Открыть рабочее место</a>
+          <div class="actions mt-4">
+            <a class="btn btn-primary" href="{{ row.url }}">{{ session_terms.open_cta }}</a>
+            <a class="btn btn-danger" href="{{ row.delete_url }}">{{ session_terms.delete_cta }}</a>
           </div>
         </article>
         {% else %}
         <div class="empty-state">
-          Пока нет сессий. Начните с карточки слева и создайте первую рабочую сессию.
+          Пока нет сессий. Начните с карточки слева и создайте первую сессию.
         </div>
         {% endfor %}
       </div>
     </article>
   </div>
 </section>
+<script>
+window.IES_SESSION_STRATEGIES = {{ strategy_catalog|tojson }};
+</script>
+<script defer src="{{ url_for('static', filename='js/analysis/session_form.js') }}"></script>
 {% endblock %}

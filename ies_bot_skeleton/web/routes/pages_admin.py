@@ -6,6 +6,17 @@ from flask import flash, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from ..forms import ObjectTypeForm, RulesetCopyForm, RulesetForm, StartPackTemplateForm
+from ..services.admin_schemas import (
+    OBJECT_TYPE_SUBTYPE_CHOICES,
+    object_type_field_value,
+    object_type_payload_from_request,
+    object_type_rule_definitions,
+    object_type_section_definitions,
+    ruleset_form_values,
+    ruleset_payload_from_request,
+    ruleset_sections,
+    strategy_profile_matrix,
+)
 from ..services.auth import role_required
 from ..services.object_type_admin import (
     create_object_type,
@@ -23,6 +34,7 @@ from ..services.ruleset_admin import (
     list_rulesets,
     update_ruleset,
 )
+from ..services.ruleset import build_default_ruleset_config
 from ..services.start_pack import (
     create_start_pack_template,
     deactivate_start_pack_template,
@@ -32,6 +44,95 @@ from ..services.start_pack import (
 )
 from .page_support import admin_links, nav, parse_json
 from .shared import pages_bp
+
+
+def _prepare_object_type_form(form: ObjectTypeForm, row=None) -> None:
+    if request.method == "GET":
+        form.category.data = (row.category if row is not None else form.category.data) or "consumer"
+        form.subtype.data = (row.subtype if row is not None else form.subtype.data) or ""
+    current_subtype = (form.subtype.data or (row.subtype if row is not None else "") or "").strip()
+    choices = list(OBJECT_TYPE_SUBTYPE_CHOICES)
+    if current_subtype and current_subtype not in {value for value, _ in choices}:
+        choices.append((current_subtype, current_subtype))
+    form.subtype.choices = choices
+
+
+def _object_type_editor_state(form: ObjectTypeForm, row=None):
+    category = (form.category.data or (row.category if row is not None else "consumer") or "consumer").strip()
+    subtype = (form.subtype.data or (row.subtype if row is not None else "") or "").strip()
+    defaults = dict(row.default_parameters_json or {}) if row is not None else {}
+    rules = dict(row.rules_json or {}) if row is not None else {}
+    editable_fields = set(row.editable_fields_json or []) if row is not None else set()
+
+    sections = []
+    for section in object_type_section_definitions():
+        section_visible = category in section["categories"] and (
+            not section.get("subtypes") or subtype in section["subtypes"]
+        )
+        field_rows = []
+        for field_key, field_type, label in section["fields"]:
+            if request.method == "POST":
+                if field_type == "boolean":
+                    value = request.form.get(field_key) in {"1", "true", "on", "yes"}
+                else:
+                    value = request.form.get(field_key, "")
+                editable_checked = request.form.get(f"editable_{field_key}") in {
+                    "1",
+                    "true",
+                    "on",
+                    "yes",
+                }
+            else:
+                value = object_type_field_value(defaults, rules, field_key, field_type)
+                editable_checked = field_key in editable_fields
+            field_rows.append(
+                {
+                    "key": field_key,
+                    "type": field_type,
+                    "label": label,
+                    "value": value,
+                    "editable_checked": editable_checked,
+                }
+            )
+        sections.append(
+            {
+                "key": section["key"],
+                "title": section["title"],
+                "visible": section_visible,
+                "categories": list(section["categories"]),
+                "subtypes": list(section.get("subtypes", [])),
+                "fields": field_rows,
+            }
+        )
+
+    rule_rows = []
+    for field_key, label in object_type_rule_definitions():
+        if request.method == "POST":
+            checked = request.form.get(field_key) in {"1", "true", "on", "yes"}
+        else:
+            checked = bool(rules.get(field_key))
+        rule_rows.append({"key": field_key, "label": label, "checked": checked})
+
+    return {
+        "category": category,
+        "subtype": subtype,
+        "object_type_sections": sections,
+        "rule_rows": rule_rows,
+    }
+
+
+def _ruleset_values_for_page(base_config, base_model_settings):
+    values = ruleset_form_values(base_config, base_model_settings)
+    for section in ruleset_sections():
+        for field_key, _, _ in section["fields"]:
+            if field_key in request.form:
+                values[field_key] = request.form.get(field_key)
+    for row in strategy_profile_matrix():
+        for weight in row["weights"]:
+            field_key = f"profile__{row['code']}__{weight['key']}"
+            if field_key in request.form:
+                values[field_key] = request.form.get(field_key)
+    return values
 
 
 @pages_bp.get("/settings/model")
@@ -71,21 +172,16 @@ def settings_ruleset_new_page():
         (row.id, f"{row.name} ({row.code})") for row in templates
     ]
 
-    if request.method == "GET":
-        form.config_json.data = "{}"
-        form.model_settings_json.data = "{}"
-
     if form.validate_on_submit():
         try:
             payload = {
                 "code": form.code.data,
                 "version": form.version.data,
                 "name": form.name.data,
-                "config_json": parse_json(form.config_json.data or "{}", field_name="config", default={}),
-                "model_settings": parse_json(
-                    form.model_settings_json.data or "{}",
-                    field_name="model_settings",
-                    default={},
+                **ruleset_payload_from_request(
+                    request,
+                    base_config=build_default_ruleset_config(),
+                    base_model_settings={},
                 ),
                 "active_start_pack_template_id": form.active_start_pack_template_id.data or None,
                 "is_active": bool(form.is_active.data),
@@ -110,6 +206,9 @@ def settings_ruleset_new_page():
         "admin/settings_ruleset_edit.html",
         form=form,
         mode="new",
+        ruleset_sections=ruleset_sections(),
+        ruleset_values=_ruleset_values_for_page({}, {}),
+        strategy_matrix=strategy_profile_matrix(),
         admin_links=admin_links(),
         **ctx,
     )
@@ -131,12 +230,6 @@ def settings_ruleset_edit_page(ruleset_id: int):
         form.code.data = row.code
         form.version.data = row.version
         form.name.data = row.name
-        form.config_json.data = json.dumps(row.config_json or {}, ensure_ascii=False, indent=2)
-        form.model_settings_json.data = json.dumps(
-            row.model_settings_json or {},
-            ensure_ascii=False,
-            indent=2,
-        )
         form.active_start_pack_template_id.data = row.active_start_pack_template_id or 0
         form.is_active.data = bool(row.is_active)
         form.is_builtin.data = bool(row.is_builtin)
@@ -147,11 +240,10 @@ def settings_ruleset_edit_page(ruleset_id: int):
                 row,
                 {
                     "name": form.name.data,
-                    "config_json": parse_json(form.config_json.data or "{}", field_name="config", default={}),
-                    "model_settings": parse_json(
-                        form.model_settings_json.data or "{}",
-                        field_name="model_settings",
-                        default={},
+                    **ruleset_payload_from_request(
+                        request,
+                        base_config=row.config_json or {},
+                        base_model_settings=row.model_settings_json or {},
                     ),
                     "active_start_pack_template_id": form.active_start_pack_template_id.data or None,
                     "is_active": bool(form.is_active.data),
@@ -176,6 +268,9 @@ def settings_ruleset_edit_page(ruleset_id: int):
         form=form,
         mode="edit",
         ruleset=row,
+        ruleset_sections=ruleset_sections(),
+        ruleset_values=_ruleset_values_for_page(row.config_json or {}, row.model_settings_json or {}),
+        strategy_matrix=strategy_profile_matrix(),
         admin_links=admin_links(),
         **ctx,
     )
@@ -395,13 +490,15 @@ def settings_object_types_page():
 @role_required("admin")
 def settings_object_type_new_page():
     form = ObjectTypeForm()
-    if request.method == "GET":
-        form.default_parameters_json.data = "{}"
-        form.editable_fields_json.data = "[]"
-        form.rules_json.data = "{}"
+    _prepare_object_type_form(form)
 
     if form.validate_on_submit():
         try:
+            payload = object_type_payload_from_request(
+                request,
+                category=form.category.data,
+                subtype=form.subtype.data or "",
+            )
             create_object_type(
                 {
                     "code": form.code.data,
@@ -409,21 +506,7 @@ def settings_object_type_new_page():
                     "category": form.category.data,
                     "subtype": form.subtype.data,
                     "description": form.description.data,
-                    "default_parameters": parse_json(
-                        form.default_parameters_json.data or "{}",
-                        field_name="default_parameters",
-                        default={},
-                    ),
-                    "editable_fields": parse_json(
-                        form.editable_fields_json.data or "[]",
-                        field_name="editable_fields",
-                        default=[],
-                    ),
-                    "rules": parse_json(
-                        form.rules_json.data or "{}",
-                        field_name="rules",
-                        default={},
-                    ),
+                    **payload,
                     "is_active": bool(form.is_active.data),
                 }
             )
@@ -445,6 +528,7 @@ def settings_object_type_new_page():
         "admin/settings_object_type_edit.html",
         form=form,
         mode="new",
+        **_object_type_editor_state(form),
         admin_links=admin_links(),
         **ctx,
     )
@@ -457,6 +541,7 @@ def settings_object_type_new_page():
 def settings_object_type_edit_page(object_type_id: int):
     row = get_object_type_or_error(object_type_id)
     form = ObjectTypeForm()
+    _prepare_object_type_form(form, row=row)
 
     if request.method == "GET":
         form.code.data = row.code
@@ -464,21 +549,18 @@ def settings_object_type_edit_page(object_type_id: int):
         form.category.data = row.category
         form.subtype.data = row.subtype
         form.description.data = row.description
-        form.default_parameters_json.data = json.dumps(
-            row.default_parameters_json or {},
-            ensure_ascii=False,
-            indent=2,
-        )
-        form.editable_fields_json.data = json.dumps(
-            row.editable_fields_json or [],
-            ensure_ascii=False,
-            indent=2,
-        )
-        form.rules_json.data = json.dumps(row.rules_json or {}, ensure_ascii=False, indent=2)
         form.is_active.data = bool(row.is_active)
+        _prepare_object_type_form(form, row=row)
 
     if form.validate_on_submit():
         try:
+            payload = object_type_payload_from_request(
+                request,
+                category=form.category.data,
+                subtype=form.subtype.data or "",
+                base_defaults=row.default_parameters_json or {},
+                base_rules=row.rules_json or {},
+            )
             update_object_type(
                 row,
                 {
@@ -486,21 +568,7 @@ def settings_object_type_edit_page(object_type_id: int):
                     "category": form.category.data,
                     "subtype": form.subtype.data,
                     "description": form.description.data,
-                    "default_parameters": parse_json(
-                        form.default_parameters_json.data or "{}",
-                        field_name="default_parameters",
-                        default={},
-                    ),
-                    "editable_fields": parse_json(
-                        form.editable_fields_json.data or "[]",
-                        field_name="editable_fields",
-                        default=[],
-                    ),
-                    "rules": parse_json(
-                        form.rules_json.data or "{}",
-                        field_name="rules",
-                        default={},
-                    ),
+                    **payload,
                     "is_active": bool(form.is_active.data),
                 },
             )
@@ -523,6 +591,7 @@ def settings_object_type_edit_page(object_type_id: int):
         form=form,
         mode="edit",
         object_type=row,
+        **_object_type_editor_state(form, row=row),
         admin_links=admin_links(),
         **ctx,
     )

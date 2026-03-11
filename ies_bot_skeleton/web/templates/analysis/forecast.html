@@ -2,7 +2,9 @@
 {% block title %}Прогнозы {{ session.id }} | IES{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
+{% if show_analysis_context is not defined or show_analysis_context %}
 {% include "components/analysis_context.html" %}
+{% endif %}
 
 <section class="page-grid mt-4">
   <article class="card">
@@ -24,7 +26,7 @@
     <ul class="stack gap-2 mt-3">
       <li class="issue issue-ok">tick/time должен быть заполнен для всех строк.</li>
       <li class="issue issue-ok">Потребление должно содержать серии `houseA`, `houseB`, `office`, `factory` или `load_*`.</li>
-      <li class="issue issue-ok">После загрузки выберите активный прогноз в рабочем месте или ниже в таблице.</li>
+      <li class="issue issue-ok">После загрузки выберите активный прогноз в сессии или ниже в таблице.</li>
     </ul>
   </article>
 </section>

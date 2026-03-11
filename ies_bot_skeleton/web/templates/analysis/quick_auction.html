@@ -2,15 +2,17 @@
 {% block title %}Быстрый аукцион {{ session.id }} | IES{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
+{% if show_analysis_context is not defined or show_analysis_context %}
 {% include "components/analysis_context.html" %}
+{% endif %}
 
 <section class="page-grid mt-4">
   <article class="card">
     <div class="section-head">
       <div>
-        <p class="section-kicker">Shortlist</p>
+        <p class="section-kicker">Шорт-лист</p>
         <h1 class="h1">Быстрый аукцион</h1>
-        <p class="muted">Hotkeys: <kbd>1..9</kbd> выбрать лот, <kbd>E</kbd> оценить, <kbd>R</kbd> обновить ранжирование.</p>
+        <p class="muted">Горячие клавиши: <kbd>1..9</kbd> выбрать лот, <kbd>E</kbd> оценить, <kbd>R</kbd> обновить ранжирование.</p>
       </div>
     </div>
     <ul id="auctionLots" class="stack gap-2 mt-3">
@@ -25,12 +27,12 @@
   <article class="card">
     <div class="section-head">
       <div>
-        <p class="section-kicker">Decision panel</p>
+        <p class="section-kicker">Панель решения</p>
         <h2 class="h2">Решение по текущему лоту</h2>
       </div>
     </div>
     <div class="stack gap-3 mt-3">
-      <label class="label">Текущий lot id <input id="currentLotId" class="input" type="number" /></label>
+      <label class="label">ID текущего лота <input id="currentLotId" class="input" type="number" /></label>
       <label class="label">Текущая ставка <input id="currentBid" class="input" type="number" step="0.1" /></label>
       <div class="actions">
         <button id="evalCurrent" class="btn btn-primary" type="button">Оценить</button>
@@ -38,7 +40,7 @@
       </div>
     </div>
     <div class="metric-strip mt-4" id="decisionMetrics">
-      <div><span class="metric-label">Score</span><strong id="qaScore">—</strong></div>
+      <div><span class="metric-label">Итоговая оценка</span><strong id="qaScore">—</strong></div>
       <div><span class="metric-label">Риск</span><strong id="qaRisk">—</strong></div>
       <div><span class="metric-label">Реком. ставка</span><strong id="qaBid">—</strong></div>
     </div>
@@ -54,17 +56,17 @@
   <div class="grid cols-4 gap-3">
     <label class="label">Сортировка
       <select id="qaSort" class="input">
-        <option value="score_desc">Score ↓</option>
+        <option value="score_desc">Оценка ↓</option>
         <option value="risk_asc">Риск ↑</option>
         <option value="bid_desc">Ставка ↓</option>
       </select>
     </label>
-    <label class="label">Мин. score <input id="qaMinScore" class="input" type="number" step="0.1" /></label>
+    <label class="label">Мин. оценка <input id="qaMinScore" class="input" type="number" step="0.1" /></label>
     <label class="label">Макс. риск <input id="qaMaxRisk" class="input" type="number" step="0.1" /></label>
     <label class="label">Фильтр shortlist
       <select id="qaShortlistOnly" class="input">
         <option value="0">Все лоты</option>
-        <option value="1">Только shortlist</option>
+        <option value="1">Только шорт-лист</option>
       </select>
     </label>
   </div>
@@ -82,7 +84,7 @@
         <tr>
           <th>#</th>
           <th>Лот</th>
-          <th>Score</th>
+          <th>Оценка</th>
           <th>Риск</th>
           <th>Рекоменд. ставка</th>
           <th>Соотв. стратегии</th>

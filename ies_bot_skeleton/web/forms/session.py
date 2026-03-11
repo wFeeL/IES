@@ -28,3 +28,7 @@ class SessionForm(FlaskForm):
         validators=[DataRequired(), NumberRange(min=0.0)],
     )
     submit = SubmitField("Создать")
+
+
+class ConfirmDeleteForm(FlaskForm):
+    submit = SubmitField("Удалить сессию")

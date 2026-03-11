@@ -12,5 +12,5 @@ class StartPackTemplateForm(FlaskForm):
     is_active = BooleanField("Активный", default=True)
     is_builtin = BooleanField("Системный")
     items_state_json = HiddenField("Состав (визуальный)", validators=[Optional()])
-    items_json = TextAreaField("Состав JSON", validators=[Optional()])
+    items_json = HiddenField("Состав JSON", validators=[Optional()])
     submit = SubmitField("Сохранить")

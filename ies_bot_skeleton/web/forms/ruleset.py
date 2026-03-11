@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from flask_wtf import FlaskForm
-from wtforms import BooleanField, HiddenField, SelectField, StringField, SubmitField, TextAreaField
+from wtforms import BooleanField, HiddenField, SelectField, StringField, SubmitField
 from wtforms.validators import DataRequired, Length, Optional
 
 
@@ -9,8 +9,6 @@ class RulesetForm(FlaskForm):
     code = StringField("Код", validators=[DataRequired(), Length(min=2, max=64)])
     version = StringField("Версия", validators=[Optional(), Length(max=32)])
     name = StringField("Название", validators=[DataRequired(), Length(min=2, max=128)])
-    config_json = TextAreaField("JSON конфигурации", validators=[Optional()])
-    model_settings_json = TextAreaField("JSON настроек модели", validators=[Optional()])
     active_start_pack_template_id = SelectField(
         "Активный стартовый пакет",
         coerce=int,

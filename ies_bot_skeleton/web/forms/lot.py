@@ -40,5 +40,5 @@ class LotForm(FlaskForm):
     available_round = IntegerField("Раунд", validators=[Optional(), NumberRange(min=1)])
     note = TextAreaField("Заметки", validators=[Optional()])
     items_state_json = HiddenField("Состав (визуальный редактор)", validators=[Optional()])
-    items_json = TextAreaField("Состав JSON", validators=[Optional()])
+    items_json = HiddenField("Состав JSON", validators=[Optional()])
     submit = SubmitField("Сохранить")

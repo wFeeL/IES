@@ -1,23 +1,84 @@
 {% extends "base.html" %}
 {% block title %}Набор правил | IES{% endblock %}
 {% block content %}
-<section class="page-grid">
+<section class="page-grid admin-layout">
   {% include "components/admin_sidebar.html" %}
-  <article class="card">
+  <article class="card admin-content">
     <p class="section-kicker">Администрирование</p>
     <h1 class="h1">{{ 'Новый набор правил' if mode == 'new' else 'Редактирование набора правил' }}</h1>
-    <form method="post" class="stack gap-3 mt-4">
+    <p class="muted mt-2">Набор правил редактируется по доменным секциям: сценарии, рынок, сеть, оценка и профили стратегий.</p>
+    <form method="post" class="stack gap-4 mt-4">
       {{ form.hidden_tag() }}
-      <label class="label">{{ form.code.label }} {{ form.code(class_='input') }}</label>
-      <div class="grid cols-2 gap-3">
-        <label class="label">{{ form.version.label }} {{ form.version(class_='input') }}</label>
-        <label class="label">{{ form.name.label }} {{ form.name(class_='input') }}</label>
-      </div>
-      <label class="label">{{ form.active_start_pack_template_id.label }} {{ form.active_start_pack_template_id(class_='input') }}</label>
-      <label class="label">{{ form.config_json.label }} {{ form.config_json(class_='input h-48') }}</label>
-      <label class="label">{{ form.model_settings_json.label }} {{ form.model_settings_json(class_='input h-48') }}</label>
-      <label class="inline">{{ form.is_active() }} <span>{{ form.is_active.label.text }}</span></label>
-      <label class="inline">{{ form.is_builtin() }} <span>{{ form.is_builtin.label.text }}</span></label>
+      <section class="admin-section">
+        <label class="label">{{ form.code.label }} {{ form.code(class_='input', readonly=(mode == 'edit')) }}</label>
+        <div class="grid cols-2 gap-4 mt-3">
+          <label class="label">{{ form.version.label }} {{ form.version(class_='input') }}</label>
+          <label class="label">{{ form.name.label }} {{ form.name(class_='input') }}</label>
+        </div>
+        <label class="label mt-3">{{ form.active_start_pack_template_id.label }} {{ form.active_start_pack_template_id(class_='input') }}</label>
+        <div class="stack gap-3 mt-3">
+          <label class="inline">{{ form.is_active() }} <span>{{ form.is_active.label.text }}</span></label>
+          <label class="inline">{{ form.is_builtin() }} <span>{{ form.is_builtin.label.text }}</span></label>
+        </div>
+      </section>
+
+      {% for section in ruleset_sections %}
+      <section class="admin-section">
+        <p class="section-kicker">Настройки</p>
+        <h2 class="h2">{{ section.title }}</h2>
+        {% if section.help %}<p class="muted mt-2">{{ section.help }}</p>{% endif %}
+        <div class="grid cols-3 gap-4 mt-3">
+          {% for field_key, field_type, field_label in section.fields %}
+          <label class="label">
+            {{ field_label }}
+            <input
+              class="input"
+              type="{{ 'number' if field_type == 'number' else 'text' }}"
+              name="{{ field_key }}"
+              value="{{ ruleset_values[field_key] if ruleset_values[field_key] is not none else '' }}"
+              {% if field_type == 'number' %}step="any"{% endif %}
+            />
+          </label>
+          {% endfor %}
+        </div>
+      </section>
+      {% endfor %}
+
+      <section class="admin-section">
+        <p class="section-kicker">Стратегии</p>
+        <h2 class="h2">Профили стратегий</h2>
+        <p class="muted mt-2">Оставьте пустое поле, если для конкретного веса не нужен override относительно базовых коэффициентов.</p>
+        <div class="table-wrap mt-3">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Стратегия</th>
+                {% for weight in strategy_matrix[0].weights %}
+                <th>{{ weight.label }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in strategy_matrix %}
+              <tr>
+                <td>{{ strategy_label(row.code) }}</td>
+                {% for weight in row.weights %}
+                <td>
+                  <input
+                    class="input table-input"
+                    type="number"
+                    step="any"
+                    name="profile__{{ row.code }}__{{ weight.key }}"
+                    value="{{ ruleset_values['profile__' ~ row.code ~ '__' ~ weight.key] }}"
+                  />
+                </td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
       <div class="actions">
         <button class="btn btn-primary" type="submit">Сохранить</button>
         {% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>{% endif %}

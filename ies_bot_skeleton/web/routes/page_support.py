@@ -9,6 +9,7 @@ from ..models import GameSession
 from ..services.analysis_context import session_analysis_settings, summarize_forecasts
 from ..services.navigation import build_breadcrumbs, safe_back_url
 from ..services.stale import stale_summary_for_session
+from ..services.ui_text import analysis_mode_label
 
 
 def parse_json(raw: str, *, field_name: str, default: Any) -> Any:
@@ -53,9 +54,7 @@ def session_analysis_view(session: GameSession) -> Dict[str, Any]:
     selected_forecast = session.selected_forecast
     return {
         "analysis_settings": settings,
-        "analysis_mode_label": "С прогнозом"
-        if settings["analysis_mode"] == "forecast"
-        else "Без прогноза",
+        "analysis_mode_label": analysis_mode_label(settings["analysis_mode"]),
         "forecast_summary": (
             summarize_forecasts([selected_forecast])
             if selected_forecast is not None

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Удаление сессии | IES{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+
+<section class="card mt-4 max-w-lg">
+  <p class="section-kicker">Подтверждение действия</p>
+  <h2 class="h2">Удаление сессии</h2>
+  <p class="muted mt-2">Это действие необратимо. Вместе с сессией будут удалены связанные лоты, объекты, прогнозы и оценки.</p>
+  <div class="stack gap-2 mt-4">
+    <div class="key-value"><span>Объекты</span><strong>{{ summary.objects_count }}</strong></div>
+    <div class="key-value"><span>Лоты</span><strong>{{ summary.lots_count }}</strong></div>
+    <div class="key-value"><span>Прогнозы</span><strong>{{ summary.forecasts_count }}</strong></div>
+    <div class="key-value"><span>Оценки</span><strong>{{ summary.evaluations_count }}</strong></div>
+  </div>
+  <form method="post" class="actions mt-4">
+    {{ form.hidden_tag() }}
+    <button class="btn btn-danger" type="submit">Удалить сессию</button>
+    {% if cancel_url %}
+    <a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>
+    {% endif %}
+  </form>
+</section>
+{% endblock %}

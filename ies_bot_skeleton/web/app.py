@@ -18,6 +18,15 @@ from .services.navigation import (
     safe_back_url,
     safe_next_url,
 )
+from .services.ui_text import (
+    CATEGORY_LABELS,
+    SESSION_TERMS,
+    analysis_mode_label,
+    category_label,
+    lot_scope_label,
+    lot_status_label,
+    strategy_label,
+)
 
 
 def create_app(config_name: Optional[str] = None) -> Flask:
@@ -47,6 +56,13 @@ def create_app(config_name: Optional[str] = None) -> Flask:
             "is_safe_internal_url": is_safe_internal_url,
             "safe_back_url": safe_back_url,
             "safe_next_url": safe_next_url,
+            "strategy_label": strategy_label,
+            "category_label": category_label,
+            "analysis_mode_ui_label": analysis_mode_label,
+            "lot_scope_label": lot_scope_label,
+            "lot_status_label": lot_status_label,
+            "category_labels": CATEGORY_LABELS,
+            "session_terms": SESSION_TERMS,
             "breadcrumbs": [],
             "back_url": safe_back_url(req=request),
             "cancel_url": None,

@@ -1,26 +1,77 @@
 {% extends "base.html" %}
 {% block title %}Тип объекта | IES{% endblock %}
 {% block content %}
-<section class="page-grid">
+<section class="page-grid admin-layout">
   {% include "components/admin_sidebar.html" %}
-  <article class="card">
+  <article class="card admin-content">
     <p class="section-kicker">Администрирование</p>
     <h1 class="h1">{{ 'Новый тип объекта' if mode == 'new' else 'Редактирование типа объекта' }}</h1>
-    <form method="post" class="stack gap-3 mt-4">
+    <p class="muted mt-2">Параметры редактируются по секциям. JSON-структуры скрыты, чтобы настройка была понятнее и безопаснее.</p>
+    <form method="post" class="stack gap-4 mt-4" id="objectTypeForm">
       {{ form.hidden_tag() }}
-      <div class="grid cols-2 gap-3">
-        <label class="label">{{ form.code.label }} {{ form.code(class_='input') }}</label>
-        <label class="label">{{ form.name.label }} {{ form.name(class_='input') }}</label>
-      </div>
-      <div class="grid cols-2 gap-3">
-        <label class="label">{{ form.category.label }} {{ form.category(class_='input') }}</label>
-        <label class="label">{{ form.subtype.label }} {{ form.subtype(class_='input') }}</label>
-      </div>
-      <label class="label">{{ form.description.label }} {{ form.description(class_='input h-48') }}</label>
-      <label class="label">{{ form.default_parameters_json.label }} {{ form.default_parameters_json(class_='input h-48') }}</label>
-      <label class="label">{{ form.editable_fields_json.label }} {{ form.editable_fields_json(class_='input h-48') }}</label>
-      <label class="label">{{ form.rules_json.label }} {{ form.rules_json(class_='input h-48') }}</label>
-      <label class="inline">{{ form.is_active() }} <span>{{ form.is_active.label.text }}</span></label>
+      <section class="admin-section">
+        <div class="grid cols-2 gap-4">
+          <label class="label">{{ form.code.label }} {{ form.code(class_='input', readonly=(mode == 'edit')) }}</label>
+          <label class="label">{{ form.name.label }} {{ form.name(class_='input') }}</label>
+        </div>
+        <div class="grid cols-2 gap-4 mt-3">
+          <label class="label">{{ form.category.label }} {{ form.category(class_='input', id='objectTypeCategory') }}</label>
+          <label class="label">{{ form.subtype.label }} {{ form.subtype(class_='input', id='objectTypeSubtype') }}</label>
+        </div>
+        <label class="label mt-3">{{ form.description.label }} {{ form.description(class_='input h-48') }}</label>
+        <label class="inline mt-3">{{ form.is_active() }} <span>{{ form.is_active.label.text }}</span></label>
+      </section>
+
+      {% for section in object_type_sections %}
+      <section
+        class="admin-section object-type-section {{ '' if section.visible else 'is-hidden' }}"
+        data-object-categories="{{ section.categories|join(',') }}"
+        data-object-subtypes="{{ section.subtypes|join(',') }}"
+      >
+        <p class="section-kicker">Параметры</p>
+        <h2 class="h2">{{ section.title }}</h2>
+        <div class="grid cols-2 gap-4 mt-3">
+          {% for field in section.fields %}
+          <div class="field-card">
+            {% if field.type == 'boolean' %}
+            <label class="inline">
+              <input type="checkbox" name="{{ field.key }}" value="1" {% if field.value %}checked{% endif %} />
+              <span>{{ field.label }}</span>
+            </label>
+            {% else %}
+            <label class="label">
+              {{ field.label }}
+              <input
+                class="input"
+                type="{{ 'number' if field.type == 'number' else 'text' }}"
+                name="{{ field.key }}"
+                value="{{ field.value if field.value is not none else '' }}"
+                {% if field.type == 'number' %}step="any"{% endif %}
+              />
+            </label>
+            {% endif %}
+            <label class="inline mt-2">
+              <input type="checkbox" name="editable_{{ field.key }}" value="1" {% if field.editable_checked %}checked{% endif %} />
+              <span>Разрешить редактирование этого параметра</span>
+            </label>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endfor %}
+
+      <section class="admin-section">
+        <p class="section-kicker">Правила</p>
+        <h2 class="h2">Ограничения и логика</h2>
+        <div class="stack gap-3 mt-3">
+          {% for row in rule_rows %}
+          <label class="inline">
+            <input type="checkbox" name="{{ row.key }}" value="1" {% if row.checked %}checked{% endif %} />
+            <span>{{ row.label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </section>
       <div class="actions">
         <button class="btn btn-primary" type="submit">Сохранить</button>
         {% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>{% endif %}
@@ -28,4 +79,8 @@
     </form>
   </article>
 </section>
+<script>
+window.IES_OBJECT_TYPE_FORM = {categoryId: "objectTypeCategory", subtypeId: "objectTypeSubtype"};
+</script>
+<script defer src="{{ url_for('static', filename='js/admin/object_type_form.js') }}"></script>
 {% endblock %}
