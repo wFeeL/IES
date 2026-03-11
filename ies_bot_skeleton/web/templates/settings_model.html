@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Model Settings | IES{% endblock %}
+{% block title %}Настройки модели | IES{% endblock %}
 {% block content %}
 <section class="card">
   <div class="actions">
-    <h1 class="h1">Настройки модели / Rulesets</h1>
+    <h1 class="h1">Настройки модели / наборы правил</h1>
     <a class="btn btn-primary" href="{{ url_for('pages.settings_ruleset_new_page') }}">Новый ruleset</a>
   </div>
 
   <div class="table-wrap mt-3">
     <table class="table">
-      <thead><tr><th>ID</th><th>Code</th><th>Version</th><th>Name</th><th>Active Start Pack</th><th>Builtin</th><th>Active</th><th>Actions</th></tr></thead>
+      <thead><tr><th>ID</th><th>Code</th><th>Version</th><th>Название</th><th>Активный стартовый пакет</th><th>Системный</th><th>Активен</th><th>Действия</th></tr></thead>
       <tbody>
         {% for row in rulesets %}
         <tr>
@@ -22,22 +22,22 @@
           <td>{{ 'yes' if row.is_active else 'no' }}</td>
           <td>
             <div class="actions">
-              <a class="btn btn-secondary" href="{{ url_for('pages.settings_ruleset_edit_page', ruleset_id=row.id) }}">Edit</a>
+              <a class="btn btn-secondary" href="{{ url_for('pages.settings_ruleset_edit_page', ruleset_id=row.id) }}">Редактировать</a>
               <form method="post" action="{{ url_for('pages.settings_ruleset_copy_action', ruleset_id=row.id) }}">
                 {{ copy_form.hidden_tag() }}
                 {{ copy_form.source_id(value=row.id, type='hidden') }}
                 <input type="hidden" name="name" value="{{ row.name }} copy" />
-                <button class="btn btn-secondary" type="submit">Copy</button>
+                <button class="btn btn-secondary" type="submit">Копировать</button>
               </form>
               {% if row.is_active %}
               <form method="post" action="{{ url_for('pages.settings_ruleset_deactivate_action', ruleset_id=row.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-                <button class="btn btn-secondary" type="submit">Deactivate</button>
+                <button class="btn btn-secondary" type="submit">Деактивировать</button>
               </form>
               {% else %}
               <form method="post" action="{{ url_for('pages.settings_ruleset_activate_action', ruleset_id=row.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-                <button class="btn btn-secondary" type="submit">Activate</button>
+                <button class="btn btn-secondary" type="submit">Активировать</button>
               </form>
               {% endif %}
             </div>

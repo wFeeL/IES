@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Quick Auction {{ session.id }} | IES{% endblock %}
+{% block title %}Быстрый аукцион {{ session.id }} | IES{% endblock %}
 {% block content %}
 <section class="card">
   <h1 class="h1">Быстрый аукцион</h1>
@@ -34,12 +34,12 @@
       <label class="label">Сортировка
         <select id="qaSort" class="input">
           <option value="score_desc">Score ↓</option>
-          <option value="risk_asc">Risk ↑</option>
-          <option value="bid_desc">Bid ↓</option>
+          <option value="risk_asc">Риск ↑</option>
+          <option value="bid_desc">Ставка ↓</option>
         </select>
       </label>
-      <label class="label">Min score <input id="qaMinScore" class="input" type="number" step="0.1" /></label>
-      <label class="label">Max risk <input id="qaMaxRisk" class="input" type="number" step="0.1" /></label>
+      <label class="label">Мин. score <input id="qaMinScore" class="input" type="number" step="0.1" /></label>
+      <label class="label">Макс. риск <input id="qaMaxRisk" class="input" type="number" step="0.1" /></label>
     </div>
     <div class="actions mt-3">
       <button id="qaApplyFilters" class="btn btn-secondary" type="button">Применить</button>
@@ -51,13 +51,13 @@
       <thead>
         <tr>
           <th>#</th>
-          <th>Lot</th>
+          <th>Лот</th>
           <th>Score</th>
-          <th>Risk</th>
-          <th>Recommended bid</th>
-          <th>Strategy fit</th>
-          <th>Explanation</th>
-          <th>Actions</th>
+          <th>Риск</th>
+          <th>Рекоменд. ставка</th>
+          <th>Соотв. стратегии</th>
+          <th>Пояснение</th>
+          <th>Действия</th>
         </tr>
       </thead>
       <tbody id="rankingTableBody">
@@ -72,9 +72,9 @@
           <td>{{ row.risk_commentary or row.explanation }}</td>
           <td>
             <div class="actions">
-              <button class="btn btn-secondary quickEvalRow" data-lot-id="{{ row.lot_id }}" type="button">Evaluate</button>
-              <a class="btn btn-secondary" href="{{ url_for('pages.strategy_fit_page', lot_id=row.lot_id) }}">Strategy fit</a>
-              <a class="btn btn-secondary" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Open lot/session</a>
+              <button class="btn btn-secondary quickEvalRow" data-lot-id="{{ row.lot_id }}" type="button">Оценить</button>
+              <a class="btn btn-secondary" href="{{ url_for('pages.strategy_fit_page', lot_id=row.lot_id) }}">Стратегии</a>
+              <a class="btn btn-secondary" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Открыть лот/сессию</a>
             </div>
           </td>
         </tr>

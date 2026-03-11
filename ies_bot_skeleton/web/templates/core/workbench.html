@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Рабочее место {{ session.id }} | IES{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+{% include "components/analysis_context.html" %}
+
+<section class="page-grid mt-4">
+  <article class="card">
+    <p class="section-kicker">Статус сессии</p>
+    <div class="insight-grid mt-3">
+      <div class="metric-card">
+        <span class="metric-label">Стратегия</span>
+        <strong>{{ session.selected_strategy }}</strong>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Активный набор правил</span>
+        <strong>{{ session.ruleset.code if session.ruleset else 'n/a' }}</strong>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Стартовый пакет</span>
+        <strong>{{ session.ruleset.active_start_pack_template.name if session.ruleset and session.ruleset.active_start_pack_template else 'не выбран' }}</strong>
+      </div>
+    </div>
+  </article>
+
+  <article class="card">
+    <p class="section-kicker">Готовность данных</p>
+    <div class="insight-grid mt-3">
+      <div class="metric-card">
+        <span class="metric-label">Энергосистема</span>
+        <strong>{{ readiness.objects_count }}</strong>
+        <span class="muted">объектов в системе</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Лоты</span>
+        <strong>{{ readiness.lots_count }}</strong>
+        <span class="muted">готово к анализу</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">Прогноз</span>
+        <strong>{{ readiness.selected_forecast_name or 'не выбран' }}</strong>
+        <span class="muted">{{ readiness.forecasts_count }} загружено</span>
+      </div>
+    </div>
+  </article>
+</section>
+
+<section class="page-grid mt-4">
+  <article class="card">
+    <p class="section-kicker">Режим анализа</p>
+    <form method="post" action="{{ url_for('pages.session_analysis_mode_action', session_id=session.id) }}" class="stack gap-3 mt-3">
+      {{ mode_form.hidden_tag() }}
+      <label class="label">{{ mode_form.analysis_mode.label }} {{ mode_form.analysis_mode(class_='input', id='analysisModeSelect') }}</label>
+      <button class="btn btn-primary" type="submit">Сохранить режим</button>
+    </form>
+
+    <div class="analysis-panels mt-4">
+      <div class="card inset-card" data-analysis-panel="no_forecast">
+        <p class="section-kicker">Коридор неопределенности</p>
+        <form method="post" action="{{ url_for('pages.session_corridor_action', session_id=session.id) }}" class="stack gap-3 mt-3">
+          {{ corridor_form.hidden_tag() }}
+          <label class="label">{{ corridor_form.consumer_load_pct.label }} {{ corridor_form.consumer_load_pct(class_='input') }}</label>
+          <label class="label">{{ corridor_form.producer_generation_pct.label }} {{ corridor_form.producer_generation_pct(class_='input') }}</label>
+          <div class="grid cols-2 gap-3">
+            <label class="label">{{ corridor_form.solar_output_pct.label }} {{ corridor_form.solar_output_pct(class_='input') }}</label>
+            <label class="label">{{ corridor_form.wind_output_pct.label }} {{ corridor_form.wind_output_pct(class_='input') }}</label>
+          </div>
+          <p class="muted">{{ corridor_summary.worst_case }}</p>
+          <button class="btn btn-secondary" type="submit">Сохранить коридор</button>
+        </form>
+      </div>
+
+      <div class="card inset-card" data-analysis-panel="forecast">
+        <p class="section-kicker">Активный прогноз</p>
+        <form method="post" action="{{ url_for('pages.session_forecast_selection_action', session_id=session.id) }}" class="stack gap-3 mt-3">
+          {{ forecast_form.hidden_tag() }}
+          <label class="label">{{ forecast_form.selected_forecast_id.label }} {{ forecast_form.selected_forecast_id(class_='input') }}</label>
+          <p class="muted">{{ forecast_summary.text }}</p>
+          <button class="btn btn-secondary" type="submit">Сохранить выбор прогноза</button>
+        </form>
+      </div>
+    </div>
+  </article>
+
+  <article class="card">
+    <p class="section-kicker">Быстрые действия</p>
+    <div class="stack gap-3 mt-3">
+      {% for link in quick_links %}
+      <a class="action-card" href="{{ link.url }}">{{ link.label }}</a>
+      {% endfor %}
+      <a class="action-card" href="{{ url_for('pages.system_view', session_id=session.id) }}">Проверить энергосистему</a>
+      <a class="action-card" href="{{ url_for('pages.forecast_page', session_id=session.id) }}">Открыть центр прогноза</a>
+    </div>
+  </article>
+</section>
+
+<script defer src="{{ url_for('static', filename='js/analysis/workbench.js') }}"></script>
+{% endblock %}

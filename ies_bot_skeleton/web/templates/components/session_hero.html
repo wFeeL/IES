@@ -1,0 +1,14 @@
+<section class="hero-card">
+  <div>
+    <p class="section-kicker">Сессия #{{ session.id }}</p>
+    <h1 class="hero-title">{{ session.title }}</h1>
+    <p class="hero-subtitle">
+      Стратегия: {{ session.selected_strategy }} · Бюджет: {{ '%.1f'|format(session.budget_total) }} · All-pay: {{ '%.1f'|format(session.allpay_spent) }}
+    </p>
+  </div>
+  <div class="hero-badges">
+    <span class="pill">ruleset: {{ session.ruleset.code if session.ruleset else 'n/a' }}</span>
+    <span class="pill">{{ 'есть стартовый пакет' if session.ruleset and session.ruleset.active_start_pack_template else 'без стартового пакета' }}</span>
+    <span class="pill">{{ 'режим: прогноз' if analysis_settings.analysis_mode == 'forecast' else 'режим: коридор' }}</span>
+  </div>
+</section>

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Сравнение {{ session.id }} | IES{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+{% include "components/analysis_context.html" %}
+
+{% if top_pair and top_pair|length >= 2 %}
+<section class="compare-pair mt-4">
+  {% for row in top_pair %}
+  <article class="card card-lot">
+    <p class="section-kicker">Лот {{ row.lot_id }}</p>
+    <h2 class="h2">Кандидат для short-list</h2>
+    <div class="metric-strip mt-3">
+      <div><span class="metric-label">Score</span><strong>{{ '%.2f'|format(row.summary_score) }}</strong></div>
+      <div><span class="metric-label">Worst / Base / Best</span><strong>{{ '%.1f'|format(row.scenario_band.worst.delta_total) }} / {{ '%.1f'|format(row.scenario_band.base.delta_total) }} / {{ '%.1f'|format(row.scenario_band.best.delta_total) }}</strong></div>
+      <div><span class="metric-label">Потолок ставки</span><strong>{{ '%.1f'|format(row.decision_summary.hard_bid) }}</strong></div>
+    </div>
+    <p class="muted mt-3">{{ row.strategy_fit_text }}</p>
+    <div class="explanation-block mt-2">{{ row.explanation }}</div>
+    <div class="risk-block mt-2">{{ row.risk_commentary }}</div>
+  </article>
+  {% endfor %}
+</section>
+{% endif %}
+
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Ранжирование</p>
+      <h1 class="h1">Сравнение всех лотов</h1>
+    </div>
+  </div>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead><tr><th>#</th><th>Лот</th><th>Score</th><th>Worst / Base / Best</th><th>Риск</th><th>Соответствие стратегии</th><th>Реком. ставка</th><th>Пояснение</th></tr></thead>
+      <tbody>
+        {% for row in ranking %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ row.lot_id }}</td>
+          <td>{{ '%.2f'|format(row.summary_score) }}</td>
+          <td>{{ '%.1f'|format(row.scenario_band.worst.delta_total) }} / {{ '%.1f'|format(row.scenario_band.base.delta_total) }} / {{ '%.1f'|format(row.scenario_band.best.delta_total) }}</td>
+          <td>{{ '%.2f'|format(row.metrics.delta_risk) }}</td>
+          <td>{{ row.strategy_fit_text }}</td>
+          <td>{{ '%.1f'|format(row.recommended_bid_hard) }}</td>
+          <td>{{ row.risk_commentary or row.explanation }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="muted">Добавьте минимум 2 лота.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

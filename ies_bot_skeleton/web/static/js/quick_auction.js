@@ -76,9 +76,9 @@
   function rowActionsHtml(lotId, sessionId) {
     return `
       <div class="actions">
-        <button class="btn btn-secondary quickEvalRow" data-lot-id="${lotId}" type="button">Evaluate</button>
-        <a class="btn btn-secondary" href="/strategy-fit/${lotId}">Strategy fit</a>
-        <a class="btn btn-secondary" href="/lots/${sessionId}">Open lot/session</a>
+        <button class="btn btn-secondary quickEvalRow" data-lot-id="${lotId}" type="button">Оценить</button>
+        <a class="btn btn-secondary" href="/strategy-fit/${lotId}">Стратегии</a>
+        <a class="btn btn-secondary" href="/lots/${sessionId}">Открыть лот/сессию</a>
       </div>
     `;
   }

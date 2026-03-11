@@ -177,6 +177,17 @@ class GameSession(db.Model):
     title = db.Column(db.String(255), nullable=False)
     ruleset_id = db.Column(db.Integer, db.ForeignKey("rulesets.id"), nullable=False)
     selected_strategy = db.Column(db.String(64), nullable=False, default="balanced")
+    analysis_mode = db.Column(db.String(32), nullable=False, default="no_forecast")
+    selected_forecast_id = db.Column(
+        db.Integer,
+        db.ForeignKey(
+            "forecasts.id",
+            name="fk_game_sessions_selected_forecast_id",
+            use_alter=True,
+        ),
+        nullable=True,
+    )
+    corridor_settings_json = db.Column(db.JSON, nullable=False, default=dict)
     budget_total = db.Column(db.Float, nullable=False, default=200.0)
     allpay_spent = db.Column(db.Float, nullable=False, default=0.0)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
@@ -194,7 +205,13 @@ class GameSession(db.Model):
         cascade="all, delete-orphan",
     )
     lots = db.relationship("Lot", back_populates="session", cascade="all, delete-orphan")
-    forecasts = db.relationship("Forecast", back_populates="session", cascade="all, delete-orphan")
+    forecasts = db.relationship(
+        "Forecast",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        foreign_keys="Forecast.session_id",
+    )
+    selected_forecast = db.relationship("Forecast", foreign_keys=[selected_forecast_id], post_update=True)
     evaluations = db.relationship(
         "EvaluationResult",
         back_populates="session",
@@ -207,6 +224,9 @@ class GameSession(db.Model):
             "title": self.title,
             "ruleset_id": self.ruleset_id,
             "selected_strategy": self.selected_strategy,
+            "analysis_mode": self.analysis_mode,
+            "selected_forecast_id": self.selected_forecast_id,
+            "corridor_settings": dict(self.corridor_settings_json or {}),
             "budget_total": self.budget_total,
             "allpay_spent": self.allpay_spent,
             "created_at": self.created_at.isoformat() if self.created_at else None,
@@ -383,7 +403,7 @@ class Forecast(db.Model):
     metadata_json = db.Column(db.JSON, nullable=False, default=dict)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
 
-    session = db.relationship("GameSession", back_populates="forecasts")
+    session = db.relationship("GameSession", back_populates="forecasts", foreign_keys=[session_id])
     periods = db.relationship(
         "ForecastPeriod",
         back_populates="forecast",

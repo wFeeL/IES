@@ -25,7 +25,7 @@ def export_session_payload(session: GameSession) -> Dict[str, Any]:
     if session.ruleset and session.ruleset.active_start_pack_template is not None:
         start_pack_payload = session.ruleset.active_start_pack_template.to_dict(include_items=True)
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "session": session.to_dict(),
         "ruleset": ruleset_payload,
         "ruleset_start_pack_template": start_pack_payload,
@@ -142,6 +142,9 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
         title=title,
         ruleset_id=ruleset.id,
         selected_strategy=str(session_payload.get("selected_strategy", "balanced")),
+        analysis_mode=str(session_payload.get("analysis_mode", "no_forecast") or "no_forecast"),
+        selected_forecast_id=None,
+        corridor_settings_json=dict(session_payload.get("corridor_settings") or {}),
         budget_total=float(session_payload.get("budget_total", 9999.0) or 9999.0),
         allpay_spent=float(session_payload.get("allpay_spent", 0.0) or 0.0),
     )
@@ -224,6 +227,7 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
             )
             db.session.add(item)
 
+    imported_forecasts_by_old_id: Dict[int, int] = {}
     for fc in payload.get("forecasts", []) or []:
         forecast = Forecast(
             session_id=out_session.id,
@@ -234,6 +238,8 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
         )
         db.session.add(forecast)
         db.session.flush()
+        if fc.get("id"):
+            imported_forecasts_by_old_id[int(fc["id"])] = forecast.id
 
         for period in fc.get("periods", []) or []:
             db.session.add(
@@ -247,6 +253,12 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
                     extra_json=dict(period.get("extra") or {}),
                 )
             )
+
+    old_selected_forecast_id = session_payload.get("selected_forecast_id")
+    if old_selected_forecast_id:
+        out_session.selected_forecast_id = imported_forecasts_by_old_id.get(
+            int(old_selected_forecast_id)
+        )
 
     for ev in payload.get("evaluations", []) or []:
         src_lot_id = ev.get("lot_id")

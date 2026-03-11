@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Лоты {{ session.id }} | IES{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+{% include "components/analysis_context.html" %}
+
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Каталог лотов</p>
+      <h1 class="h1">Лоты сессии</h1>
+      <p class="muted">Оценка учитывает текущий режим анализа и выбранный контекст сессии.</p>
+    </div>
+    <div class="actions">
+      <a class="btn btn-primary" href="{{ url_for('pages.lots_edit', session_id=session.id) }}">Добавить лот</a>
+      <button class="btn btn-secondary" id="addStartPackBtn">Добавить стартовый пакет</button>
+    </div>
+  </div>
+  <div id="startPackStatus" class="muted mt-2"></div>
+</section>
+
+<section class="lot-grid mt-4">
+  {% for lot in lots %}
+  {% set summary = lot_summaries[lot.id] %}
+  {% set latest_eval = latest_eval_by_lot[lot.id] %}
+  <article class="card card-lot">
+    <div class="section-head">
+      <div>
+        <h3 class="h3">{{ lot.name }}</h3>
+        <p class="muted">scope={{ lot.scope }} · status={{ lot.status }} · bid={{ '%.1f'|format(lot.current_bid) }}</p>
+      </div>
+      <span class="status-badge status-fresh">{{ latest_eval.analysis_mode_label }}</span>
+    </div>
+
+    <div class="pill-row mt-3">
+      <span class="pill">{{ summary.items_total }} объектов</span>
+      <span class="pill">{{ summary.counts.consumer or 0 }} потреб.</span>
+      <span class="pill">{{ summary.counts.generator or 0 }} ген.</span>
+      <span class="pill">{{ summary.counts.infrastructure or 0 }} инфр.</span>
+    </div>
+
+    <ul class="stack gap-1 mt-3">
+      {% for item in lot.items %}
+      <li><code>{{ item.object_type.code if item.object_type else item.object_type_id }}</code> ×{{ item.quantity }}</li>
+      {% else %}
+      <li class="muted">Пустой лот</li>
+      {% endfor %}
+    </ul>
+
+    <div class="metric-strip mt-3">
+      <div><span class="metric-label">Score</span><strong>{{ '%.2f'|format(latest_eval.summary_score) }}</strong></div>
+      <div><span class="metric-label">Риск</span><strong>{{ '%.2f'|format(latest_eval.metrics.delta_risk) }}</strong></div>
+      <div><span class="metric-label">Реком. ставка</span><strong>{{ '%.1f'|format(latest_eval.recommended_bid_hard) }}</strong></div>
+    </div>
+    <p class="muted mt-3">{{ latest_eval.risk_commentary or summary.compatibility }}</p>
+
+    <div class="actions mt-3">
+      <button class="btn btn-secondary evalBtn" data-lot-id="{{ lot.id }}">Оценить</button>
+      <a class="btn btn-secondary" href="{{ url_for('pages.compare_page', session_id=session.id) }}">В сравнение</a>
+      <a class="btn btn-secondary" href="{{ url_for('pages.strategy_fit_page', lot_id=lot.id) }}">Стратегии</a>
+      <button class="btn btn-secondary shortlistBtn" data-lot-id="{{ lot.id }}" type="button">В shortlist</button>
+    </div>
+    <details class="mt-3">
+      <summary>Подробное объяснение</summary>
+      <div class="risk-block mt-2">{{ latest_eval.explanation }}</div>
+    </details>
+  </article>
+  {% else %}
+  <div class="empty-state">Лоты еще не добавлены. Перейдите в редактор и создайте первый лот.</div>
+  {% endfor %}
+</section>
+
+<script>
+window.IES_LOTS_PAGE = {
+  sessionId: {{ session.id }},
+  csrfToken: "{{ csrf_token() }}",
+  mode: {{ mode|tojson }},
+  corridorOverride: {{ analysis_ctx.corridor_settings|tojson }},
+  forecastId: {{ analysis_ctx.forecast.id if analysis_ctx.forecast else 'null' }},
+};
+</script>
+<script>
+(() => {
+  const cfg = window.IES_LOTS_PAGE || {};
+  const startPackBtn = document.getElementById("addStartPackBtn");
+  const statusEl = document.getElementById("startPackStatus");
+  startPackBtn?.addEventListener("click", async () => {
+    const res = await fetch(`/api/sessions/${cfg.sessionId}/add-start-pack`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRFToken": cfg.csrfToken},
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    statusEl.textContent = data.ok ? `Добавлено объектов: ${data.created.length}` : `Ошибка: ${data.error}`;
+    if (data.ok) window.location.reload();
+  });
+
+  document.querySelectorAll(".evalBtn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const payload = {mode: cfg.mode, corridor_override: cfg.corridorOverride};
+      if (cfg.forecastId) payload.forecast_id = cfg.forecastId;
+      const res = await fetch(`/api/lots/${btn.dataset.lotId}/evaluate`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "X-CSRFToken": cfg.csrfToken},
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      statusEl.textContent = data.ok ? `Лот ${btn.dataset.lotId}: score ${Number(data.item.summary_score || 0).toFixed(2)}, ставка ${Number(data.item.recommended_bid_hard || 0).toFixed(1)}` : `Ошибка: ${data.error}`;
+    });
+  });
+
+  document.querySelectorAll(".shortlistBtn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = `ies-shortlist-${cfg.sessionId}`;
+      const existing = JSON.parse(localStorage.getItem(key) || "[]");
+      const lotId = Number(btn.dataset.lotId || 0);
+      const next = Array.from(new Set(existing.concat([lotId])));
+      localStorage.setItem(key, JSON.stringify(next));
+      statusEl.textContent = `Лот ${lotId} добавлен в shortlist (${next.length})`;
+    });
+  });
+})();
+</script>
+{% endblock %}

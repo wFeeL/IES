@@ -1,3 +1,4 @@
+from .analysis import AnalysisModeForm, CorridorSettingsForm, ForecastSelectionForm
 from .auth import LoginForm
 from .forecast import ForecastUploadForm
 from .lot import LotForm
@@ -9,6 +10,9 @@ from .start_pack import StartPackTemplateForm
 
 __all__ = [
     "LoginForm",
+    "AnalysisModeForm",
+    "CorridorSettingsForm",
+    "ForecastSelectionForm",
     "ForecastUploadForm",
     "LotForm",
     "ObjectTypeForm",

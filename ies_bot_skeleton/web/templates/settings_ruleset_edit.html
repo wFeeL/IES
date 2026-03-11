@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Ruleset {{ mode }} | IES{% endblock %}
+{% block title %}Набор правил {{ mode }} | IES{% endblock %}
 {% block content %}
 <section class="card">
   <h1 class="h1">{% if mode == 'new' %}Новый ruleset{% else %}Редактирование ruleset{% endif %}</h1>
@@ -15,7 +15,7 @@
     <label class="label">{{ form.model_settings_json.label }} {{ form.model_settings_json(class_='input h-48') }}</label>
     <div class="actions">
       <label class="inline">{{ form.is_active() }} <span>Активный</span></label>
-      <label class="inline">{{ form.is_builtin() }} <span>Builtin</span></label>
+      <label class="inline">{{ form.is_builtin() }} <span>Системный</span></label>
     </div>
     <div class="actions">
       <button class="btn btn-primary" type="submit">Сохранить</button>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Strategy Fit Lot {{ lot.id }} | IES{% endblock %}
+{% block title %}Стратегии лота {{ lot.id }} | IES{% endblock %}
 {% block content %}
 <section class="card">
   <h1 class="h1">Стратегии для лота {{ lot.name }}</h1>
@@ -7,7 +7,7 @@
 
   <div class="table-wrap mt-3">
     <table class="table">
-      <thead><tr><th>#</th><th>Стратегия</th><th>Score</th><th>Hard bid</th><th>Confidence</th><th>Reason</th></tr></thead>
+      <thead><tr><th>#</th><th>Стратегия</th><th>Score</th><th>Hard bid</th><th>Уверенность</th><th>Обоснование</th></tr></thead>
       <tbody>
         {% for row in fit.rows %}
         <tr>

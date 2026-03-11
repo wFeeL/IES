@@ -8,9 +8,11 @@ from ies_bot_skeleton.offline.lottool import ensure_lottool_path
 from ..extensions import db
 from ..models import EvaluationResult, Forecast, GameSession, Lot
 from .adapter import lot_to_lottool, session_to_state
+from .analysis_context import resolve_analysis_context
 from .forecast_service import build_forecast_pack, merge_uploaded_forecasts
 from .network import validate_session_network
 from .ruleset import strategy_weights
+from .stale import stale_summary_for_session
 
 ensure_lottool_path()
 
@@ -86,6 +88,14 @@ def _strategy_fit_text(*, strategy: str, score: float, hard_bid: float) -> str:
     return f"Слабое соответствие стратегии '{strategy}', нужен дополнительный анализ."
 
 
+def _scenario_band(base: Any, worst: Any, best: Any) -> Dict[str, Dict[str, float]]:
+    return {
+        "worst": {"delta_total": float(worst.delta_total), "label": "Худший"},
+        "base": {"delta_total": float(base.delta_total), "label": "Базовый"},
+        "best": {"delta_total": float(best.delta_total), "label": "Лучший"},
+    }
+
+
 def evaluate_lot(
     *,
     session: GameSession,
@@ -93,13 +103,29 @@ def evaluate_lot(
     mode: str,
     strategy: Optional[str] = None,
     forecast: Optional[Forecast] = None,
+    corridor_override: Optional[Dict[str, Any]] = None,
     persist: bool = True,
 ) -> Dict[str, Any]:
     rules_cfg = dict(session.ruleset.config_json or {})
     selected_strategy = strategy or session.selected_strategy
     weights = strategy_weights(rules_cfg, selected_strategy)
+    analysis_ctx = resolve_analysis_context(
+        session,
+        requested_mode=mode,
+        forecast_id=forecast.id if forecast is not None else None,
+        corridor_override=corridor_override,
+    )
+    mode = str(analysis_ctx["mode"])
+    forecast = analysis_ctx["forecast"]
+    corridor_assumptions = (
+        analysis_ctx["corridor_summary"]["assumptions"] if mode == "no_forecast" else None
+    )
 
-    state, owned_items = session_to_state(session, rules_cfg)
+    state, owned_items = session_to_state(
+        session,
+        rules_cfg,
+        corridor_override=corridor_assumptions,
+    )
     lot_model = lot_to_lottool(lot)
 
     if mode == "no_forecast":
@@ -189,6 +215,19 @@ def evaluate_lot(
         score=float(score),
         hard_bid=float(hard_bid),
     )
+    scenario_band = _scenario_band(d_base, d_worst, d_best)
+    stop_bid = _clamp(max(float(hard_bid), float(intrinsic_value)), 0.0, allpay_remaining)
+    decision_summary = {
+        "soft_bid": float(soft_bid),
+        "hard_bid": float(hard_bid),
+        "stop_bid": float(stop_bid),
+    }
+    stale_warning = stale_summary_for_session(session.id)
+    ui_flags = {
+        "has_stale_dependencies": bool(stale_warning.get("has_stale")),
+        "has_forecast_context": bool(analysis_ctx["has_forecast_context"]),
+        "uses_manual_corridor": bool(analysis_ctx["uses_manual_corridor"]),
+    }
 
     metrics = {
         "score": float(score),
@@ -212,6 +251,12 @@ def evaluate_lot(
         "network_issues": [x.to_dict() for x in network_issues],
         "risk_commentary": risk_commentary,
         "strategy_fit_text": strategy_fit_text,
+        "analysis_mode_label": analysis_ctx["mode_label"],
+        "corridor_summary": analysis_ctx["corridor_summary"],
+        "forecast_summary": analysis_ctx["forecast_summary"],
+        "scenario_band": scenario_band,
+        "decision_summary": decision_summary,
+        "ui_flags": ui_flags,
         "scenario_delta": {
             "base": _to_dict(d_base),
             "worst": _to_dict(d_worst),
@@ -232,6 +277,12 @@ def evaluate_lot(
         "confidence": float(confidence),
         "risk_commentary": risk_commentary,
         "strategy_fit_text": strategy_fit_text,
+        "analysis_mode_label": analysis_ctx["mode_label"],
+        "corridor_summary": analysis_ctx["corridor_summary"],
+        "forecast_summary": analysis_ctx["forecast_summary"],
+        "scenario_band": scenario_band,
+        "decision_summary": decision_summary,
+        "ui_flags": ui_flags,
     }
 
     if persist:
@@ -261,6 +312,7 @@ def compare_lots(
     mode: str,
     strategy: Optional[str] = None,
     forecast: Optional[Forecast] = None,
+    corridor_override: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
     for lot in lots:
@@ -270,6 +322,7 @@ def compare_lots(
             mode=mode,
             strategy=strategy,
             forecast=forecast,
+            corridor_override=corridor_override,
             persist=False,
         )
         results.append(res)
@@ -290,6 +343,7 @@ def recommend_best_lot(
     mode: str,
     strategy: Optional[str] = None,
     forecast: Optional[Forecast] = None,
+    corridor_override: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     ranked = compare_lots(
         session=session,
@@ -297,6 +351,7 @@ def recommend_best_lot(
         mode=mode,
         strategy=strategy,
         forecast=forecast,
+        corridor_override=corridor_override,
     )
     if not ranked:
         return {"best": None, "alternatives": [], "text": "Нет доступных лотов"}
@@ -314,6 +369,7 @@ def recommend_best_lot(
         "best": best,
         "alternatives": alternatives,
         "recommended_bid": best_metrics.get("recommended_bid_hard", 0.0),
+        "decision_summary": best.get("decision_summary") or best_metrics.get("decision_summary"),
         "strategy": strategy or session.selected_strategy,
         "text": text,
     }
@@ -325,6 +381,7 @@ def strategy_fit(
     lot: Lot,
     mode: str,
     forecast: Optional[Forecast] = None,
+    corridor_override: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     strategies = [
         "generation",
@@ -343,6 +400,7 @@ def strategy_fit(
             mode=mode,
             strategy=strategy,
             forecast=forecast,
+            corridor_override=corridor_override,
             persist=False,
         )
         rows.append(

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Object Types | IES{% endblock %}
+{% block title %}Типы объектов | IES{% endblock %}
 {% block content %}
 <section class="card">
   <div class="actions">
@@ -8,7 +8,7 @@
   </div>
   <div class="table-wrap mt-3">
     <table class="table">
-      <thead><tr><th>ID</th><th>Code</th><th>Name</th><th>Category</th><th>Subtype</th><th>Active</th><th>Actions</th></tr></thead>
+      <thead><tr><th>ID</th><th>Code</th><th>Название</th><th>Категория</th><th>Подтип</th><th>Активен</th><th>Действия</th></tr></thead>
       <tbody>
         {% for row in object_types %}
         <tr>
@@ -20,11 +20,11 @@
           <td>{{ 'yes' if row.is_active else 'no' }}</td>
           <td>
             <div class="actions">
-              <a class="btn btn-secondary" href="{{ url_for('pages.settings_object_type_edit_page', object_type_id=row.id) }}">Edit</a>
+              <a class="btn btn-secondary" href="{{ url_for('pages.settings_object_type_edit_page', object_type_id=row.id) }}">Редактировать</a>
               {% if row.is_active %}
               <form method="post" action="{{ url_for('pages.settings_object_type_deactivate_action', object_type_id=row.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-                <button class="btn btn-secondary" type="submit">Deactivate</button>
+                <button class="btn btn-secondary" type="submit">Деактивировать</button>
               </form>
               {% endif %}
             </div>

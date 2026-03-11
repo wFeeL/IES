@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Start Pack {{ mode }} | IES{% endblock %}
+{% block title %}Стартовый пакет {{ mode }} | IES{% endblock %}
 {% block content %}
 <section class="card">
   <h1 class="h1">{% if mode == 'new' %}Новый шаблон стартового пакета{% else %}Редактирование шаблона стартового пакета{% endif %}</h1>
@@ -13,7 +13,7 @@
     <label class="label">{{ form.description.label }} {{ form.description(class_='input') }}</label>
     <div class="actions">
       <label class="inline">{{ form.is_active() }} <span>Активный</span></label>
-      <label class="inline">{{ form.is_builtin() }} <span>Builtin</span></label>
+      <label class="inline">{{ form.is_builtin() }} <span>Системный</span></label>
     </div>
 
     <div class="card">
@@ -23,7 +23,7 @@
       </div>
       <div class="table-wrap mt-2">
         <table class="table">
-          <thead><tr><th>Object type</th><th>Qty</th><th>Parent key</th><th>District</th><th>Name</th><th></th></tr></thead>
+          <thead><tr><th>Тип объекта</th><th>Кол-во</th><th>Родительский ключ</th><th>Район</th><th>Имя</th><th></th></tr></thead>
           <tbody id="startPackRows"></tbody>
         </table>
       </div>
@@ -61,6 +61,7 @@ window.IES_START_PACK_EDITOR = {
   const rawEl = document.getElementById('{{ form.items_json.id }}');
 
   const typeOptions = (cfg.objectTypes || []).map((x) => `<option value="${x.id}">${x.code} / ${x.name}</option>`).join('');
+  const defaultTypeId = (cfg.objectTypes || []).length ? Number(cfg.objectTypes[0].id) : 0;
 
   function parseInitial() {
     try {
@@ -74,15 +75,16 @@ window.IES_START_PACK_EDITOR = {
 
   function addRow(item) {
     const tr = document.createElement('tr');
+    const selectedType = item.object_type_id ? String(item.object_type_id) : String(defaultTypeId || '');
     tr.innerHTML = `
       <td><select class="input sp-object-type">${typeOptions}</select></td>
       <td><input class="input sp-qty" type="number" min="1" value="${Number(item.quantity || 1)}" /></td>
       <td><input class="input sp-parent" type="text" value="${item.parent_key || ''}" placeholder="row key" /></td>
       <td><input class="input sp-district" type="text" value="${item.district || 'core'}" /></td>
       <td><input class="input sp-name" type="text" value="${item.custom_name || ''}" /></td>
-      <td><button type="button" class="btn btn-secondary sp-remove">Remove</button></td>
+      <td><button type="button" class="btn btn-secondary sp-remove">Удалить</button></td>
     `;
-    tr.querySelector('.sp-object-type').value = String(item.object_type_id || item.id || '');
+    tr.querySelector('.sp-object-type').value = selectedType;
     tr.querySelector('.sp-remove').addEventListener('click', () => { tr.remove(); sync(); });
     tr.querySelectorAll('input,select').forEach((el) => el.addEventListener('input', sync));
     rowsEl.appendChild(tr);

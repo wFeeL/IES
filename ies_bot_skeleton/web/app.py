@@ -11,8 +11,7 @@ from .cli import init_cli
 from .config import CONFIG_MAP
 from .extensions import csrf, db, login_manager, migrate
 from .models import User
-from .routes.api import api_bp
-from .routes.pages import pages_bp
+from .routes import api_bp, pages_bp
 from .services.navigation import (
     build_breadcrumbs,
     is_safe_internal_url,

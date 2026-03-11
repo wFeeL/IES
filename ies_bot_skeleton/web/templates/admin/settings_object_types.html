@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Типы объектов | IES{% endblock %}
+{% block content %}
+<section class="page-grid">
+  {% include "components/admin_sidebar.html" %}
+  <article class="card">
+    <div class="section-head">
+      <div>
+        <p class="section-kicker">Администрирование</p>
+        <h1 class="h1">Глобальные типы объектов</h1>
+      </div>
+      <a class="btn btn-primary" href="{{ url_for('pages.settings_object_type_new_page') }}">Новый тип</a>
+    </div>
+    <div class="table-wrap mt-3">
+      <table class="table">
+        <thead><tr><th>Код</th><th>Название</th><th>Категория</th><th>Подтип</th><th>Активен</th><th>Действия</th></tr></thead>
+        <tbody>
+          {% for row in object_types %}
+          <tr>
+            <td><code>{{ row.code }}</code></td>
+            <td>{{ row.name }}</td>
+            <td>{{ row.category }}</td>
+            <td>{{ row.subtype }}</td>
+            <td>{{ 'да' if row.is_active else 'нет' }}</td>
+            <td>
+              <div class="actions">
+                <a class="btn btn-secondary" href="{{ url_for('pages.settings_object_type_edit_page', object_type_id=row.id) }}">Редактировать</a>
+                <form method="post" action="{{ url_for('pages.settings_object_type_deactivate_action', object_type_id=row.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <button class="btn btn-secondary" type="submit">Деактивировать</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+</section>
+{% endblock %}

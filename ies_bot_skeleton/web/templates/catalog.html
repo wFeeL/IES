@@ -16,7 +16,7 @@
           <td>{{ 'да' if row.is_active else 'нет' }}</td>
           <td>
             {% if current_user.role == 'admin' %}
-            <a class="btn btn-secondary" href="{{ url_for('pages.settings_object_type_edit_page', object_type_id=row.id) }}">Edit</a>
+            <a class="btn btn-secondary" href="{{ url_for('pages.settings_object_type_edit_page', object_type_id=row.id) }}">Редактировать</a>
             {% endif %}
           </td>
         </tr>

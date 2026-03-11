@@ -219,15 +219,24 @@ def _build_network_plan(objects: Iterable[ObjectInstance], cfg: Dict) -> Network
     return NetworkPlan(mode="branches", branches=branches)
 
 
-def session_to_state(session: GameSession, cfg: Dict) -> Tuple[State, List[ObjectItem]]:
+def session_to_state(
+    session: GameSession,
+    cfg: Dict,
+    *,
+    corridor_override: Optional[Dict[str, float]] = None,
+) -> Tuple[State, List[ObjectItem]]:
     owned_items = collect_owned_items(session)
     time_cfg = cfg.get("time", {}) or {}
     eval_cfg = cfg.get("evaluation", {}) or {}
-    corridor = (cfg.get("scenarios", {}) or {}).get("corridor") or {
-        "wind_mul": 0.10,
-        "solar_mul": 0.10,
-        "load_mul": 0.10,
-    }
+    corridor = dict(
+        corridor_override
+        or (cfg.get("scenarios", {}) or {}).get("corridor")
+        or {
+            "wind_mul": 0.10,
+            "solar_mul": 0.10,
+            "load_mul": 0.10,
+        }
+    )
 
     state = State(
         schema_version=1,

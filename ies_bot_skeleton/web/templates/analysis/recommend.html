@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Рекомендации {{ session.id }} | IES{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+{% include "components/analysis_context.html" %}
+
+<section class="card mt-4">
+  <p class="section-kicker">Decision support</p>
+  <h1 class="h1">Рекомендация по лучшему лоту</h1>
+  {% if recommendation and recommendation.best %}
+  <p class="lead mt-2">{{ recommendation.text }}</p>
+  <div class="page-grid mt-4">
+    <article class="card card-lot accent-card">
+      <p class="section-kicker">Лучший выбор</p>
+      <h2 class="h2">Лот {{ recommendation.best.lot_id }}</h2>
+      <div class="metric-strip mt-3">
+        <div><span class="metric-label">Score</span><strong>{{ '%.2f'|format(recommendation.best.summary_score) }}</strong></div>
+        <div><span class="metric-label">Мягкая ставка</span><strong>{{ '%.1f'|format(recommendation.best.decision_summary.soft_bid) }}</strong></div>
+        <div><span class="metric-label">Жесткий потолок</span><strong>{{ '%.1f'|format(recommendation.best.decision_summary.hard_bid) }}</strong></div>
+        <div><span class="metric-label">Стоп-ставка</span><strong>{{ '%.1f'|format(recommendation.best.decision_summary.stop_bid) }}</strong></div>
+      </div>
+      <p class="muted mt-3">{{ recommendation.best.strategy_fit_text }}</p>
+      <div class="explanation-block mt-2">{{ recommendation.best.explanation }}</div>
+      <div class="risk-block mt-2">{{ recommendation.best.risk_commentary }}</div>
+    </article>
+    <article class="card">
+      <p class="section-kicker">Fallback</p>
+      <h2 class="h2">Альтернативы, если цена уйдет выше потолка</h2>
+      <ul class="stack gap-2 mt-3">
+        {% for row in recommendation.alternatives %}
+        <li class="alt-row">
+          <strong>Лот {{ row.lot_id }}</strong>
+          <div>score {{ '%.2f'|format(row.summary_score) }}, потолок {{ '%.1f'|format(row.decision_summary.hard_bid) }}</div>
+          <div class="muted">{{ row.strategy_fit_text }}</div>
+          <div class="risk-block mt-2">{{ row.risk_commentary }}</div>
+        </li>
+        {% else %}
+        <li class="muted">Сильных альтернатив не найдено.</li>
+        {% endfor %}
+      </ul>
+    </article>
+  </div>
+  {% else %}
+  <p class="muted mt-2">Недостаточно данных для рекомендации.</p>
+  {% endif %}
+</section>
+{% endblock %}

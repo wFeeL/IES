@@ -50,8 +50,8 @@ def test_compare_recommend_and_quick_pages_render_extended_blocks(client):
     compare_resp = client.get(f"/compare/{session_id}")
     assert compare_resp.status_code == 200
     compare_html = compare_resp.get_data(as_text=True)
-    assert "Strategy fit" in compare_html
-    assert "Explanation" in compare_html
+    assert "Соответствие стратегии" in compare_html
+    assert "Пояснение" in compare_html
 
     recommend_resp = client.get(f"/recommend/{session_id}")
     assert recommend_resp.status_code == 200
@@ -62,7 +62,7 @@ def test_compare_recommend_and_quick_pages_render_extended_blocks(client):
     quick_resp = client.get(f"/quick-auction/{session_id}")
     assert quick_resp.status_code == 200
     quick_html = quick_resp.get_data(as_text=True)
-    assert "Recommended bid" in quick_html
-    assert "Strategy fit" in quick_html
+    assert "Рекоменд. ставка" in quick_html
+    assert "Соотв. стратегии" in quick_html
     assert "qaApplyFilters" in quick_html
     assert "quickEvalRow" in quick_html

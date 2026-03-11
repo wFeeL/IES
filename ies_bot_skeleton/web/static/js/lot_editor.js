@@ -25,6 +25,7 @@
     if (!rowsEl || !addBtn || !hiddenEl) return;
 
     const objectTypes = Array.isArray(cfg.objectTypes) ? cfg.objectTypes : [];
+    const defaultTypeId = objectTypes.length ? Number(objectTypes[0].id) : 0;
     const typeOptions = objectTypes
       .map((row) => `<option value="${row.id}">${row.code} / ${row.name}</option>`)
       .join("");
@@ -70,6 +71,7 @@
 
     function addRow(item) {
       const tr = document.createElement("tr");
+      const selectedType = item.object_type_id ? String(item.object_type_id) : String(defaultTypeId || "");
       tr.innerHTML = `
         <td><select class="input le-type">${typeOptions}</select></td>
         <td><input class="input le-qty" type="number" min="1" value="${Math.max(1, toInt(item.quantity || 1, 1))}" /></td>
@@ -78,8 +80,7 @@
       `;
       const sel = tr.querySelector(".le-type");
       if (sel) {
-        const selected = String(item.object_type_id || "");
-        sel.value = selected;
+        sel.value = selectedType;
       }
       tr.querySelector(".le-remove")?.addEventListener("click", function () {
         tr.remove();

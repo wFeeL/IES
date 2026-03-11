@@ -1,0 +1,8 @@
+<aside class="card admin-sidebar">
+  <p class="section-kicker">Администрирование</p>
+  <div class="stack gap-2 mt-3">
+    {% for item in admin_links %}
+    <a class="btn btn-secondary btn-block" href="{{ item.url }}">{{ item.label }}</a>
+    {% endfor %}
+  </div>
+</aside>

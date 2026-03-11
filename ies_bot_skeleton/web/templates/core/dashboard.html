@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Сессии | IES{% endblock %}
+{% block content %}
+<section class="page-grid">
+  <div class="stack gap-4">
+    <article class="card">
+      <p class="section-kicker">Новая сессия</p>
+      <h1 class="h1">Подготовить рабочее место</h1>
+      <p class="muted">Создайте сессию, чтобы собрать контекст, выбрать режим анализа и перейти к аукциону.</p>
+      <form method="post" class="stack gap-3 mt-4">
+        {{ form.hidden_tag() }}
+        <label class="label">{{ form.title.label }} {{ form.title(class_='input') }}</label>
+        <label class="label">{{ form.ruleset_id.label }} {{ form.ruleset_id(class_='input') }}</label>
+        <label class="label">{{ form.selected_strategy.label }} {{ form.selected_strategy(class_='input') }}</label>
+        <label class="label">{{ form.budget_total.label }} {{ form.budget_total(class_='input') }}</label>
+        <button class="btn btn-primary btn-block" type="submit">Создать сессию</button>
+      </form>
+    </article>
+  </div>
+
+  <div class="stack gap-4">
+    <article class="card">
+      <div class="section-head">
+        <div>
+          <p class="section-kicker">Рабочие сессии</p>
+          <h2 class="h2">Готовность к анализу</h2>
+        </div>
+      </div>
+      <div class="stack gap-3 mt-3">
+        {% for row in session_cards %}
+        <article class="session-card">
+          <div class="session-card-main">
+            <div>
+              <h3 class="h3">{{ row.title }}</h3>
+              <p class="muted">Стратегия: {{ row.strategy }} · Бюджет: {{ '%.1f'|format(row.budget_total) }}</p>
+            </div>
+            <span class="status-badge {{ 'status-fresh' if row.has_forecast else 'status-stale' }}">{{ row.analysis_mode_label }}</span>
+          </div>
+          <div class="session-card-stats">
+            <span class="pill">{{ row.lots_count }} лотов</span>
+            <span class="pill">{{ row.objects_count }} объектов</span>
+            <span class="pill">{{ 'есть прогноз' if row.has_forecast else 'без прогноза' }}</span>
+          </div>
+          <div class="actions mt-3">
+            <a class="btn btn-primary" href="{{ row.url }}">Открыть рабочее место</a>
+          </div>
+        </article>
+        {% else %}
+        <div class="empty-state">
+          Пока нет сессий. Начните с карточки слева и создайте первую рабочую сессию.
+        </div>
+        {% endfor %}
+      </div>
+    </article>
+  </div>
+</section>
+{% endblock %}

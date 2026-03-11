@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Быстрый аукцион {{ session.id }} | IES{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+{% include "components/analysis_context.html" %}
+
+<section class="page-grid mt-4">
+  <article class="card">
+    <div class="section-head">
+      <div>
+        <p class="section-kicker">Shortlist</p>
+        <h1 class="h1">Быстрый аукцион</h1>
+        <p class="muted">Hotkeys: <kbd>1..9</kbd> выбрать лот, <kbd>E</kbd> оценить, <kbd>R</kbd> обновить ранжирование.</p>
+      </div>
+    </div>
+    <ul id="auctionLots" class="stack gap-2 mt-3">
+      {% for lot in lots %}
+      <li class="auction-item" data-lot-id="{{ lot.id }}"><strong>{{ loop.index }}.</strong> {{ lot.name }} <span class="muted">({{ '%.1f'|format(lot.current_bid) }})</span></li>
+      {% else %}
+      <li class="muted">Нет лотов.</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="card">
+    <div class="section-head">
+      <div>
+        <p class="section-kicker">Decision panel</p>
+        <h2 class="h2">Решение по текущему лоту</h2>
+      </div>
+    </div>
+    <div class="stack gap-3 mt-3">
+      <label class="label">Текущий lot id <input id="currentLotId" class="input" type="number" /></label>
+      <label class="label">Текущая ставка <input id="currentBid" class="input" type="number" step="0.1" /></label>
+      <div class="actions">
+        <button id="evalCurrent" class="btn btn-primary" type="button">Оценить</button>
+        <button id="refreshRanking" class="btn btn-secondary" type="button">Обновить ранжирование</button>
+      </div>
+    </div>
+    <div class="metric-strip mt-4" id="decisionMetrics">
+      <div><span class="metric-label">Score</span><strong id="qaScore">—</strong></div>
+      <div><span class="metric-label">Риск</span><strong id="qaRisk">—</strong></div>
+      <div><span class="metric-label">Реком. ставка</span><strong id="qaBid">—</strong></div>
+    </div>
+    <div class="risk-block mt-3" id="qaCommentary">Выберите лот и нажмите «Оценить».</div>
+    <details class="mt-3">
+      <summary>Технический ответ</summary>
+      <pre id="quickOut" class="mini-output mt-2"></pre>
+    </details>
+  </article>
+</section>
+
+<section class="card mt-4">
+  <div class="grid cols-4 gap-3">
+    <label class="label">Сортировка
+      <select id="qaSort" class="input">
+        <option value="score_desc">Score ↓</option>
+        <option value="risk_asc">Риск ↑</option>
+        <option value="bid_desc">Ставка ↓</option>
+      </select>
+    </label>
+    <label class="label">Мин. score <input id="qaMinScore" class="input" type="number" step="0.1" /></label>
+    <label class="label">Макс. риск <input id="qaMaxRisk" class="input" type="number" step="0.1" /></label>
+    <label class="label">Фильтр shortlist
+      <select id="qaShortlistOnly" class="input">
+        <option value="0">Все лоты</option>
+        <option value="1">Только shortlist</option>
+      </select>
+    </label>
+  </div>
+  <div class="actions mt-3">
+    <button id="qaApplyFilters" class="btn btn-secondary" type="button">Применить фильтры</button>
+    <a class="btn btn-secondary" href="{{ url_for('pages.compare_page', session_id=session.id) }}">Открыть сравнение</a>
+    <a class="btn btn-secondary" href="{{ url_for('pages.recommend_page', session_id=session.id) }}">Открыть рекомендации</a>
+  </div>
+</section>
+
+<section class="card mt-4">
+  <div class="table-wrap">
+    <table class="table" id="rankingTable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Лот</th>
+          <th>Score</th>
+          <th>Риск</th>
+          <th>Рекоменд. ставка</th>
+          <th>Соотв. стратегии</th>
+          <th>Пояснение</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody id="rankingTableBody">
+        {% for row in ranking %}
+        <tr data-lot-id="{{ row.lot_id }}">
+          <td>{{ loop.index }}</td>
+          <td>{{ row.lot_id }}</td>
+          <td>{{ '%.2f'|format(row.summary_score) }}</td>
+          <td>{{ '%.2f'|format(row.metrics.delta_risk) }}</td>
+          <td>{{ '%.1f'|format(row.recommended_bid_hard) }}</td>
+          <td>{{ row.strategy_fit_text or '-' }}</td>
+          <td>{{ row.risk_commentary or row.explanation }}</td>
+          <td>
+            <div class="actions">
+              <button class="btn btn-secondary quickEvalRow" data-lot-id="{{ row.lot_id }}" type="button">Оценить</button>
+              <a class="btn btn-secondary" href="{{ url_for('pages.strategy_fit_page', lot_id=row.lot_id) }}">Стратегии</a>
+              <a class="btn btn-secondary" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Открыть лот</a>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="muted">Нет данных для ранжирования.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+window.IES_QUICK_AUCTION = {
+  sessionId: {{ session.id }},
+  csrfToken: "{{ csrf_token() }}",
+  mode: {{ mode|tojson }},
+  forecastId: {{ analysis_ctx.forecast.id if analysis_ctx.forecast else 'null' }},
+  corridorOverride: {{ analysis_ctx.corridor_settings|tojson }},
+  initialRanking: {{ ranking|tojson }},
+};
+</script>
+<script defer src="{{ url_for('static', filename='js/analysis/quick_auction.js') }}"></script>
+{% endblock %}

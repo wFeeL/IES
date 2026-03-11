@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Edit Lots {{ session.id }} | IES{% endblock %}
+{% block title %}Лоты {{ session.id }} | IES{% endblock %}
 {% block content %}
 <section class="card">
   <h1 class="h1">Добавить лот в сессию #{{ session.id }}</h1>
@@ -29,7 +29,7 @@
         <table class="table" id="lotEditorTable">
           <thead>
             <tr>
-              <th>Object type</th>
+              <th>Тип объекта</th>
               <th>Количество</th>
               <th>Parent key</th>
               <th></th>

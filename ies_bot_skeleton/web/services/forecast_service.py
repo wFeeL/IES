@@ -204,7 +204,11 @@ def parse_and_store_forecast(
         name=name,
         source_file=source_file,
         column_map_json=resolved,
-        metadata_json={"rows": len(periods), "warnings": len(warnings)},
+        metadata_json={
+            "rows": len(periods),
+            "warnings": len(warnings),
+            "warnings_detail": list(warnings),
+        },
     )
     forecast.periods = periods
     db.session.add(forecast)
@@ -265,3 +269,53 @@ def merge_uploaded_forecasts(
             for series_key, values in bucket.items():
                 merged[kind].setdefault(series_key, {}).update(values)
     return merged
+
+
+def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
+    periods = list(forecast.periods)
+    if not periods:
+        return {
+            "forecast_id": forecast.id,
+            "name": forecast.name,
+            "source_file": forecast.source_file,
+            "count": 0,
+            "tick_from": None,
+            "tick_to": None,
+            "avg_wind": None,
+            "avg_illumination": None,
+            "avg_market_price": None,
+            "load_series": [],
+            "warnings": list((forecast.metadata_json or {}).get("warnings_detail") or []),
+            "text": f"Прогноз '{forecast.name}' пустой.",
+        }
+
+    def avg(values: Iterable[Optional[float]]) -> Optional[float]:
+        rows = [value for value in values if value is not None]
+        if not rows:
+            return None
+        return round(sum(rows) / len(rows), 4)
+
+    load_series = sorted(
+        {
+            key
+            for period in periods
+            for key in (period.consumption_json or {}).keys()
+        }
+    )
+    return {
+        "forecast_id": forecast.id,
+        "name": forecast.name,
+        "source_file": forecast.source_file,
+        "count": len(periods),
+        "tick_from": min(period.tick for period in periods),
+        "tick_to": max(period.tick for period in periods),
+        "avg_wind": avg(period.wind for period in periods),
+        "avg_illumination": avg(period.illumination for period in periods),
+        "avg_market_price": avg(period.market_price for period in periods),
+        "load_series": load_series,
+        "warnings": list((forecast.metadata_json or {}).get("warnings_detail") or []),
+        "text": (
+            f"Периоды {min(period.tick for period in periods)}-{max(period.tick for period in periods)}, "
+            f"рядов потребления: {len(load_series)}."
+        ),
+    }

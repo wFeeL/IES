@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Справочник | IES{% endblock %}
+{% block content %}
+<section class="card">
+  <p class="section-kicker">Глобальный каталог</p>
+  <h1 class="h1">Типы объектов</h1>
+  <p class="muted">Справочник сгруппирован по ролям в энергосистеме, чтобы аналитик видел не только код, но и поведенческие параметры объекта.</p>
+</section>
+
+<section class="stack gap-4 mt-4">
+  {% for category, rows in sections.items() %}
+  <article class="card">
+    <div class="section-head">
+      <div>
+        <p class="section-kicker">Категория</p>
+        <h2 class="h2">{{ category }}</h2>
+      </div>
+    </div>
+    <div class="catalog-grid mt-3">
+      {% for row in rows %}
+      <article class="catalog-card">
+        <div class="catalog-card-head">
+          <div>
+            <h3 class="h3">{{ row.name }}</h3>
+            <p class="muted"><code>{{ row.code }}</code> · {{ row.subtype }}</p>
+          </div>
+          <span class="status-badge {{ 'status-fresh' if row.is_active else 'status-stale' }}">{{ 'активен' if row.is_active else 'отключен' }}</span>
+        </div>
+        <p class="mt-2">{{ row.description or 'Описание не задано.' }}</p>
+        <div class="stack gap-2 mt-3">
+          {% for key, value in (row.default_parameters_json or {}).items() %}
+          <div class="key-value">
+            <span>{{ key }}</span>
+            <strong>{{ value }}</strong>
+          </div>
+          {% endfor %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}

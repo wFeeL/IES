@@ -12,7 +12,7 @@ def test_second_level_pages_have_back_breadcrumbs_and_cancel(client):
     html = resp.get_data(as_text=True)
 
     assert f'href="/lots/{session_id}"' in html  # back fallback and cancel link target
-    assert "Back" in html
+    assert "Назад" in html
     assert "Новый лот" in html
     assert "Отмена" in html
 

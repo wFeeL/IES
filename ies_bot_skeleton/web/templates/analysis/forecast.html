@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Прогнозы {{ session.id }} | IES{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+{% include "components/analysis_context.html" %}
+
+<section class="page-grid mt-4">
+  <article class="card">
+    <p class="section-kicker">Источник аналитического контекста</p>
+    <h1 class="h1">Центр прогноза</h1>
+    <form id="forecastForm" class="stack gap-3 mt-3" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <input type="hidden" name="session_id" value="{{ session.id }}" />
+      <label class="label">Название <input class="input" type="text" name="name" value="forecast-{{ session.id }}" /></label>
+      <label class="label">CSV прогноз <input class="input" type="file" name="file" accept=".csv" /></label>
+      <button class="btn btn-primary" type="submit">Загрузить прогноз</button>
+    </form>
+    <div id="forecastOut" class="stack gap-2 mt-4"></div>
+  </article>
+
+  <article class="card">
+    <p class="section-kicker">Краткая справка</p>
+    <h2 class="h2">Что важно проверить</h2>
+    <ul class="stack gap-2 mt-3">
+      <li class="issue issue-ok">tick/time должен быть заполнен для всех строк.</li>
+      <li class="issue issue-ok">Потребление должно содержать серии `houseA`, `houseB`, `office`, `factory` или `load_*`.</li>
+      <li class="issue issue-ok">После загрузки выберите активный прогноз в рабочем месте или ниже в таблице.</li>
+    </ul>
+  </article>
+</section>
+
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Загруженные данные</p>
+      <h2 class="h2">Прогнозы сессии</h2>
+    </div>
+  </div>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead><tr><th>ID</th><th>Название</th><th>Период</th><th>Ряды нагрузки</th><th>Активный</th><th>Действия</th></tr></thead>
+      <tbody>
+        {% for fc in forecasts %}
+        {% set summary = forecast_summaries[fc.id] %}
+        <tr>
+          <td>{{ fc.id }}</td>
+          <td>
+            <strong>{{ fc.name }}</strong>
+            <div class="muted">{{ fc.source_file }}</div>
+          </td>
+          <td>{{ summary.tick_from or '—' }}–{{ summary.tick_to or '—' }}</td>
+          <td>{{ summary.load_series|join(', ') if summary.load_series else 'не найдены' }}</td>
+          <td>{{ 'да' if session.selected_forecast_id == fc.id else 'нет' }}</td>
+          <td>
+            <div class="actions">
+              <form method="post" action="{{ url_for('pages.session_forecast_selection_action', session_id=session.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <input type="hidden" name="selected_forecast_id" value="{{ fc.id }}" />
+                <button class="btn btn-secondary" type="submit">Сделать активным</button>
+              </form>
+              <button class="btn btn-secondary analyzeBtn" data-forecast-id="{{ fc.id }}" type="button">Диагностика</button>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted">Прогнозы еще не загружены.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+window.IES_FORECAST_CENTER = {
+  sessionId: {{ session.id }},
+  csrfToken: "{{ csrf_token() }}"
+};
+</script>
+<script defer src="{{ url_for('static', filename='js/analysis/forecast_center.js') }}"></script>
+{% endblock %}
