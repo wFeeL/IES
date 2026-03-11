@@ -81,18 +81,28 @@ def instance_to_object_item(instance: ObjectInstance) -> Optional[ObjectItem]:
         params.get("object_id") or _object_item_id("OBJ", instance.id, fallback=str(instance.id))
     )
 
+    connection_point = (
+        params.get("connection_point")
+        or params.get("point")
+        or params.get("cell")
+        or params.get("slot")
+    )
+    meta = {
+        "source": "session",
+        "instance_id": instance.id,
+        "district": instance.district,
+        "object_type_code": instance.object_type.code,
+    }
+    if connection_point:
+        meta["connection_point"] = str(connection_point).strip().upper()
+
     return ObjectItem(
         kind=kind,
         id=object_id,
         qty=qty,
         contract_rub_per_tick=float(params.get("contract_rub_per_tick", 0.0) or 0.0),
         tariff_rub_per_mw_tick=float(params.get("tariff_rub_per_mw_tick", 0.0) or 0.0),
-        meta={
-            "source": "session",
-            "instance_id": instance.id,
-            "district": instance.district,
-            "object_type_code": instance.object_type.code,
-        },
+        meta=meta,
     )
 
 
@@ -108,17 +118,27 @@ def lot_item_to_object_item(lot_item: LotItem) -> Optional[ObjectItem]:
         overrides.get("object_id")
         or f"LOT{lot_item.lot_id}_IT{lot_item.id}_{lot_item.object_type.code}"
     )
+    connection_point = (
+        overrides.get("connection_point")
+        or overrides.get("point")
+        or overrides.get("cell")
+        or overrides.get("slot")
+    )
+    meta = {
+        "source": "lot",
+        "lot_item_id": lot_item.id,
+        "object_type_code": lot_item.object_type.code,
+    }
+    if connection_point:
+        meta["connection_point"] = str(connection_point).strip().upper()
+
     return ObjectItem(
         kind=kind,
         id=object_id,
         qty=max(1, int(lot_item.quantity or 1)),
         contract_rub_per_tick=float(overrides.get("contract_rub_per_tick", 0.0) or 0.0),
         tariff_rub_per_mw_tick=float(overrides.get("tariff_rub_per_mw_tick", 0.0) or 0.0),
-        meta={
-            "source": "lot",
-            "lot_item_id": lot_item.id,
-            "object_type_code": lot_item.object_type.code,
-        },
+        meta=meta,
     )
 
 

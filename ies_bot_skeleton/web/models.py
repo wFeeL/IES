@@ -177,7 +177,7 @@ class GameSession(db.Model):
     title = db.Column(db.String(255), nullable=False)
     ruleset_id = db.Column(db.Integer, db.ForeignKey("rulesets.id"), nullable=False)
     selected_strategy = db.Column(db.String(64), nullable=False, default="balanced")
-    budget_total = db.Column(db.Float, nullable=False, default=9999.0)
+    budget_total = db.Column(db.Float, nullable=False, default=200.0)
     allpay_spent = db.Column(db.Float, nullable=False, default=0.0)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = db.Column(

@@ -22,5 +22,9 @@ class SessionForm(FlaskForm):
         default="balanced",
         validators=[DataRequired()],
     )
-    budget_total = FloatField("Бюджет", validators=[DataRequired(), NumberRange(min=0.0)])
+    budget_total = FloatField(
+        "Бюджет",
+        default=200.0,
+        validators=[DataRequired(), NumberRange(min=0.0)],
+    )
     submit = SubmitField("Создать")

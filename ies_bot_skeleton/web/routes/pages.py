@@ -23,7 +23,6 @@ from ..models import (
     Lot,
     ObjectType,
     Ruleset,
-    StartPackTemplate,
     User,
 )
 from ..services.auth import role_required
@@ -133,21 +132,31 @@ def logout():
 def dashboard():
     form = SessionForm()
     rulesets = db.session.query(Ruleset).filter_by(is_active=True).all()
+    default_budget = 200.0
     if rulesets:
         form.ruleset_id.choices = [
             (row.id, f"{row.name} ({row.code}:{row.version})") for row in rulesets
         ]
         if not form.ruleset_id.data:
             form.ruleset_id.data = rulesets[0].id
+        cfg = dict(rulesets[0].config_json or {})
+        auction_cfg = dict(cfg.get("auction", {}) or {})
+        default_budget = float(auction_cfg.get("starting_budget", 200.0) or 200.0)
     else:
         form.ruleset_id.choices = []
+    if request.method == "GET" and not form.budget_total.data:
+        form.budget_total.data = default_budget
 
     if form.validate_on_submit():
+        selected_ruleset = db.session.get(Ruleset, int(form.ruleset_id.data))
+        selected_cfg = dict((selected_ruleset.config_json or {}) if selected_ruleset else {})
+        selected_auction = dict(selected_cfg.get("auction", {}) or {})
+        selected_budget = float(selected_auction.get("starting_budget", 200.0) or 200.0)
         row = GameSession(
             title=form.title.data,
             ruleset_id=form.ruleset_id.data,
             selected_strategy=form.selected_strategy.data,
-            budget_total=float(form.budget_total.data or 9999.0),
+            budget_total=float(form.budget_total.data or selected_budget),
             allpay_spent=0.0,
         )
         db.session.add(row)

@@ -28,8 +28,8 @@ python -m ies_bot_skeleton.cli online --season 2026 --strict
 # 3) OFFLINE: legacy-оценка лотов
 python -m ies_bot_skeleton.cli offline lottool rank
 python -m ies_bot_skeleton.cli offline lottool rank --sort risk_adjusted
-python -m ies_bot_skeleton.cli offline lottool eval --lot ies_bot_skeleton/lot_tool/data/lots/L12.json
-python -m ies_bot_skeleton.cli offline lottool suggest-bid --lot ies_bot_skeleton/lot_tool/data/lots/L12.json --pwin 0.35
+python -m ies_bot_skeleton.cli offline lottool eval --lot ies_bot_skeleton/lot_tool/data/lots/L01.json
+python -m ies_bot_skeleton.cli offline lottool suggest-bid --lot ies_bot_skeleton/lot_tool/data/lots/L01.json --pwin 0.35
 
 # 4) OFFLINE: legacy-заполнение/нормализация существующих лотов
 python -m ies_bot_skeleton.cli offline fill-lots --lots-dir ies_bot_skeleton/lot_tool/data/lots
@@ -95,7 +95,10 @@ pytest -q
 - `lottool` учитывает:
   - штрафы за недоотпуск (`fine.*`);
   - `instant_buy` / `instant_sell`;
-  - дискретный `wear/outage` по веткам (параметры в `network.*`).
+  - дискретный `wear/outage` по веткам (параметры в `network.*`);
+  - лимит главной подстанции (`network.main_substation_limit_mw`);
+  - лимит мощности линии (`network.line_max_power_mw`);
+  - потери по точкам A–G (`network.connection_loss_pct_by_point`, через `item.meta.connection_point`).
 - `rank` поддерживает сортировки: `delta_base`, `delta_worst`, `ev`, `risk_adjusted`.
 - `suggest-bid` показывает предупреждения про all-pay лимит и `dead bids` (EV < 0).
 

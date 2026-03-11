@@ -87,6 +87,7 @@ def build_default_ruleset_config() -> Dict[str, Any]:
         },
     )
     merged.setdefault("auction", {}).setdefault("pwin_default", 0.35)
+    merged.setdefault("auction", {}).setdefault("starting_budget", 200.0)
     return merged
 
 

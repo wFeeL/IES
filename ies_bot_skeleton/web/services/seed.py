@@ -8,15 +8,17 @@ from .ruleset import build_default_ruleset_config
 
 START_PACK_CODES = ["main_substation", "mini_substation_a", "cyber_solar", "house"]
 DEFAULT_START_PACK_TEMPLATE_CODE = "core_default"
-DEFAULT_START_PACK_TEMPLATE_NAME = "Core Start Pack"
-DEFAULT_START_PACK_TEMPLATE_DESCRIPTION = "Базовый стартовый пакет для MVP."
+DEFAULT_START_PACK_TEMPLATE_NAME = "Стартовый пакет аукциона"
+DEFAULT_START_PACK_TEMPLATE_DESCRIPTION = (
+    "Главная подстанция + мини-подстанция + солнечная панель + жилой дом."
+)
 START_PACK_TEMPLATE_ITEMS_SEED: List[Dict[str, Any]] = [
     {
         "key": "main",
         "parent_key": None,
         "object_type_code": "main_substation",
         "quantity": 1,
-        "custom_name": "Main Substation",
+        "custom_name": "Главная подстанция",
         "district": "core",
         "parameters_json": {},
         "sort_order": 10,
@@ -26,7 +28,7 @@ START_PACK_TEMPLATE_ITEMS_SEED: List[Dict[str, Any]] = [
         "parent_key": "main",
         "object_type_code": "mini_substation_a",
         "quantity": 1,
-        "custom_name": "Mini A",
+        "custom_name": "Мини-подстанция",
         "district": "core",
         "parameters_json": {},
         "sort_order": 20,
@@ -36,9 +38,9 @@ START_PACK_TEMPLATE_ITEMS_SEED: List[Dict[str, Any]] = [
         "parent_key": "mini",
         "object_type_code": "cyber_solar",
         "quantity": 1,
-        "custom_name": "Cyber SES",
+        "custom_name": "Солнечная панель",
         "district": "core",
-        "parameters_json": {},
+        "parameters_json": {"connection_point": "B"},
         "sort_order": 30,
     },
     {
@@ -46,9 +48,9 @@ START_PACK_TEMPLATE_ITEMS_SEED: List[Dict[str, Any]] = [
         "parent_key": "mini",
         "object_type_code": "house",
         "quantity": 1,
-        "custom_name": "House",
+        "custom_name": "Жилой дом",
         "district": "core",
-        "parameters_json": {},
+        "parameters_json": {"connection_point": "C"},
         "sort_order": 40,
     },
 ]
@@ -61,8 +63,8 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "residential",
         "description": "Базовый потребитель класса house.",
         "default_parameters_json": {
-            "tariff_rub_per_mw_tick": 14.0,
-            "expected_consumption_mw": 8.0,
+            "tariff_rub_per_mw_tick": 3.0,
+            "expected_consumption_mw": 2.0,
             "requires_substation": True,
             "profile": "houseA",
             "eco_score": 0.0,
@@ -91,8 +93,8 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "office",
         "description": "Потребитель со средней нагрузкой.",
         "default_parameters_json": {
-            "tariff_rub_per_mw_tick": 18.0,
-            "expected_consumption_mw": 10.0,
+            "tariff_rub_per_mw_tick": 5.0,
+            "expected_consumption_mw": 1.0,
             "requires_substation": True,
             "profile": "office",
             "eco_score": 0.0,
@@ -119,8 +121,8 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "industry",
         "description": "Промышленный потребитель с высоким штрафом за недоотпуск.",
         "default_parameters_json": {
-            "tariff_rub_per_mw_tick": 25.0,
-            "expected_consumption_mw": 20.0,
+            "tariff_rub_per_mw_tick": 4.0,
+            "expected_consumption_mw": 6.0,
             "requires_substation": True,
             "profile": "factory",
             "eco_score": -1.0,
@@ -147,11 +149,11 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "solar",
         "description": "СЭС с зависимостью от освещенности.",
         "default_parameters_json": {
-            "contract_rub_per_tick": 120.0,
-            "generation_mw": 12.0,
+            "contract_rub_per_tick": 2.0,
+            "generation_mw": 10.0,
             "depends_on_sun": True,
             "efficiency": 0.95,
-            "eco_score": 3.0,
+            "eco_score": 2.0,
             "requires_substation": True,
             "forecast_sensitivity": 1.2,
         },
@@ -174,11 +176,11 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "solar",
         "description": "Обычная солнечная генерация.",
         "default_parameters_json": {
-            "contract_rub_per_tick": 110.0,
+            "contract_rub_per_tick": 2.0,
             "generation_mw": 10.0,
             "depends_on_sun": True,
-            "efficiency": 0.92,
-            "eco_score": 2.8,
+            "efficiency": 0.95,
+            "eco_score": 2.0,
             "requires_substation": True,
             "forecast_sensitivity": 1.1,
         },
@@ -201,13 +203,13 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "wind",
         "description": "Ветрогенератор с нелинейной зависимостью.",
         "default_parameters_json": {
-            "contract_rub_per_tick": 120.0,
-            "generation_mw": 14.0,
+            "contract_rub_per_tick": 1.0,
+            "generation_mw": 8.0,
             "depends_on_wind": True,
             "efficiency": 0.9,
-            "eco_score": 2.5,
+            "eco_score": 2.0,
             "requires_substation": True,
-            "forecast_sensitivity": 1.2,
+            "forecast_sensitivity": 1.0,
         },
         "editable_fields_json": [
             "contract_rub_per_tick",
@@ -228,11 +230,11 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "thermal",
         "description": "Управляемая генерация с топливом и налогами.",
         "default_parameters_json": {
-            "contract_rub_per_tick": 140.0,
-            "generation_mw": 16.0,
+            "contract_rub_per_tick": 0.0,
+            "generation_mw": 15.0,
             "fuel_price": 0.5,
-            "eco_tax_fuel": 1.5,
-            "efficiency": 0.4,
+            "eco_tax_fuel": 0.0,
+            "efficiency": 1.0,
             "eco_score": -2.0,
             "requires_substation": True,
             "forecast_sensitivity": 0.2,
@@ -257,10 +259,10 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "battery",
         "description": "Аккумулятор с емкостью и скоростью заряда/разряда.",
         "default_parameters_json": {
-            "contract_rub_per_tick": 80.0,
-            "capacity_mw_tick": 80.0,
-            "charge_rate_mw": 15.0,
-            "discharge_rate_mw": 20.0,
+            "contract_rub_per_tick": 3.0,
+            "capacity_mw_tick": 20.0,
+            "charge_rate_mw": 5.0,
+            "discharge_rate_mw": 5.0,
             "efficiency": 0.95,
             "eco_score": 1.0,
             "requires_substation": True,
@@ -286,12 +288,20 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "main",
         "description": "Корневой узел дерева сети.",
         "default_parameters_json": {
-            "ports": 10,
+            "ports": 3,
+            "contract_rub_per_tick": 1.0,
+            "soft_flow_limit_mw": 40.0,
             "requires_substation": False,
             "district": "core",
             "wear_impact": 0.1,
         },
-        "editable_fields_json": ["ports", "district", "wear_impact"],
+        "editable_fields_json": [
+            "ports",
+            "contract_rub_per_tick",
+            "soft_flow_limit_mw",
+            "district",
+            "wear_impact",
+        ],
         "rules_json": {
             "requires_substation": False,
             "forbid_mixed_gen_load": False,
@@ -313,7 +323,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "editable_fields_json": ["ports", "district", "wear_impact"],
         "rules_json": {
             "requires_substation": True,
-            "forbid_mixed_gen_load": True,
+            "forbid_mixed_gen_load": False,
         },
     },
     {
@@ -323,7 +333,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "miniB",
         "description": "Расширенный локальный узел сети.",
         "default_parameters_json": {
-            "ports": 4,
+            "ports": 3,
             "requires_substation": True,
             "district": "default",
             "wear_impact": 0.2,
@@ -331,7 +341,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "editable_fields_json": ["ports", "district", "wear_impact"],
         "rules_json": {
             "requires_substation": True,
-            "forbid_mixed_gen_load": True,
+            "forbid_mixed_gen_load": False,
         },
     },
 ]

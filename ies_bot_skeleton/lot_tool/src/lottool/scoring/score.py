@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 from lottool.io.forecast_loader import ForecastPack, lookup
 from lottool.model.types import Breakdown, ObjectItem, State
@@ -108,6 +108,31 @@ def _sum_qty(items: List[ObjectItem], kind: str) -> int:
     return total
 
 
+def _normalize_point(value: object, *, fallback: str = "A") -> str:
+    raw = str(value or "").strip().upper()
+    return raw if raw else fallback
+
+
+def _point_loss_fraction(point: str, mapping: Dict[str, float], default: float) -> float:
+    if point in mapping:
+        return _clamp(float(mapping[point]), 0.0, 0.95)
+    return _clamp(float(default), 0.0, 0.95)
+
+
+def _item_loss_fraction(
+    item: ObjectItem,
+    mapping: Dict[str, float],
+    default_point: str,
+    default_fraction: float,
+) -> float:
+    meta = item.meta if isinstance(item.meta, dict) else {}
+    point = _normalize_point(
+        meta.get("connection_point", meta.get("point", meta.get("cell", default_point))),
+        fallback=default_point,
+    )
+    return _point_loss_fraction(point, mapping, default_fraction)
+
+
 def score_state(
     state: State,
     objects: List[ObjectItem],
@@ -167,15 +192,42 @@ def score_state(
     outage_ticks = max(1, int(net_cfg.get("outage_ticks", 1)))
     outage_penalty_rub = float(net_cfg.get("outage_penalty_rub", 0.0))
     outage_loss_scale = _clamp(float(net_cfg.get("outage_loss_scale", 1.0)), 0.0, 1.0)
+    line_loss_tax = float(net_cfg.get("loss_tax", 2.0))
+    line_max_power = float(net_cfg.get("line_max_power_mw", 0.0))
+    main_substation_limit = float(net_cfg.get("main_substation_limit_mw", 0.0))
+    default_connection_point = _normalize_point(net_cfg.get("default_connection_point", "A"))
+
+    point_loss_raw = net_cfg.get("connection_loss_pct_by_point", {}) or {}
+    point_loss_by_point: Dict[str, float] = {}
+    if isinstance(point_loss_raw, dict):
+        for key, raw_value in point_loss_raw.items():
+            try:
+                value = float(raw_value)
+            except Exception:
+                continue
+            if value > 1.0:
+                value /= 100.0
+            point = _normalize_point(key, fallback="")
+            if not point:
+                continue
+            point_loss_by_point[point] = _clamp(value, 0.0, 0.95)
+    default_point_loss = _point_loss_fraction(default_connection_point, point_loss_by_point, 0.0)
 
     consumers = [o for o in objects if _is_consumer(o.kind)]
     gens = [o for o in objects if _is_gen(o.kind)]
     storages = [o for o in objects if _is_storage(o.kind)]
+    object_by_id: Dict[str, ObjectItem] = {}
+    for item in objects:
+        key = str(item.id)
+        if key not in object_by_id:
+            object_by_id[key] = item
 
     storage_qty_total = sum(_qty(s) for s in storages)
     storage_cap_total = storage_cap * storage_qty_total
     storage_ch_rate_total = storage_ch_rate * storage_qty_total
     storage_dis_rate_total = storage_dis_rate * storage_qty_total
+    tps_units = _sum_qty(gens, "tps")
+    tps_primary_id = next((str(g.id) for g in gens if g.kind == "tps"), None)
 
     income = 0.0
     penalties = 0.0
@@ -217,7 +269,7 @@ def score_state(
         load_by_id: Dict[str, float] = {}
         load_by_group = {"class3": 0.0, "factory": 0.0}
         unservable_by_group = {"class3": 0.0, "factory": 0.0}
-        consumer_tick_rows: List[Tuple[ObjectItem, float, float]] = []
+        consumer_tick_rows: List[Dict[str, object]] = []
         total_load = 0.0
         unservable_load = 0.0
 
@@ -237,16 +289,26 @@ def score_state(
                 unservable_by_group[group] += forced_unservable
                 unservable_load += forced_unservable
 
-            consumer_tick_rows.append((c, demand, forced_unservable))
+            consumer_tick_rows.append(
+                {
+                    "consumer": c,
+                    "group": group,
+                    "demand": demand,
+                    "forced_unservable": forced_unservable,
+                }
+            )
 
         gen_wind = 0.0
         gen_solar = 0.0
         gen_tps = 0.0
         lost_generation = 0.0
         gen_by_id: Dict[str, float] = {}
+        gen_wind_by_id: Dict[str, float] = {}
+        gen_solar_by_id: Dict[str, float] = {}
 
         for g in gens:
             qty = _qty(g)
+            gid = str(g.id)
             if g.kind == "wind":
                 w = lookup(forecasts, "wind", (g.id, "wind"), t, default=0.0)
                 p = _wind_power_mw(w * mw_wind, obj_def) * qty
@@ -255,7 +317,8 @@ def score_state(
                     p -= lost
                     lost_generation += lost
                 gen_wind += p
-                gen_by_id[g.id] = gen_by_id.get(g.id, 0.0) + p
+                gen_by_id[gid] = gen_by_id.get(gid, 0.0) + p
+                gen_wind_by_id[gid] = gen_wind_by_id.get(gid, 0.0) + p
             elif g.kind == "solarRobot":
                 s = lookup(forecasts, "solar", (g.id, "solar", "solarRobot"), t, default=0.0)
                 p = _solar_power_mw(s * mw_solar, obj_def) * qty
@@ -264,14 +327,81 @@ def score_state(
                     p -= lost
                     lost_generation += lost
                 gen_solar += p
-                gen_by_id[g.id] = gen_by_id.get(g.id, 0.0) + p
+                gen_by_id[gid] = gen_by_id.get(gid, 0.0) + p
+                gen_solar_by_id[gid] = gen_solar_by_id.get(gid, 0.0) + p
             elif g.kind == "tps":
-                gen_by_id[g.id] = gen_by_id.get(g.id, 0.0)
+                gen_by_id[gid] = gen_by_id.get(gid, 0.0)
+
+        if line_max_power > 0:
+            disconnected_load_by_id: Dict[str, float] = {}
+            for obj_id, flow in list(load_by_id.items()):
+                if flow <= line_max_power:
+                    continue
+                disconnected_load_by_id[obj_id] = flow
+                load_by_id[obj_id] = 0.0
+                notes.append(f"LINE_OFF:{obj_id} flow={flow:.2f}MW>{line_max_power:.2f}MW")
+
+            if disconnected_load_by_id:
+                for row in consumer_tick_rows:
+                    consumer = row["consumer"]  # type: ignore[assignment]
+                    obj_id = str(consumer.id)
+                    to_disconnect = disconnected_load_by_id.get(obj_id, 0.0)
+                    if to_disconnect <= 0:
+                        continue
+                    demand = float(row["demand"])
+                    forced_unservable = float(row["forced_unservable"])
+                    add_unservable = min(max(0.0, demand - forced_unservable), to_disconnect)
+                    if add_unservable <= 0:
+                        continue
+                    row["forced_unservable"] = forced_unservable + add_unservable
+                    group = str(row["group"])
+                    unservable_by_group[group] += add_unservable
+                    unservable_load += add_unservable
+                    disconnected_load_by_id[obj_id] = max(0.0, to_disconnect - add_unservable)
+
+            for obj_id, flow in list(gen_by_id.items()):
+                if flow <= line_max_power:
+                    continue
+                gen_by_id[obj_id] = 0.0
+                lost_generation += flow
+                gen_wind -= gen_wind_by_id.get(obj_id, 0.0)
+                gen_solar -= gen_solar_by_id.get(obj_id, 0.0)
+                notes.append(f"LINE_OFF:{obj_id} flow={flow:.2f}MW>{line_max_power:.2f}MW")
+
+            gen_wind = max(0.0, gen_wind)
+            gen_solar = max(0.0, gen_solar)
 
         if storage_leak > 0 and soc > 0:
             soc = max(0.0, soc * (1.0 - storage_leak))
 
         supply = gen_wind + gen_solar
+        substation_tripped = False
+        if main_substation_limit > 0:
+            main_flow = max(sum(gen_by_id.values()), sum(load_by_id.values()))
+            if main_flow > main_substation_limit:
+                substation_tripped = True
+                notes.append(
+                    f"MAIN_OFF:t={t},flow={main_flow:.2f}MW>{main_substation_limit:.2f}MW"
+                )
+                for row in consumer_tick_rows:
+                    demand = float(row["demand"])
+                    forced_unservable = float(row["forced_unservable"])
+                    add_unservable = max(0.0, demand - forced_unservable)
+                    if add_unservable <= 0:
+                        continue
+                    row["forced_unservable"] = forced_unservable + add_unservable
+                    group = str(row["group"])
+                    unservable_by_group[group] += add_unservable
+                    unservable_load += add_unservable
+
+                lost_generation += sum(gen_by_id.values())
+                for obj_id in list(gen_by_id.keys()):
+                    gen_by_id[obj_id] = 0.0
+                for obj_id in list(load_by_id.keys()):
+                    load_by_id[obj_id] = 0.0
+                gen_wind = 0.0
+                gen_solar = 0.0
+                supply = 0.0
 
         if ok_plan and state.network_plan.branches:
             branch_flows = {}
@@ -306,7 +436,7 @@ def score_state(
                     notes.append(f"WEAR_OUTAGE:{b.name} ticks={outage_ticks}")
         else:
             loss_mw = 0.02 * max(supply, total_load)
-            network_losses_cost += loss_mw * float(net_cfg.get("loss_tax", 2.0))
+            network_losses_cost += loss_mw * line_loss_tax
 
         supply_eff = max(0.0, supply - loss_mw)
         serviceable_load = max(0.0, total_load - unservable_load)
@@ -319,11 +449,17 @@ def score_state(
             supply_eff += discharge
             deficit = max(0.0, serviceable_load - supply_eff)
 
-        tps_cap = _sum_qty(gens, "tps") * (fuel_max * eta_nom)
+        tps_cap = tps_units * (fuel_max * eta_nom)
+        if line_max_power > 0 and tps_units > 0:
+            tps_cap = min(tps_cap, line_max_power * tps_units)
+        if substation_tripped:
+            tps_cap = 0.0
         if deficit > 0 and tps_cap > 0:
             tps_gen = min(deficit, tps_cap)
             supply_eff += tps_gen
             gen_tps += tps_gen
+            if tps_primary_id is not None:
+                gen_by_id[tps_primary_id] = gen_by_id.get(tps_primary_id, 0.0) + tps_gen
             deficit -= tps_gen
             fuel_used = tps_gen / max(0.05, eta_nom)
             fuel_and_taxes += fuel_used * (fuel_price + eco_tax_fuel)
@@ -384,11 +520,40 @@ def score_state(
             )
             penalties += pen
 
-        for consumer, demand, forced_unservable in consumer_tick_rows:
+        line_loss_mw_tick = 0.0
+        for obj_id, power in gen_by_id.items():
+            if power <= 0:
+                continue
+            item = object_by_id.get(str(obj_id))
+            if item is None:
+                continue
+            frac = _item_loss_fraction(
+                item,
+                point_loss_by_point,
+                default_connection_point,
+                default_point_loss,
+            )
+            line_loss_mw_tick += power * frac
+
+        for row in consumer_tick_rows:
+            consumer = row["consumer"]  # type: ignore[assignment]
+            demand = float(row["demand"])
+            forced_unservable = float(row["forced_unservable"])
             serviceable = max(0.0, demand - forced_unservable)
             unmet_for_consumer = serviceable * unmet_service_ratio
             served = max(0.0, serviceable - unmet_for_consumer)
             income += float(consumer.tariff_rub_per_mw_tick or 0.0) * served
+            frac = _item_loss_fraction(
+                consumer,
+                point_loss_by_point,
+                default_connection_point,
+                default_point_loss,
+            )
+            line_loss_mw_tick += served * frac
+
+        if line_loss_mw_tick > 0:
+            network_losses_cost += line_loss_mw_tick * line_loss_tax
+            notes.append(f"LINE_LOSS:t={t},mw={line_loss_mw_tick:.2f}")
 
         eco_points += wind_pts * gen_wind + solar_pts * gen_solar + stor_pts * discharge
 

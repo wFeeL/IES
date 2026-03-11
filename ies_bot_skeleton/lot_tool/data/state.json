@@ -5,25 +5,57 @@
     "horizon_ticks": 48
   },
   "budget": {
-    "cash": 9999,
+    "cash": 200,
     "allpay_spent": 0
   },
   "owned_lots": [],
-  "owned_objects_override": [],
+  "owned_objects_override": [
+    {
+      "kind": "main",
+      "id": "main",
+      "qty": 1,
+      "contract_rub_per_tick": 1,
+      "meta": {}
+    },
+    {
+      "kind": "miniA",
+      "id": "mini",
+      "qty": 1,
+      "meta": {}
+    },
+    {
+      "kind": "solarRobot",
+      "id": "solar",
+      "qty": 1,
+      "contract_rub_per_tick": 2,
+      "meta": {
+        "connection_point": "B"
+      }
+    },
+    {
+      "kind": "houseA",
+      "id": "house",
+      "qty": 1,
+      "tariff_rub_per_mw_tick": 3,
+      "meta": {
+        "connection_point": "C"
+      }
+    }
+  ],
   "network_plan": {
     "mode": "branches",
     "branches": [
       {
         "name": "GEN",
         "role": "gen",
-        "objects": [],
-        "soft_flow_limit_mw": 30
+        "objects": ["solar"],
+        "soft_flow_limit_mw": 40
       },
       {
         "name": "LOAD",
         "role": "load",
-        "objects": [],
-        "soft_flow_limit_mw": 30
+        "objects": ["house"],
+        "soft_flow_limit_mw": 40
       }
     ]
   },
@@ -32,9 +64,9 @@
     "risk_mode": "conservative",
     "storage_soc_init_fraction": 0.5,
     "corridor": {
-      "wind_mul": 0.1,
-      "solar_mul": 0.1,
-      "load_mul": 0.1
+      "wind_mul": 0.0,
+      "solar_mul": 0.5,
+      "load_mul": 0.5
     }
   }
 }

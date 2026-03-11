@@ -1,0 +1,26 @@
+{
+  "lot_id": "L04",
+  "title": "Деловая мини-подстанция",
+  "note": "Мини-подстанция + Офис",
+  "items": [
+    {
+      "kind": "miniA",
+      "id": "mini_l4",
+      "qty": 1,
+      "contract_rub_per_tick": 0.0,
+      "tariff_rub_per_mw_tick": 0.0,
+      "meta": {}
+    },
+    {
+      "kind": "office",
+      "id": "office_l4",
+      "qty": 1,
+      "contract_rub_per_tick": 0.0,
+      "tariff_rub_per_mw_tick": 5.0,
+      "meta": {
+        "connection_point": "B"
+      }
+    }
+  ],
+  "suggested_bid": 10.0
+}

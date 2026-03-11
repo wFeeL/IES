@@ -88,7 +88,23 @@ def validate_session_network(objects: List[ObjectInstance]) -> List[ValidationIs
                 )
             )
 
-    # Port checks for mini substations.
+    # Port checks for main and mini substations.
+    for obj in active:
+        code = _norm(obj.object_type.code)
+        if code not in MAIN_CODES:
+            continue
+        params = obj.merged_parameters()
+        port_limit = int(params.get("ports", params.get("max_ports", 3)) or 3)
+        used = len(children.get(obj.id, []))
+        if used > port_limit:
+            issues.append(
+                ValidationIssue(
+                    "MAIN_PORTS_EXCEEDED",
+                    f"Превышено число подключений главной подстанции #{obj.id}: {used}/{port_limit}",
+                    "error",
+                )
+            )
+
     for obj in active:
         code = _norm(obj.object_type.code)
         if code not in MINI_CODES:

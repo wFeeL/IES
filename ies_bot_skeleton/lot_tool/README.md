@@ -4,15 +4,18 @@
 
 ```bash
 # из корня проекта
-python -m ies_bot_skeleton.cli offline lottool eval --lot ies_bot_skeleton/lot_tool/data/lots/L12.json
+python -m ies_bot_skeleton.cli offline lottool eval --lot ies_bot_skeleton/lot_tool/data/lots/L01.json
 python -m ies_bot_skeleton.cli offline lottool rank
-python -m ies_bot_skeleton.cli offline lottool suggest-bid --lot ies_bot_skeleton/lot_tool/data/lots/L12.json --pwin 0.35
+python -m ies_bot_skeleton.cli offline lottool suggest-bid --lot ies_bot_skeleton/lot_tool/data/lots/L01.json --pwin 0.35
 
 # заполнение/нормализация существующих лотов
 python -m ies_bot_skeleton.cli offline fill-lots --lots-dir ies_bot_skeleton/lot_tool/data/lots
 ```
 
-Прогнозы CSV (опционально) положите в `lot_tool/data/forecasts/`.
+Прогнозы CSV положите в `lot_tool/data/forecasts/`:
+- `wind.csv`
+- `solar.csv`
+- `load.csv`
 
 Legacy-режим:
 ```bash

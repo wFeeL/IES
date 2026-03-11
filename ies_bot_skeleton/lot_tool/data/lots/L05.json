@@ -1,0 +1,26 @@
+{
+  "lot_id": "L05",
+  "title": "Запасной накопитель с мини",
+  "note": "Мини-подстанция + Накопитель",
+  "items": [
+    {
+      "kind": "miniA",
+      "id": "mini_l5",
+      "qty": 1,
+      "contract_rub_per_tick": 0.0,
+      "tariff_rub_per_mw_tick": 0.0,
+      "meta": {}
+    },
+    {
+      "kind": "storage",
+      "id": "storage_l5",
+      "qty": 1,
+      "contract_rub_per_tick": 3.0,
+      "tariff_rub_per_mw_tick": 0.0,
+      "meta": {
+        "connection_point": "C"
+      }
+    }
+  ],
+  "suggested_bid": 11.0
+}

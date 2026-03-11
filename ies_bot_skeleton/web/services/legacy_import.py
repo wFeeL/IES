@@ -75,11 +75,20 @@ def import_legacy_data(
 
         qty = max(1, int(row.get("qty", 1) or 1))
         for copy_idx in range(qty):
+            meta = dict(row.get("meta", {}) or {})
+            connection_point = (
+                meta.get("connection_point")
+                or meta.get("point")
+                or meta.get("cell")
+                or meta.get("slot")
+            )
             params = {
                 "contract_rub_per_tick": float(row.get("contract_rub_per_tick", 0.0) or 0.0),
                 "tariff_rub_per_mw_tick": float(row.get("tariff_rub_per_mw_tick", 0.0) or 0.0),
                 "object_id": f"LEGACY_{row.get('id', 'X')}_{copy_idx+1}",
             }
+            if connection_point:
+                params["connection_point"] = str(connection_point).strip().upper()
             obj = ObjectInstance(
                 session_id=session.id,
                 object_type_id=type_map[code].id,
@@ -125,12 +134,21 @@ def import_legacy_data(
                 report["skipped"].append(f"lot {lot_name} item {idx}: unknown kind={kind}")
                 continue
             quantity = max(1, int(item.get("qty", 1) or 1))
+            meta = dict(item.get("meta", {}) or {})
+            connection_point = (
+                meta.get("connection_point")
+                or meta.get("point")
+                or meta.get("cell")
+                or meta.get("slot")
+            )
             overrides = {
                 "contract_rub_per_tick": float(item.get("contract_rub_per_tick", 0.0) or 0.0),
                 "tariff_rub_per_mw_tick": float(item.get("tariff_rub_per_mw_tick", 0.0) or 0.0),
                 "legacy_id": str(item.get("id", "")),
                 "legacy_kind": str(item.get("kind", item.get("type", ""))),
             }
+            if connection_point:
+                overrides["connection_point"] = str(connection_point).strip().upper()
             lot_item = LotItem(
                 lot_id=lot.id,
                 object_type_id=type_map[code].id,
