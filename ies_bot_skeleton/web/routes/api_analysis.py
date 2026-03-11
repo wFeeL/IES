@@ -321,7 +321,7 @@ def evaluate_one_lot(lot_id: int):
     lot = get_lot_or_404(lot_id)
     session = get_session_or_404(lot.session_id)
 
-    mode = str(payload.get("mode", session.analysis_mode or "forecast"))
+    mode = str(payload.get("mode", session.analysis_mode or "no_forecast"))
     strategy = payload.get("strategy")
     forecast = None
     if payload.get("forecast_id") is not None:
@@ -345,7 +345,6 @@ def compare_lots_endpoint():
     payload = json_payload()
     session_id = int(payload.get("session_id", 0) or 0)
     lot_ids = [int(x) for x in payload.get("lot_ids", []) or []]
-    mode = str(payload.get("mode", "forecast"))
     strategy = payload.get("strategy")
 
     if session_id <= 0:
@@ -354,6 +353,7 @@ def compare_lots_endpoint():
         raise ValueError("lot_ids должен содержать минимум 2 лота")
 
     session = get_session_or_404(session_id)
+    mode = str(payload.get("mode", session.analysis_mode or "no_forecast"))
     lots = db.session.query(Lot).filter(Lot.id.in_(lot_ids), Lot.session_id == session_id).all()
     if len(lots) < 2:
         raise ValueError("Лоты не найдены")
@@ -449,13 +449,13 @@ def analyze_forecast(forecast_id: int):
 def recommend_best():
     payload = json_payload()
     session_id = int(payload.get("session_id", 0) or 0)
-    mode = str(payload.get("mode", "forecast"))
     strategy = payload.get("strategy")
 
     if session_id <= 0:
         raise ValueError("session_id обязателен")
 
     session = get_session_or_404(session_id)
+    mode = str(payload.get("mode", session.analysis_mode or "no_forecast"))
     lots = db.session.query(Lot).filter_by(session_id=session_id).all()
     if not lots:
         raise ValueError("Нет лотов для рекомендации")
@@ -480,12 +480,12 @@ def recommend_best():
 def recommend_strategy_fit():
     payload = json_payload()
     lot_id = int(payload.get("lot_id", 0) or 0)
-    mode = str(payload.get("mode", "forecast"))
     if lot_id <= 0:
         raise ValueError("lot_id обязателен")
 
     lot = get_lot_or_404(lot_id)
     session = get_session_or_404(lot.session_id)
+    mode = str(payload.get("mode", session.analysis_mode or "no_forecast"))
 
     forecast = None
     if payload.get("forecast_id") is not None:

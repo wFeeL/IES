@@ -10,7 +10,7 @@
     </div>
   </div>
   <form method="post" class="stack gap-3 mt-3" id="lotEditorForm">
-    {{ form.hidden_tag() }}
+    {{ form.csrf_token }}
     {{ form.session_id(value=session.id, type='hidden') }}
     {{ form.items_state_json(id='itemsStateJson') }}
     {{ form.items_json(id='items_json') }}

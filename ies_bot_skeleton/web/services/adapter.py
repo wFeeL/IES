@@ -113,16 +113,17 @@ def lot_item_to_object_item(lot_item: LotItem) -> Optional[ObjectItem]:
     if kind is None:
         return None
 
-    overrides = dict(lot_item.overrides_json or {})
+    params = dict(lot_item.object_type.default_parameters_json or {})
+    params.update(dict(lot_item.overrides_json or {}))
     object_id = str(
-        overrides.get("object_id")
+        params.get("object_id")
         or f"LOT{lot_item.lot_id}_IT{lot_item.id}_{lot_item.object_type.code}"
     )
     connection_point = (
-        overrides.get("connection_point")
-        or overrides.get("point")
-        or overrides.get("cell")
-        or overrides.get("slot")
+        params.get("connection_point")
+        or params.get("point")
+        or params.get("cell")
+        or params.get("slot")
     )
     meta = {
         "source": "lot",
@@ -136,8 +137,8 @@ def lot_item_to_object_item(lot_item: LotItem) -> Optional[ObjectItem]:
         kind=kind,
         id=object_id,
         qty=max(1, int(lot_item.quantity or 1)),
-        contract_rub_per_tick=float(overrides.get("contract_rub_per_tick", 0.0) or 0.0),
-        tariff_rub_per_mw_tick=float(overrides.get("tariff_rub_per_mw_tick", 0.0) or 0.0),
+        contract_rub_per_tick=float(params.get("contract_rub_per_tick", 0.0) or 0.0),
+        tariff_rub_per_mw_tick=float(params.get("tariff_rub_per_mw_tick", 0.0) or 0.0),
         meta=meta,
     )
 

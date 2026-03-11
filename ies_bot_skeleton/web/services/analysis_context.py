@@ -8,7 +8,7 @@ from .corridor import (
     normalize_corridor_settings,
     ruleset_default_corridor_settings,
 )
-from .forecast_service import summarize_forecast
+from .forecast_service import bundled_forecast_summary, summarize_forecast
 
 
 VALID_ANALYSIS_MODES = {"no_forecast", "forecast"}
@@ -122,11 +122,12 @@ def resolve_analysis_context(
 
     selected_forecast = resolve_forecast_for_session(session, forecast_id=forecast_id)
     if mode == "forecast":
-        forecast_summary = (
-            summarize_forecast(selected_forecast)
-            if selected_forecast is not None
-            else summarize_forecasts(session.forecasts)
-        )
+        if selected_forecast is not None:
+            forecast_summary = summarize_forecast(selected_forecast)
+        elif session.forecasts:
+            forecast_summary = summarize_forecasts(session.forecasts)
+        else:
+            forecast_summary = bundled_forecast_summary()
     else:
         forecast_summary = summarize_forecasts([])
 
@@ -137,6 +138,8 @@ def resolve_analysis_context(
         "forecast_summary": forecast_summary,
         "corridor_settings": corridor_settings,
         "corridor_summary": build_corridor_summary(corridor_settings),
-        "has_forecast_context": bool(selected_forecast is not None or session.forecasts),
+        "has_forecast_context": bool(
+            selected_forecast is not None or session.forecasts or mode == "forecast"
+        ),
         "uses_manual_corridor": mode == "no_forecast",
     }

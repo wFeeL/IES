@@ -13,7 +13,7 @@
     <p class="section-kicker">Лот {{ row.lot_id }}</p>
     <h2 class="h2">Кандидат для short-list</h2>
     <div class="metric-strip mt-3">
-      <div><span class="metric-label">Итоговая оценка</span><strong>{{ '%.2f'|format(row.summary_score) }}</strong></div>
+      <div><span class="metric-label">Комплексный балл</span><strong>{{ '%.2f'|format(row.summary_score) }}</strong></div>
       <div><span class="metric-label">Worst / Base / Best</span><strong>{{ '%.1f'|format(row.scenario_band.worst.delta_total) }} / {{ '%.1f'|format(row.scenario_band.base.delta_total) }} / {{ '%.1f'|format(row.scenario_band.best.delta_total) }}</strong></div>
       <div><span class="metric-label">Потолок ставки</span><strong>{{ '%.1f'|format(row.decision_summary.hard_bid) }}</strong></div>
     </div>

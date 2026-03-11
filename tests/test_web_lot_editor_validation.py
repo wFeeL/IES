@@ -5,9 +5,13 @@ import json
 from tests.web_helpers import create_session, login
 
 
-def _wind_id(client) -> int:
+def _type_map(client):
     rows = client.get("/api/object-types").get_json()["items"]
-    return int(next(row["id"] for row in rows if row["code"] == "wind"))
+    return {row["code"]: int(row["id"]) for row in rows}
+
+
+def _wind_id(client) -> int:
+    return _type_map(client)["wind"]
 
 
 def test_lot_editor_prefers_visual_payload(client):
@@ -35,6 +39,19 @@ def test_lot_editor_prefers_visual_payload(client):
     lots = lots_resp.get_json()["items"]
     assert lots
     assert lots[0]["items"][0]["object_type_id"] == wind_id
+
+
+def test_lot_editor_renders_single_hidden_state_fields(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Lot editor html")
+
+    resp = client.get(f"/lots/{session_id}/edit")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    assert html.count('name="items_state_json"') == 1
+    assert html.count('name="items_json"') == 1
+    assert html.count('name="session_id"') == 1
 
 
 
@@ -77,3 +94,75 @@ def test_api_lot_validation_guards_invalid_items(client):
         json={"session_id": session_id, "name": "Bad", "items": []},
     )
     assert bad_empty.status_code == 400
+
+
+def test_lot_delete_confirm_page_and_post_remove_lot(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Delete lot")
+    type_map = _type_map(client)
+
+    created = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Lot to delete",
+            "scope": "normal",
+            "base_bid": 100,
+            "current_bid": 100,
+            "items": [{"object_type_id": type_map["wind"], "quantity": 1}],
+        },
+    )
+    assert created.status_code == 200
+    lot_id = int(created.get_json()["item"]["id"])
+
+    confirm = client.get(f"/lots/item/{lot_id}/delete")
+    assert confirm.status_code == 200
+    html = confirm.get_data(as_text=True)
+    assert "Удаление лота" in html
+    assert "Lot to delete" in html
+
+    delete_resp = client.post(f"/lots/item/{lot_id}/delete", data={}, follow_redirects=False)
+    assert delete_resp.status_code in (302, 303)
+    assert delete_resp.headers["Location"].endswith(f"/lots/{session_id}")
+
+    lots_resp = client.get(f"/api/lots?session_id={session_id}")
+    assert lots_resp.status_code == 200
+    assert lots_resp.get_json()["items"] == []
+
+
+def test_no_forecast_evaluation_uses_baseline_and_returns_explanation(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Meaningful eval")
+    assert client.post(f"/api/sessions/{session_id}/add-start-pack", json={}).status_code == 200
+
+    type_map = _type_map(client)
+    created = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Profitable lot",
+            "scope": "normal",
+            "base_bid": 100,
+            "current_bid": 100,
+            "items": [
+                {"object_type_id": type_map["wind"], "quantity": 1},
+                {"object_type_id": type_map["storage"], "quantity": 1},
+            ],
+        },
+    )
+    assert created.status_code == 200
+    lot_id = int(created.get_json()["item"]["id"])
+
+    eval_resp = client.post(f"/api/lots/{lot_id}/evaluate", json={"mode": "no_forecast"})
+    assert eval_resp.status_code == 200
+    payload = eval_resp.get_json()
+    assert payload["ok"] is True
+
+    item = payload["item"]
+    assert item["summary_score"] != 0
+    assert item["recommended_bid_hard"] > 0
+    assert item["metrics"]["delta_score"] != 0
+    assert item["risk_commentary"]
+    assert item["explanation"]
+    assert "Недостаточно данных" not in item["explanation"]
+    assert "не рекомендует ставку" not in item["strategy_fit_text"]

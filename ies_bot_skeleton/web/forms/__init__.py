@@ -1,7 +1,7 @@
 from .analysis import AnalysisModeForm, CorridorSettingsForm, ForecastSelectionForm
 from .auth import LoginForm
 from .forecast import ForecastUploadForm
-from .lot import LotForm
+from .lot import ConfirmLotDeleteForm, LotForm
 from .object_type import ObjectTypeForm
 from .object_instance import ObjectInstanceForm
 from .ruleset import RulesetCopyForm, RulesetForm
@@ -15,6 +15,7 @@ __all__ = [
     "ForecastSelectionForm",
     "ForecastUploadForm",
     "LotForm",
+    "ConfirmLotDeleteForm",
     "ObjectTypeForm",
     "ObjectInstanceForm",
     "RulesetCopyForm",

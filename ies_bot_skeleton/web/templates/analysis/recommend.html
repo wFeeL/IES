@@ -16,7 +16,7 @@
       <p class="section-kicker">Лучший выбор</p>
       <h2 class="h2">Лот {{ recommendation.best.lot_id }}</h2>
       <div class="metric-strip mt-3">
-        <div><span class="metric-label">Итоговая оценка</span><strong>{{ '%.2f'|format(recommendation.best.summary_score) }}</strong></div>
+        <div><span class="metric-label">Комплексный балл</span><strong>{{ '%.2f'|format(recommendation.best.summary_score) }}</strong></div>
         <div><span class="metric-label">Мягкая ставка</span><strong>{{ '%.1f'|format(recommendation.best.decision_summary.soft_bid) }}</strong></div>
         <div><span class="metric-label">Жесткий потолок</span><strong>{{ '%.1f'|format(recommendation.best.decision_summary.hard_bid) }}</strong></div>
         <div><span class="metric-label">Стоп-ставка</span><strong>{{ '%.1f'|format(recommendation.best.decision_summary.stop_bid) }}</strong></div>

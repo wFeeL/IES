@@ -1,12 +1,24 @@
 from __future__ import annotations
 
 import csv
+import copy
 import io
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+from ies_bot_skeleton.offline.lottool import ensure_lottool_path
 
 from ..extensions import db
 from ..models import Forecast, ForecastPeriod, GameSession
+
+ensure_lottool_path()
+
+from lottool.io.forecast_loader import load_forecasts as load_lottool_forecasts  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_FORECASTS_DIR = ROOT / "lot_tool" / "data" / "forecasts"
 
 
 @dataclass
@@ -25,6 +37,15 @@ class ForecastDiagnostics:
 
 def _norm(value: str) -> str:
     return "".join(ch.lower() for ch in str(value or "").strip())
+
+
+def _empty_forecast_pack() -> Dict[str, Dict[str, Dict[int, float]]]:
+    return {
+        "wind": {},
+        "solar": {},
+        "load": {},
+        "market": {},
+    }
 
 
 def _detect_delimiter(sample: str) -> str:
@@ -109,6 +130,64 @@ def _read_csv(content: bytes) -> Tuple[List[str], List[Dict[str, str]]]:
     headers = list(reader.fieldnames or [])
     rows = [dict(row) for row in reader]
     return headers, rows
+
+
+@lru_cache(maxsize=1)
+def _cached_bundled_forecast_pack() -> Dict[str, Dict[str, Dict[int, float]]]:
+    if not DEFAULT_FORECASTS_DIR.exists():
+        return _empty_forecast_pack()
+    return load_lottool_forecasts(str(DEFAULT_FORECASTS_DIR))
+
+
+def load_bundled_forecast_pack() -> Dict[str, Dict[str, Dict[int, float]]]:
+    return copy.deepcopy(_cached_bundled_forecast_pack())
+
+
+def is_forecast_pack_empty(pack: Dict[str, Dict[str, Dict[int, float]]] | None) -> bool:
+    if not isinstance(pack, dict):
+        return True
+    for bucket in pack.values():
+        if isinstance(bucket, dict) and bucket:
+            return False
+    return True
+
+
+def bundled_forecast_summary() -> Dict[str, Any]:
+    pack = load_bundled_forecast_pack()
+    load_rows = pack.get("load", {}) or {}
+    wind_rows = (pack.get("wind", {}) or {}).get("wind", {}) or {}
+    solar_rows = (pack.get("solar", {}) or {}).get("solar", {}) or {}
+    market_rows = (pack.get("market", {}) or {}).get("price", {}) or {}
+    ticks = sorted(
+        {
+            *wind_rows.keys(),
+            *solar_rows.keys(),
+            *market_rows.keys(),
+            *{tick for values in load_rows.values() for tick in values.keys()},
+        }
+    )
+
+    def avg(values: Iterable[float]) -> Optional[float]:
+        rows = [float(value) for value in values]
+        if not rows:
+            return None
+        return round(sum(rows) / len(rows), 4)
+
+    return {
+        "mode": "builtin",
+        "forecast_id": None,
+        "name": "Встроенный базовый прогноз",
+        "source_file": str(DEFAULT_FORECASTS_DIR),
+        "count": len(ticks),
+        "tick_from": ticks[0] if ticks else None,
+        "tick_to": ticks[-1] if ticks else None,
+        "avg_wind": avg(wind_rows.values()),
+        "avg_illumination": avg(solar_rows.values()),
+        "avg_market_price": avg(market_rows.values()),
+        "load_series": sorted(load_rows.keys()),
+        "warnings": [],
+        "text": "Используется встроенный базовый прогноз проекта.",
+    }
 
 
 def parse_and_store_forecast(

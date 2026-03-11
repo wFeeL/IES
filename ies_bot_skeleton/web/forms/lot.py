@@ -14,7 +14,7 @@ from wtforms.validators import DataRequired, NumberRange, Optional
 
 
 class LotForm(FlaskForm):
-    session_id = IntegerField("Session ID", validators=[DataRequired(), NumberRange(min=1)])
+    session_id = IntegerField("ID сессии", validators=[DataRequired(), NumberRange(min=1)])
     name = StringField("Название", validators=[DataRequired()])
     scope = SelectField(
         "Тип",
@@ -42,3 +42,7 @@ class LotForm(FlaskForm):
     items_state_json = HiddenField("Состав (визуальный редактор)", validators=[Optional()])
     items_json = HiddenField("Состав JSON", validators=[Optional()])
     submit = SubmitField("Сохранить")
+
+
+class ConfirmLotDeleteForm(FlaskForm):
+    submit = SubmitField("Удалить лот")

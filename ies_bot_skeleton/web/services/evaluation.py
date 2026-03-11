@@ -9,13 +9,20 @@ from ..extensions import db
 from ..models import EvaluationResult, Forecast, GameSession, Lot
 from .adapter import lot_to_lottool, session_to_state
 from .analysis_context import resolve_analysis_context
-from .forecast_service import build_forecast_pack, merge_uploaded_forecasts
+from .forecast_service import (
+    build_forecast_pack,
+    is_forecast_pack_empty,
+    load_bundled_forecast_pack,
+    merge_uploaded_forecasts,
+)
 from .network import validate_session_network
 from .ruleset import strategy_weights
 from .stale import stale_summary_for_session
+from .ui_text import strategy_label
 
 ensure_lottool_path()
 
+from lottool.auction.ev import recommended_bid_range  # noqa: E402
 from lottool.scoring.marginal import marginal_value  # noqa: E402
 from lottool.scoring.scenarios import summarize_delta  # noqa: E402
 
@@ -78,14 +85,55 @@ def _risk_commentary(*, delta_risk: float, flags: List[str], confidence: float) 
     return "Риск контролируемый: критических ограничений не выявлено."
 
 
-def _strategy_fit_text(*, strategy: str, score: float, hard_bid: float) -> str:
+def _strategy_fit_text(
+    *,
+    strategy: str,
+    score: float,
+    hard_bid: float,
+    delta_total: float,
+    weighted_expected: float,
+) -> str:
+    label = strategy_label(strategy)
     if hard_bid <= 0:
-        return f"Стратегия '{strategy}' не рекомендует ставку по этому лоту."
+        if delta_total <= 0:
+            return f"{label}: лот ухудшает маржинальный результат, ставку лучше не делать."
+        return f"{label}: эффект положительный, но недостаточный для безопасной ставки."
     if score >= 80:
-        return f"Сильное соответствие стратегии '{strategy}'."
-    if score >= 25:
-        return f"Базовое соответствие стратегии '{strategy}'."
-    return f"Слабое соответствие стратегии '{strategy}', нужен дополнительный анализ."
+        return f"{label}: сильное соответствие, лот поддерживает выбранный профиль."
+    if score >= 25 or weighted_expected >= 50:
+        return f"{label}: рабочее соответствие, ставка допустима в текущем контексте."
+    return f"{label}: соответствие ограниченное, перед ставкой нужна дополнительная проверка."
+
+
+def _textual_reason(
+    *,
+    reasons: List[str],
+    delta_total: float,
+    weighted_expected: float,
+    hard_bid: float,
+    flags: List[str],
+) -> str:
+    if reasons:
+        lead = "Ключевые драйверы: " + "; ".join(reasons)
+    elif abs(delta_total) < 1e-6:
+        lead = "Маржинальный эффект лота в текущем контексте близок к нулю."
+    elif delta_total > 0:
+        lead = "Лот улучшает результат сессии, но эффект распределен между несколькими факторами."
+    else:
+        lead = "Лот ухудшает результат сессии в текущем контексте."
+
+    tail: List[str] = []
+    if weighted_expected > 0:
+        tail.append(f"Ожидаемый эффект по сценариям: {weighted_expected:.1f}")
+    else:
+        tail.append("Ожидаемый эффект по сценариям не перекрывает риск и затраты")
+    if hard_bid > 0:
+        tail.append(f"безопасный потолок ставки: {hard_bid:.1f}")
+    else:
+        tail.append("ставка не рекомендована")
+    if flags:
+        tail.append("флаги: " + ", ".join(flags[:2]))
+    return ". ".join([lead, *tail]) + "."
 
 
 def _scenario_band(base: Any, worst: Any, best: Any) -> Dict[str, Dict[str, float]]:
@@ -129,11 +177,13 @@ def evaluate_lot(
     lot_model = lot_to_lottool(lot)
 
     if mode == "no_forecast":
-        forecasts = {}
+        forecasts = load_bundled_forecast_pack()
     elif forecast is not None:
         forecasts = build_forecast_pack(forecast)
     else:
         forecasts = merge_uploaded_forecasts(session.forecasts)
+        if is_forecast_pack_empty(forecasts):
+            forecasts = load_bundled_forecast_pack()
 
     d_base, d_worst, d_best = marginal_value(state, owned_items, lot_model, forecasts, rules_cfg)
 
@@ -184,12 +234,20 @@ def evaluate_lot(
     risk_discount = max(0.0, float(d_base.delta_total - d_worst.delta_total)) * risk_lambda
     risk_discount += violation_penalty
 
-    hard_bid = _clamp(pwin * strategic_value - risk_discount, 0.0, allpay_remaining)
-    soft_bid = 0.8 * hard_bid
+    risk_adjusted_value = max(0.0, float(weighted_expected) - float(risk_discount))
+    soft_bid_raw, hard_bid_raw = recommended_bid_range(risk_adjusted_value, pwin, safety=0.80)
+    hard_bid = _clamp(hard_bid_raw, 0.0, allpay_remaining)
+    soft_bid = _clamp(soft_bid_raw, 0.0, hard_bid)
     no_bid = hard_bid <= 0.0 or any(flag.startswith("NETPLAN:") for flag in d_base.flags)
 
     reasons, _ = summarize_delta(d_base, top_k=3)
-    textual_reason = "; ".join(reasons) if reasons else "Недостаточно данных для сильного вывода"
+    textual_reason = _textual_reason(
+        reasons=list(reasons),
+        delta_total=float(d_base.delta_total),
+        weighted_expected=float(weighted_expected),
+        hard_bid=float(hard_bid),
+        flags=list(d_base.flags),
+    )
 
     confidence = 1.0
     if mode == "no_forecast":
@@ -214,9 +272,11 @@ def evaluate_lot(
         strategy=selected_strategy,
         score=float(score),
         hard_bid=float(hard_bid),
+        delta_total=float(d_base.delta_total),
+        weighted_expected=float(weighted_expected),
     )
     scenario_band = _scenario_band(d_base, d_worst, d_best)
-    stop_bid = _clamp(max(float(hard_bid), float(intrinsic_value)), 0.0, allpay_remaining)
+    stop_bid = _clamp(pwin * risk_adjusted_value, 0.0, allpay_remaining)
     decision_summary = {
         "soft_bid": float(soft_bid),
         "hard_bid": float(hard_bid),
@@ -240,6 +300,7 @@ def evaluate_lot(
         "delta_risk": float(delta_risk),
         "intrinsic_value": float(intrinsic_value),
         "strategic_value": float(strategic_value),
+        "risk_adjusted_value": float(risk_adjusted_value),
         "risk_discount": float(risk_discount),
         "recommended_bid_soft": float(soft_bid),
         "recommended_bid_hard": float(hard_bid),
@@ -257,6 +318,10 @@ def evaluate_lot(
         "scenario_band": scenario_band,
         "decision_summary": decision_summary,
         "ui_flags": ui_flags,
+        "score_definition": (
+            "Комплексный балл: экономика + баланс + устойчивость + экологичность + гибкость "
+            "- риск - износ - нарушения."
+        ),
         "scenario_delta": {
             "base": _to_dict(d_base),
             "worst": _to_dict(d_worst),
@@ -283,6 +348,7 @@ def evaluate_lot(
         "scenario_band": scenario_band,
         "decision_summary": decision_summary,
         "ui_flags": ui_flags,
+        "score_definition": metrics["score_definition"],
     }
 
     if persist:
@@ -359,11 +425,12 @@ def recommend_best_lot(
     best = ranked[0]
     alternatives = ranked[1:4]
     best_metrics = best.get("metrics", {})
+    strategy_name = strategy_label(strategy or session.selected_strategy)
 
     text = (
-        f"Лучший лот #{best['lot_id']} для стратегии '{strategy or session.selected_strategy}': "
-        f"score={best['summary_score']:.1f}, "
-        f"max_bid={best_metrics.get('recommended_bid_hard', 0.0):.1f}."
+        f"Лучший лот #{best['lot_id']} для стратегии «{strategy_name}»: "
+        f"комплексный балл {best['summary_score']:.1f}, "
+        f"потолок ставки {best_metrics.get('recommended_bid_hard', 0.0):.1f}."
     )
     return {
         "best": best,

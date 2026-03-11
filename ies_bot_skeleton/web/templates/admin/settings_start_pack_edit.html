@@ -7,7 +7,7 @@
     <p class="section-kicker">Администрирование</p>
     <h1 class="h1">{{ 'Новый шаблон стартового пакета' if mode == 'new' else 'Редактирование шаблона стартового пакета' }}</h1>
     <form method="post" class="stack gap-3 mt-4">
-      {{ form.hidden_tag() }}
+      {{ form.csrf_token }}
       {{ form.items_state_json(id='itemsStateJson') }}
       {{ form.items_json(id='items_json') }}
       <label class="label">{{ form.code.label }} {{ form.code(class_='input') }}</label>

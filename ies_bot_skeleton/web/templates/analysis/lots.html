@@ -12,6 +12,7 @@
       <p class="section-kicker">Каталог лотов</p>
       <h1 class="h1">Лоты сессии</h1>
       <p class="muted">Оценка учитывает текущий режим анализа и выбранный контекст сессии.</p>
+      <p class="muted">Комплексный балл собирается из экономики, баланса, устойчивости, экологичности и штрафов за риск.</p>
     </div>
     <div class="actions">
       <a class="btn btn-primary" href="{{ url_for('pages.lots_edit', session_id=session.id) }}">Добавить лот</a>
@@ -25,13 +26,13 @@
   {% for lot in lots %}
   {% set summary = lot_summaries[lot.id] %}
   {% set latest_eval = latest_eval_by_lot[lot.id] %}
-  <article class="card card-lot">
+  <article class="card card-lot" data-lot-id="{{ lot.id }}">
     <div class="section-head">
       <div>
         <h3 class="h3">{{ lot.name }}</h3>
         <p class="muted">{{ lot_scope_label(lot.scope) }} · {{ lot_status_label(lot.status) }} · текущая ставка {{ '%.1f'|format(lot.current_bid) }}</p>
       </div>
-      <span class="status-badge status-fresh">{{ latest_eval.analysis_mode_label }}</span>
+      <span class="status-badge status-fresh" data-role="mode-label">{{ latest_eval.analysis_mode_label }}</span>
     </div>
 
     <div class="pill-row mt-3">
@@ -50,21 +51,23 @@
     </ul>
 
     <div class="metric-strip mt-3">
-      <div><span class="metric-label">Итоговая оценка</span><strong>{{ '%.2f'|format(latest_eval.summary_score) }}</strong></div>
-      <div><span class="metric-label">Риск</span><strong>{{ '%.2f'|format(latest_eval.metrics.delta_risk) }}</strong></div>
-      <div><span class="metric-label">Реком. ставка</span><strong>{{ '%.1f'|format(latest_eval.recommended_bid_hard) }}</strong></div>
+      <div><span class="metric-label">Комплексный балл</span><strong data-role="score">{{ '%.2f'|format(latest_eval.summary_score) }}</strong></div>
+      <div><span class="metric-label">Риск</span><strong data-role="risk">{{ '%.2f'|format(latest_eval.metrics.delta_risk) }}</strong></div>
+      <div><span class="metric-label">Реком. ставка</span><strong data-role="bid">{{ '%.1f'|format(latest_eval.recommended_bid_hard) }}</strong></div>
     </div>
-    <p class="muted mt-3">{{ latest_eval.risk_commentary or summary.compatibility }}</p>
+    <p class="muted mt-3" data-role="strategy-fit">{{ latest_eval.strategy_fit_text }}</p>
+    <div class="risk-block mt-2" data-role="risk-commentary">{{ latest_eval.risk_commentary or summary.compatibility }}</div>
 
     <div class="actions mt-3">
       <button class="btn btn-secondary evalBtn" data-lot-id="{{ lot.id }}">Оценить</button>
       <a class="btn btn-secondary" href="{{ url_for('pages.compare_page', session_id=session.id) }}">В сравнение</a>
       <a class="btn btn-secondary" href="{{ url_for('pages.strategy_fit_page', lot_id=lot.id) }}">Стратегии</a>
       <button class="btn btn-secondary shortlistBtn" data-lot-id="{{ lot.id }}" type="button">В shortlist</button>
+      <a class="btn btn-danger" href="{{ url_for('pages.lot_delete_confirm_page', lot_id=lot.id) }}">Удалить</a>
     </div>
     <details class="mt-3">
       <summary>Подробное объяснение</summary>
-      <div class="risk-block mt-2">{{ latest_eval.explanation }}</div>
+      <div class="risk-block mt-2" data-role="explanation">{{ latest_eval.explanation }}</div>
     </details>
   </article>
   {% else %}
@@ -86,6 +89,33 @@ window.IES_LOTS_PAGE = {
   const cfg = window.IES_LOTS_PAGE || {};
   const startPackBtn = document.getElementById("addStartPackBtn");
   const statusEl = document.getElementById("startPackStatus");
+  const fmt = {
+    score(value) {
+      return Number(value || 0).toFixed(2);
+    },
+    bid(value) {
+      return Number(value || 0).toFixed(1);
+    }
+  };
+
+  function updateLotCard(lotId, item) {
+    const card = document.querySelector(`[data-lot-id="${lotId}"]`);
+    if (!card || !item) return;
+    const metrics = item.metrics || {};
+    const setText = (role, value) => {
+      const el = card.querySelector(`[data-role="${role}"]`);
+      if (el) el.textContent = value;
+    };
+
+    setText("mode-label", item.analysis_mode_label || cfg.mode || "—");
+    setText("score", fmt.score(item.summary_score));
+    setText("risk", fmt.score(metrics.delta_risk));
+    setText("bid", fmt.bid(item.recommended_bid_hard));
+    setText("strategy-fit", item.strategy_fit_text || "Нет вывода по стратегии.");
+    setText("risk-commentary", item.risk_commentary || "Нет комментария по риску.");
+    setText("explanation", item.explanation || "Нет подробного объяснения.");
+  }
+
   startPackBtn?.addEventListener("click", async () => {
     const res = await fetch(`/api/sessions/${cfg.sessionId}/add-start-pack`, {
       method: "POST",
@@ -107,7 +137,12 @@ window.IES_LOTS_PAGE = {
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      statusEl.textContent = data.ok ? `Лот ${btn.dataset.lotId}: score ${Number(data.item.summary_score || 0).toFixed(2)}, ставка ${Number(data.item.recommended_bid_hard || 0).toFixed(1)}` : `Ошибка: ${data.error}`;
+      if (data.ok) {
+        updateLotCard(btn.dataset.lotId, data.item);
+        statusEl.textContent = `Лот ${btn.dataset.lotId} оценен: балл ${fmt.score(data.item.summary_score)}, ставка ${fmt.bid(data.item.recommended_bid_hard)}.`;
+      } else {
+        statusEl.textContent = `Ошибка: ${data.error}`;
+      }
     });
   });
 

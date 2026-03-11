@@ -7,7 +7,7 @@ from flask import flash, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from ..extensions import db
-from ..forms import LotForm
+from ..forms import ConfirmLotDeleteForm, LotForm
 from ..models import EvaluationResult, Forecast, GameSession, Lot
 from ..services.analysis_context import resolve_analysis_context
 from ..services.evaluation import compare_lots, recommend_best_lot, strategy_fit
@@ -113,6 +113,58 @@ def lots_page(session_id: int):
         lot_summaries={lot.id: _lot_summary(lot) for lot in lots},
         latest_eval_by_lot=latest_eval_by_lot,
         **analysis_kwargs,
+        **session_analysis_view(session),
+        **ctx,
+        **session_stale_ctx(session),
+    )
+
+
+@pages_bp.route("/lots/item/<int:lot_id>/delete", methods=["GET", "POST"])
+@login_required
+def lot_delete_confirm_page(lot_id: int):
+    lot = db.session.get(Lot, lot_id)
+    if lot is None:
+        return redirect(url_for("pages.dashboard"))
+
+    session = lot.session
+    if session is None:
+        return redirect(url_for("pages.dashboard"))
+
+    form = ConfirmLotDeleteForm()
+    if form.validate_on_submit():
+        name = lot.name
+        for obj in list(lot.generated_objects):
+            obj.source_lot_id = None
+            db.session.add(obj)
+        db.session.delete(lot)
+        db.session.commit()
+        flash(f"Лот «{name}» удален", "success")
+        return redirect(url_for("pages.lots_page", session_id=session.id))
+
+    summary = {
+        "items_count": sum(max(1, int(item.quantity or 1)) for item in lot.items),
+        "object_types_count": len(lot.items),
+        "evaluations_count": len(lot.evaluations),
+        "generated_objects_count": len(lot.generated_objects),
+    }
+    ctx = nav(
+        breadcrumb_items=[
+            ("Сессии", "pages.dashboard", None),
+            (f"Сессия #{session.id}", "pages.session_page", {"session_id": session.id}),
+            ("Лоты", "pages.lots_page", {"session_id": session.id}),
+            ("Удаление лота", None, None),
+        ],
+        fallback_endpoint="pages.lots_page",
+        fallback_values={"session_id": session.id},
+        cancel_url=url_for("pages.lots_page", session_id=session.id),
+    )
+    return render_template(
+        "analysis/lot_delete_confirm.html",
+        session=session,
+        lot=lot,
+        form=form,
+        summary=summary,
+        show_analysis_context=False,
         **session_analysis_view(session),
         **ctx,
         **session_stale_ctx(session),
