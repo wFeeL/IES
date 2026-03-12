@@ -1,49 +1,7 @@
-<section class="context-card">
-  <div class="context-card-head">
-    <div>
-      <p class="section-kicker">Режим анализа</p>
-      <h2 class="h2">{{ 'С прогнозом' if analysis_settings.analysis_mode == 'forecast' else 'Без прогноза' }}</h2>
-      <p class="muted">{{ analysis_source_label }}</p>
-    </div>
-    <span class="status-badge {{ 'status-fresh' if analysis_settings.analysis_mode == 'forecast' else 'status-stale' }}">
-      {{ 'Прогноз' if analysis_settings.analysis_mode == 'forecast' else 'Коридор' }}
-    </span>
-  </div>
-  {% if analysis_settings.analysis_mode == 'forecast' %}
-  <div class="insight-grid">
-    <div class="metric-card">
-      <span class="metric-label">Активный прогноз</span>
-      <strong>{{ forecast_summary.name or 'Не выбран' }}</strong>
-      <span class="muted">{{ forecast_summary.text }}</span>
-    </div>
-    <div class="metric-card">
-      <span class="metric-label">Средний ветер</span>
-      <strong>{{ '%.2f'|format(forecast_summary.avg_wind or 0.0) if forecast_summary.avg_wind is not none else 'n/a' }}</strong>
-      <span class="muted">За период {{ forecast_summary.tick_from or '—' }}–{{ forecast_summary.tick_to or '—' }}</span>
-    </div>
-    <div class="metric-card">
-      <span class="metric-label">Ряды потребления</span>
-      <strong>{{ forecast_summary.load_series|length }}</strong>
-      <span class="muted">{{ forecast_summary.load_series|join(', ') if forecast_summary.load_series else 'не найдены' }}</span>
-    </div>
-  </div>
-  {% else %}
-  <div class="insight-grid">
-    <div class="metric-card">
-      <span class="metric-label">Потребители</span>
-      <strong>±{{ '%.1f'|format(corridor_summary.settings.consumer_load_pct) }}%</strong>
-      <span class="muted">{{ corridor_summary.consumer_text }}</span>
-    </div>
-    <div class="metric-card">
-      <span class="metric-label">Производители</span>
-      <strong>±{{ '%.1f'|format(corridor_summary.settings.producer_generation_pct) }}%</strong>
-      <span class="muted">{{ corridor_summary.producer_text }}</span>
-    </div>
-    <div class="metric-card">
-      <span class="metric-label">Сценарии</span>
-      <strong>Worst / Base / Best</strong>
-      <span class="muted">{{ corridor_summary.worst_case }}</span>
-    </div>
-  </div>
-  {% endif %}
-</section>
+{% set context_line = forecast_line if forecast_line is defined else none %}
+{% if not context_line and forecast_context %}
+  {% set context_line = 'Анализ выполнен по прогнозу: ' ~ (forecast_context.forecast_name or 'Встроенный базовый прогноз') ~ ', такты ' ~ (forecast_context.tick_from or '—') ~ '–' ~ (forecast_context.tick_to or '—') ~ '.' %}
+{% endif %}
+{% if context_line %}
+<p class="page-context-line">{{ context_line }}</p>
+{% endif %}

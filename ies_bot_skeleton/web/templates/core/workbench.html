@@ -2,107 +2,217 @@
 {% block title %}Сессия {{ session.id }} | IES{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
-{% include "components/analysis_context.html" %}
 
 <section class="page-grid section-stack mt-4">
   <article class="card">
-    <p class="section-kicker">Статус сессии</p>
+    <div class="section-head">
+      <div>
+        <p class="section-kicker">Бюджет и портфель</p>
+        <h2 class="h2">Текущий контекст сессии</h2>
+      </div>
+    </div>
     <div class="insight-grid mt-3">
-      <div class="metric-card">
-        <span class="metric-label">Стратегия</span>
-        <strong>{{ strategy_label(session.selected_strategy) }}</strong>
-      </div>
-      <div class="metric-card">
-        <span class="metric-label">Активный набор правил</span>
-        <strong>{{ session.ruleset.code if session.ruleset else 'n/a' }}</strong>
-      </div>
-      <div class="metric-card">
-        <span class="metric-label">Стартовый пакет</span>
-        <strong>{{ session.ruleset.active_start_pack_template.name if session.ruleset and session.ruleset.active_start_pack_template else 'не выбран' }}</strong>
-      </div>
+      <div class="metric-card"><span class="metric-label">Общий бюджет</span><strong>{{ '%.1f'|format(portfolio.budget_total) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Уже потрачено</span><strong>{{ '%.1f'|format(portfolio.spent_total) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Осталось</span><strong>{{ '%.1f'|format(portfolio.remaining_budget) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Куплено лотов</span><strong>{{ portfolio.bought_lots_count }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Ожидаемый доход</span><strong>{{ '%.1f'|format(portfolio.aggregate_income_total) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Чистая прибыль</span><strong>{{ '%.1f'|format(portfolio.aggregate_net_profit) }}</strong></div>
+    </div>
+    <div class="key-value mt-3">
+      <span>Ожидаемые расходы</span>
+      <strong>{{ '%.1f'|format(portfolio.aggregate_expenses_total) }}</strong>
+    </div>
+    <div class="key-value">
+      <span>Профиль риска портфеля</span>
+      <strong>{{ portfolio.risk_profile_label }}</strong>
     </div>
   </article>
 
   <article class="card">
-    <p class="section-kicker">Готовность данных</p>
-    <div class="insight-grid mt-3">
-      <div class="metric-card">
-        <span class="metric-label">Энергосистема</span>
-        <strong>{{ readiness.objects_count }}</strong>
-        <span class="muted">объектов в системе</span>
-      </div>
-      <div class="metric-card">
-        <span class="metric-label">Лоты</span>
-        <strong>{{ readiness.lots_count }}</strong>
-        <span class="muted">готово к анализу</span>
-      </div>
-      <div class="metric-card">
-        <span class="metric-label">Прогноз</span>
-        <strong>{{ readiness.selected_forecast_name or 'не выбран' }}</strong>
-        <span class="muted">{{ readiness.forecasts_count }} загружено</span>
+    <div class="section-head">
+      <div>
+        <p class="section-kicker">Прогноз</p>
+        <h2 class="h2">Активный прогноз</h2>
+        <p class="muted">{{ forecast_context.source_label }}</p>
       </div>
     </div>
+    <form method="post" action="{{ url_for('pages.session_forecast_selection_action', session_id=session.id) }}" class="stack gap-3 mt-3">
+      {{ forecast_form.hidden_tag() }}
+      <label class="label">{{ forecast_form.selected_forecast_id.label }} {{ forecast_form.selected_forecast_id(class_='input') }}</label>
+      <button class="btn btn-secondary" type="submit">Сделать активным</button>
+    </form>
+    <div class="insight-grid mt-4">
+      <div class="metric-card"><span class="metric-label">Название</span><strong>{{ forecast_card.name or 'Встроенный базовый прогноз' }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Диапазон тактов</span><strong>{{ forecast_card.tick_from or '—' }}–{{ forecast_card.tick_to or '—' }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Периодов</span><strong>{{ forecast_card.count or 0 }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ '%.2f'|format(forecast_card.avg_wind or 0.0) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ '%.2f'|format(forecast_card.avg_illumination or 0.0) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Средняя рыночная цена</span><strong>{{ '%.2f'|format(forecast_card.avg_market_price or 0.0) }}</strong></div>
+    </div>
+    <div class="mt-4">
+      <p class="section-kicker">Ряды нагрузки</p>
+      <div class="pill-row mt-2">
+        {% for series in forecast_card.load_series %}
+        <span class="pill">{{ series }}: {{ '%.2f'|format(forecast_card.consumer_averages.get(series, 0.0)) }}</span>
+        {% else %}
+        <span class="muted">Ряды нагрузки не обнаружены.</span>
+        {% endfor %}
+      </div>
+    </div>
+    <details class="mt-4">
+      <summary>Подробная статистика по рядам</summary>
+      <div class="table-wrap mt-3">
+        <table class="table">
+          <thead><tr><th>Ряд</th><th>Минимум</th><th>Максимум</th><th>Среднее</th><th>Медиана</th></tr></thead>
+          <tbody>
+            {% for key, stats in forecast_card.series_stats.items() %}
+            <tr>
+              <td>{{ key }}</td>
+              <td>{{ '%.3f'|format(stats.min or 0.0) }}</td>
+              <td>{{ '%.3f'|format(stats.max or 0.0) }}</td>
+              <td>{{ '%.3f'|format(stats.avg or 0.0) }}</td>
+              <td>{{ '%.3f'|format(stats.median or 0.0) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="muted">Статистика пока недоступна.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+    <div class="risk-block mt-3">{{ forecast_card.quality.text }}</div>
   </article>
 </section>
 
 <section class="page-grid section-stack mt-4">
   <article class="card">
-    <p class="section-kicker">Режим анализа</p>
-    <form method="post" action="{{ url_for('pages.session_analysis_mode_action', session_id=session.id) }}" class="stack gap-3 mt-3">
-      {{ mode_form.hidden_tag() }}
-      <label class="label">{{ mode_form.analysis_mode.label }} {{ mode_form.analysis_mode(class_='input', id='analysisModeSelect') }}</label>
-      <button class="btn btn-primary" type="submit">Сохранить режим</button>
-    </form>
-
-    <div class="analysis-panels mt-4">
-      <div class="card inset-card" data-analysis-panel="no_forecast">
-        <p class="section-kicker">Коридор неопределенности</p>
-        <form method="post" action="{{ url_for('pages.session_corridor_action', session_id=session.id) }}" class="stack gap-3 mt-3">
-          {{ corridor_form.hidden_tag() }}
-          <label class="label">{{ corridor_form.consumer_load_pct.label }} {{ corridor_form.consumer_load_pct(class_='input') }}</label>
-          <label class="label">{{ corridor_form.producer_generation_pct.label }} {{ corridor_form.producer_generation_pct(class_='input') }}</label>
-          <div class="grid cols-2 gap-3">
-            <label class="label">{{ corridor_form.solar_output_pct.label }} {{ corridor_form.solar_output_pct(class_='input') }}</label>
-            <label class="label">{{ corridor_form.wind_output_pct.label }} {{ corridor_form.wind_output_pct(class_='input') }}</label>
-          </div>
-          <p class="muted">{{ corridor_summary.worst_case }}</p>
-          <button class="btn btn-secondary" type="submit">Сохранить коридор</button>
-        </form>
-      </div>
-
-      <div class="card inset-card" data-analysis-panel="forecast">
-        <p class="section-kicker">Активный прогноз</p>
-        <form method="post" action="{{ url_for('pages.session_forecast_selection_action', session_id=session.id) }}" class="stack gap-3 mt-3">
-          {{ forecast_form.hidden_tag() }}
-          <label class="label">{{ forecast_form.selected_forecast_id.label }} {{ forecast_form.selected_forecast_id(class_='input') }}</label>
-          <p class="muted">{{ forecast_summary.text }}</p>
-          <button class="btn btn-secondary" type="submit">Сохранить выбор прогноза</button>
-        </form>
-      </div>
+    <p class="section-kicker">Готовность данных</p>
+    <div class="insight-grid mt-3">
+      <div class="metric-card"><span class="metric-label">Энергосистема</span><strong>{{ readiness.objects_count }}</strong><span class="muted">объектов в системе</span></div>
+      <div class="metric-card"><span class="metric-label">Лоты</span><strong>{{ readiness.lots_count }}</strong><span class="muted">в сессии</span></div>
+      <div class="metric-card"><span class="metric-label">Прогноз</span><strong>{{ readiness.active_forecast_name }}</strong><span class="muted">{{ 'используется bundled forecast' if readiness.uses_bundled_forecast else 'выбран пользователем' }}</span></div>
     </div>
   </article>
 
   <article class="card">
     <p class="section-kicker">Быстрые действия</p>
     <div class="stack gap-3 mt-3">
-      {% for link in quick_links %}
-      <a class="action-card" href="{{ link.url }}">{{ link.label }}</a>
-      {% endfor %}
+      <a class="action-card" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Лоты</a>
+      <a class="action-card" href="{{ url_for('pages.forecast_page', session_id=session.id) }}">Прогноз</a>
+      <a class="action-card" href="{{ url_for('pages.quick_auction_page', session_id=session.id) }}">Быстрый аукцион</a>
       <a class="action-card" href="{{ url_for('pages.system_view', session_id=session.id) }}">Проверить энергосистему</a>
-      <a class="action-card" href="{{ url_for('pages.forecast_page', session_id=session.id) }}">Открыть центр прогноза</a>
-      <a class="action-card" href="{{ export_json_url }}">Экспортировать сессию в JSON</a>
-      <a class="action-card" href="{{ export_csv_url }}">Скачать оценки в CSV</a>
+      <a class="action-card" href="{{ export_json_url }}">Экспорт сессии</a>
     </div>
-    <div class="danger-zone mt-4">
-      <p class="section-kicker">Служебные действия</p>
-      <h2 class="h2">Удаление сессии</h2>
-      <p class="muted mt-2">Удаление необратимо: вместе с сессией будут удалены лоты, прогнозы, объекты и оценки.</p>
-      <div class="actions mt-3">
-        <a class="btn btn-danger" href="{{ delete_url }}">Удалить сессию</a>
-      </div>
+    <div class="actions mt-4">
+      <button class="btn btn-secondary" type="button" id="recalculateLotsBtn" data-url="{{ recalculate_url }}">Пересчитать все лоты</button>
+      <a class="btn btn-secondary" href="{{ export_csv_url }}">Скачать оценки CSV</a>
     </div>
   </article>
 </section>
 
-<script defer src="{{ url_for('static', filename='js/analysis/workbench.js') }}"></script>
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Доступные лоты</p>
+      <h2 class="h2">Лоты для следующего решения</h2>
+    </div>
+    <a class="btn btn-primary" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Открыть все лоты</a>
+  </div>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead><tr><th>Лот</th><th>Состав</th><th>Полезность</th><th>Чистая прибыль</th><th>Риск</th><th>Рабочий максимум</th><th>Статус</th><th>Действия</th></tr></thead>
+      <tbody>
+        {% for row in available_rows %}
+        <tr>
+          <td><strong>{{ row.name }}</strong></td>
+          <td>{{ row.structure }}</td>
+          <td>{{ '%.2f'|format(row.utility) }}</td>
+          <td>{{ '%.2f'|format(row.net_profit) }}</td>
+          <td>{{ '%.2f'|format(row.risk) }}</td>
+          <td>{{ '%.2f'|format(row.max_bid) }}</td>
+          <td>
+            {{ lot_status_label(row.status) }}
+            {% if row.is_stale %}<span class="status-badge status-stale">Оценка устарела</span>{% endif %}
+          </td>
+          <td>
+            <div class="actions">
+              <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть</a>
+              <a class="btn btn-secondary" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=row.lot_id) }}">Купить</a>
+              <form method="post" action="{{ url_for('pages.lot_reject_action', lot_id=row.lot_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <button class="btn btn-secondary" type="submit">Отклонить</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="muted">Нет доступных лотов. Проверьте прогноз или создайте новые лоты.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Купленные лоты</p>
+      <h2 class="h2">Текущий портфель</h2>
+    </div>
+  </div>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead><tr><th>Лот</th><th>Цена покупки</th><th>Ожидаемая прибыль</th><th>Вклад в риск</th><th>Статус</th><th>Действия</th></tr></thead>
+      <tbody>
+        {% for row in purchased_rows %}
+        <tr>
+          <td>{{ row.name }}</td>
+          <td>{{ '%.1f'|format(row.purchase_price) }}</td>
+          <td>{{ '%.2f'|format(row.net_profit) }}</td>
+          <td>{{ '%.2f'|format(row.risk) }}</td>
+          <td>{{ row.status_label }}</td>
+          <td>
+            <form method="post" action="{{ url_for('pages.lot_undo_buy_action', lot_id=row.lot_id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button class="btn btn-secondary" type="submit">Отменить покупку</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted">Портфель пока пуст. Купленные лоты появятся здесь.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card mt-4">
+  <p class="section-kicker">Служебные действия</p>
+  <div class="actions mt-3">
+    <a class="btn btn-danger" href="{{ delete_url }}">Удалить сессию</a>
+  </div>
+</section>
+
+<script>
+(() => {
+  const button = document.getElementById('recalculateLotsBtn');
+  if (!button) return;
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    const res = await fetch(button.dataset.url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}'},
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    if (data.ok) {
+      window.location.reload();
+      return;
+    }
+    button.disabled = false;
+    alert(data?.error?.message || 'Не удалось пересчитать лоты.');
+  });
+})();
+</script>
 {% endblock %}

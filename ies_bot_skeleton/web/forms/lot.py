@@ -26,15 +26,6 @@ class LotForm(FlaskForm):
         ],
         default="normal",
     )
-    status = SelectField(
-        "Статус",
-        choices=[
-            ("available", "Доступен"),
-            ("bought", "Куплен"),
-            ("rejected", "Отклонен"),
-        ],
-        default="available",
-    )
     base_bid = FloatField("Стартовая цена", validators=[DataRequired(), NumberRange(min=0.0)])
     current_bid = FloatField("Текущая ставка", validators=[Optional(), NumberRange(min=0.0)])
     available_round = IntegerField("Раунд", validators=[Optional(), NumberRange(min=1)])
@@ -46,3 +37,23 @@ class LotForm(FlaskForm):
 
 class ConfirmLotDeleteForm(FlaskForm):
     submit = SubmitField("Удалить лот")
+
+
+class LotPurchaseForm(FlaskForm):
+    purchase_price = FloatField(
+        "Фактическая цена покупки",
+        validators=[DataRequired(), NumberRange(min=0.01)],
+    )
+    submit = SubmitField("Купить лот")
+
+
+class LotUndoPurchaseForm(FlaskForm):
+    submit = SubmitField("Отменить покупку")
+
+
+class LotRejectForm(FlaskForm):
+    submit = SubmitField("Отклонить лот")
+
+
+class LotRestoreForm(FlaskForm):
+    submit = SubmitField("Вернуть в доступные")

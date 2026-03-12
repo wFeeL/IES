@@ -23,7 +23,6 @@ def test_lot_editor_prefers_visual_payload(client):
         "session_id": str(session_id),
         "name": "Visual lot",
         "scope": "normal",
-        "status": "available",
         "base_bid": "100",
         "current_bid": "100",
         "available_round": "1",
@@ -64,7 +63,6 @@ def test_lot_editor_rejects_invalid_lot_payload(client):
         "session_id": str(session_id),
         "name": "Bad lot",
         "scope": "normal",
-        "status": "available",
         "base_bid": "100",
         "current_bid": "100",
         "available_round": "1",
@@ -154,12 +152,12 @@ def test_lot_detail_and_edit_flow(client):
     detail_html = detail_resp.get_data(as_text=True)
     assert "Lot detail source" in detail_html
     assert "Текущая оценка" in detail_html
+    assert "Worst / Base / Best" in detail_html
 
     edit_form = {
         "session_id": str(session_id),
         "name": "Lot updated",
         "scope": "global",
-        "status": "available",
         "base_bid": "140",
         "current_bid": "145",
         "available_round": "2",
@@ -184,7 +182,7 @@ def test_lot_detail_and_edit_flow(client):
     assert len(payload["items"]) == 2
 
 
-def test_no_forecast_evaluation_uses_baseline_and_returns_explanation(client):
+def test_forecast_only_evaluation_uses_bundled_fallback_and_returns_explanation(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Meaningful eval")
     assert client.post(f"/api/sessions/{session_id}/add-start-pack", json={}).status_code == 200
@@ -207,13 +205,14 @@ def test_no_forecast_evaluation_uses_baseline_and_returns_explanation(client):
     assert created.status_code == 200
     lot_id = int(created.get_json()["item"]["id"])
 
-    eval_resp = client.post(f"/api/lots/{lot_id}/evaluate", json={"mode": "no_forecast"})
+    eval_resp = client.post(f"/api/lots/{lot_id}/evaluate", json={})
     assert eval_resp.status_code == 200
     payload = eval_resp.get_json()
     assert payload["ok"] is True
 
     item = payload["item"]
     assert item["summary_score"] != 0
+    assert item["forecast_context"]["source"] == "bundled_forecast"
     assert item["recommended_bid_hard"] > 0
     assert item["metrics"]["delta_score"] != 0
     assert item["risk_commentary"]

@@ -21,7 +21,6 @@ from .services.navigation import (
 from .services.ui_text import (
     CATEGORY_LABELS,
     SESSION_TERMS,
-    analysis_mode_label,
     category_label,
     lot_scope_label,
     lot_status_label,
@@ -58,7 +57,6 @@ def create_app(config_name: Optional[str] = None) -> Flask:
             "safe_next_url": safe_next_url,
             "strategy_label": strategy_label,
             "category_label": category_label,
-            "analysis_mode_ui_label": analysis_mode_label,
             "lot_scope_label": lot_scope_label,
             "lot_status_label": lot_status_label,
             "category_labels": CATEGORY_LABELS,

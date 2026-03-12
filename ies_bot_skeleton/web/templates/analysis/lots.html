@@ -2,165 +2,171 @@
 {% block title %}Лоты {{ session.id }} | IES{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
-{% if show_analysis_context is not defined or show_analysis_context %}
 {% include "components/analysis_context.html" %}
-{% endif %}
 
 <section class="card mt-4">
   <div class="section-head">
     <div>
       <p class="section-kicker">Каталог лотов</p>
       <h1 class="h1">Лоты сессии</h1>
-      <p class="muted">Оценка учитывает текущий режим анализа и выбранный контекст сессии.</p>
-      <p class="muted">Комплексный балл собирается из экономики, баланса, устойчивости, экологичности и штрафов за риск.</p>
+      <p class="muted">Отсортируйте доступные лоты по полезности, прибыли, риску или цене и примите решение по активному прогнозу.</p>
     </div>
     <div class="actions">
       <a class="btn btn-primary" href="{{ url_for('pages.lots_edit', session_id=session.id) }}">Добавить лот</a>
-      <button class="btn btn-secondary" id="addStartPackBtn">Добавить стартовый пакет</button>
+      <button class="btn btn-secondary" id="addStartPackBtn" type="button">Добавить стартовый пакет</button>
+      <button class="btn btn-secondary" id="recalculateLotsBtn" type="button">Пересчитать все лоты</button>
     </div>
   </div>
-  <div id="startPackStatus" class="muted mt-2"></div>
+  <form method="get" class="grid cols-4 gap-3 mt-4">
+    <label class="label">Статус
+      <select class="input" name="status">
+        <option value="all" {{ 'selected' if filters.get('status', 'all') == 'all' else '' }}>Все</option>
+        <option value="available" {{ 'selected' if filters.get('status') == 'available' else '' }}>Доступные</option>
+        <option value="bought" {{ 'selected' if filters.get('status') == 'bought' else '' }}>Купленные</option>
+        <option value="rejected" {{ 'selected' if filters.get('status') == 'rejected' else '' }}>Отклонённые</option>
+      </select>
+    </label>
+    <label class="label">Состав
+      <select class="input" name="composition">
+        <option value="all" {{ 'selected' if filters.get('composition', 'all') == 'all' else '' }}>Все</option>
+        <option value="consumer" {{ 'selected' if filters.get('composition') == 'consumer' else '' }}>Потребительский</option>
+        <option value="generator" {{ 'selected' if filters.get('composition') == 'generator' else '' }}>Генераторный</option>
+        <option value="mixed" {{ 'selected' if filters.get('composition') == 'mixed' else '' }}>Смешанный</option>
+        <option value="infrastructure" {{ 'selected' if filters.get('composition') == 'infrastructure' else '' }}>Инфраструктурный</option>
+        <option value="storage" {{ 'selected' if filters.get('composition') == 'storage' else '' }}>Накопительный</option>
+      </select>
+    </label>
+    <label class="label">Сортировка
+      <select class="input" name="sort">
+        <option value="utility_desc" {{ 'selected' if sort_key == 'utility_desc' else '' }}>Полезность ↓</option>
+        <option value="profit_desc" {{ 'selected' if sort_key == 'profit_desc' else '' }}>Прибыль ↓</option>
+        <option value="risk_asc" {{ 'selected' if sort_key == 'risk_asc' else '' }}>Риск ↑</option>
+        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Рабочий максимум ↓</option>
+        <option value="price_asc" {{ 'selected' if sort_key == 'price_asc' else '' }}>Цена ↑</option>
+        <option value="price_desc" {{ 'selected' if sort_key == 'price_desc' else '' }}>Цена ↓</option>
+      </select>
+    </label>
+    <div class="actions">
+      <button class="btn btn-secondary" type="submit">Применить</button>
+      <a class="btn btn-secondary" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Сбросить</a>
+    </div>
+    <label class="label">Цена от <input class="input" name="price_min" value="{{ filters.get('price_min', '') }}" type="number" step="0.1" /></label>
+    <label class="label">Цена до <input class="input" name="price_max" value="{{ filters.get('price_max', '') }}" type="number" step="0.1" /></label>
+    <label class="label">Полезность от <input class="input" name="utility_min" value="{{ filters.get('utility_min', '') }}" type="number" step="0.1" /></label>
+    <label class="label">Риск до <input class="input" name="risk_max" value="{{ filters.get('risk_max', '') }}" type="number" step="0.1" /></label>
+  </form>
+  <div id="lotsStatus" class="muted mt-3"></div>
 </section>
 
-<section class="lot-grid mt-4">
-  {% for lot in lots %}
-  {% set summary = lot_summaries[lot.id] %}
-  {% set latest_eval = latest_eval_by_lot[lot.id] %}
-  <article class="card card-lot" data-lot-id="{{ lot.id }}">
-    <div class="section-head">
-      <div>
-        <h3 class="h3">{{ lot.name }}</h3>
-        <p class="muted">{{ lot_scope_label(lot.scope) }} · {{ lot_status_label(lot.status) }} · текущая ставка {{ '%.1f'|format(lot.current_bid) }}</p>
-      </div>
-      <span class="status-badge status-fresh" data-role="mode-label">{{ latest_eval.analysis_mode_label }}</span>
-    </div>
-
-    <div class="pill-row mt-3">
-      <span class="pill">{{ summary.items_total }} объектов</span>
-      <span class="pill">{{ summary.counts.consumer or 0 }} потреб.</span>
-      <span class="pill">{{ summary.counts.generator or 0 }} ген.</span>
-      <span class="pill">{{ summary.counts.infrastructure or 0 }} инфр.</span>
-    </div>
-
-    <ul class="stack gap-1 mt-3">
-      {% for item in lot.items %}
-      <li><code>{{ item.object_type.code if item.object_type else item.object_type_id }}</code> ×{{ item.quantity }}</li>
-      {% else %}
-      <li class="muted">Пустой лот</li>
-      {% endfor %}
-    </ul>
-
-    <div class="metric-strip mt-3">
-      <div><span class="metric-label">Комплексный балл</span><strong data-role="score">{{ '%.2f'|format(latest_eval.summary_score) }}</strong></div>
-      <div><span class="metric-label">Риск</span><strong data-role="risk">{{ '%.2f'|format(latest_eval.metrics.delta_risk) }}</strong></div>
-      <div><span class="metric-label">Реком. ставка</span><strong data-role="bid">{{ '%.1f'|format(latest_eval.recommended_bid_hard) }}</strong></div>
-    </div>
-    <p class="muted mt-3" data-role="strategy-fit">{{ latest_eval.strategy_fit_text }}</p>
-    <div class="risk-block mt-2" data-role="risk-commentary">{{ latest_eval.risk_commentary or summary.compatibility }}</div>
-
-    <div class="actions mt-3">
-      <a class="btn btn-primary" href="{{ url_for('pages.lot_detail_page', lot_id=lot.id) }}">Открыть</a>
-      <a class="btn btn-secondary" href="{{ url_for('pages.lot_edit_page', lot_id=lot.id) }}">Редактировать</a>
-      <button class="btn btn-secondary evalBtn" data-lot-id="{{ lot.id }}">Оценить</button>
-      <a class="btn btn-secondary" href="{{ url_for('pages.compare_page', session_id=session.id) }}">В сравнение</a>
-      <a class="btn btn-secondary" href="{{ url_for('pages.strategy_fit_page', lot_id=lot.id) }}">Стратегии</a>
-      <button class="btn btn-secondary shortlistBtn" data-lot-id="{{ lot.id }}" type="button">В shortlist</button>
-      <a class="btn btn-danger" href="{{ url_for('pages.lot_delete_confirm_page', lot_id=lot.id) }}">Удалить</a>
-    </div>
-    <details class="mt-3">
-      <summary>Подробное объяснение</summary>
-      <div class="risk-block mt-2" data-role="explanation">{{ latest_eval.explanation }}</div>
-    </details>
-  </article>
-  {% else %}
-  <div class="empty-state">Лоты еще не добавлены. Перейдите в редактор и создайте первый лот.</div>
-  {% endfor %}
+<section class="card mt-4">
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Лот</th>
+          <th>Состав</th>
+          <th>Цена</th>
+          <th>Итоговая полезность</th>
+          <th>Ожидаемая чистая прибыль</th>
+          <th>Риск</th>
+          <th>Рабочий максимум</th>
+          <th>Статус</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in lot_rows %}
+        <tr>
+          <td>
+            <strong>{{ row.name }}</strong>
+            <div class="muted">{{ row.composition_label }}</div>
+          </td>
+          <td>{{ row.structure }}</td>
+          <td>{{ '%.1f'|format(row.price) }}</td>
+          <td>{{ '%.2f'|format(row.utility) }}</td>
+          <td>{{ '%.2f'|format(row.net_profit) }}</td>
+          <td>{{ '%.2f'|format(row.risk) }}</td>
+          <td>{{ '%.2f'|format(row.max_bid) }}</td>
+          <td>
+            {{ lot_status_label(row.status) }}
+            {% if row.is_stale %}<div><span class="status-badge status-stale">Оценка устарела</span></div>{% endif %}
+          </td>
+          <td>
+            <div class="actions">
+              <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть</a>
+              <a class="btn btn-secondary" href="{{ url_for('pages.lot_edit_page', lot_id=row.lot_id) }}">Редактировать</a>
+              {% if row.status == 'available' %}
+              <a class="btn btn-secondary" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=row.lot_id) }}">Купить</a>
+              <form method="post" action="{{ url_for('pages.lot_reject_action', lot_id=row.lot_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <button class="btn btn-secondary" type="submit">Отклонить</button>
+              </form>
+              {% elif row.status == 'bought' %}
+              <form method="post" action="{{ url_for('pages.lot_undo_buy_action', lot_id=row.lot_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <button class="btn btn-secondary" type="submit">Отменить покупку</button>
+              </form>
+              {% elif row.status == 'rejected' %}
+              <form method="post" action="{{ url_for('pages.lot_restore_action', lot_id=row.lot_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <button class="btn btn-secondary" type="submit">Восстановить</button>
+              </form>
+              {% endif %}
+              <a class="btn btn-danger" href="{{ url_for('pages.lot_delete_confirm_page', lot_id=row.lot_id) }}">Удалить</a>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="muted">Лоты ещё не добавлены. Создайте первый лот или примените стартовый пакет.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
-<script>
-window.IES_LOTS_PAGE = {
-  sessionId: {{ session.id }},
-  csrfToken: "{{ csrf_token() }}",
-  mode: {{ mode|tojson }},
-  corridorOverride: {{ analysis_ctx.corridor_settings|tojson }},
-  forecastId: {{ analysis_ctx.forecast.id if analysis_ctx.forecast else 'null' }},
-};
-</script>
 <script>
 (() => {
-  const cfg = window.IES_LOTS_PAGE || {};
-  const startPackBtn = document.getElementById("addStartPackBtn");
-  const statusEl = document.getElementById("startPackStatus");
-  const fmt = {
-    score(value) {
-      return Number(value || 0).toFixed(2);
-    },
-    bid(value) {
-      return Number(value || 0).toFixed(1);
-    }
-  };
+  const statusEl = document.getElementById('lotsStatus');
+  const csrfToken = '{{ csrf_token() }}';
+  const recalcBtn = document.getElementById('recalculateLotsBtn');
+  const startPackBtn = document.getElementById('addStartPackBtn');
 
   function errorMessage(data) {
-    return data?.error?.message || data?.error || "Неизвестная ошибка";
+    return data?.error?.message || data?.error || 'Неизвестная ошибка';
   }
 
-  function updateLotCard(lotId, item) {
-    const card = document.querySelector(`[data-lot-id="${lotId}"]`);
-    if (!card || !item) return;
-    const metrics = item.metrics || {};
-    const setText = (role, value) => {
-      const el = card.querySelector(`[data-role="${role}"]`);
-      if (el) el.textContent = value;
-    };
-
-    setText("mode-label", item.analysis_mode_label || cfg.mode || "—");
-    setText("score", fmt.score(item.summary_score));
-    setText("risk", fmt.score(metrics.delta_risk));
-    setText("bid", fmt.bid(item.recommended_bid_hard));
-    setText("strategy-fit", item.strategy_fit_text || "Нет вывода по стратегии.");
-    setText("risk-commentary", item.risk_commentary || "Нет комментария по риску.");
-    setText("explanation", item.explanation || "Нет подробного объяснения.");
-  }
-
-  startPackBtn?.addEventListener("click", async () => {
-    const res = await fetch(`/api/sessions/${cfg.sessionId}/add-start-pack`, {
-      method: "POST",
-      headers: {"Content-Type": "application/json", "X-CSRFToken": cfg.csrfToken},
+  recalcBtn?.addEventListener('click', async () => {
+    recalcBtn.disabled = true;
+    const res = await fetch('{{ recalculate_url }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
       body: JSON.stringify({})
     });
     const data = await res.json();
-    statusEl.textContent = data.ok ? `Добавлено объектов: ${data.created.length}` : `Ошибка: ${errorMessage(data)}`;
-    if (data.ok) window.location.reload();
+    if (data.ok) {
+      statusEl.textContent = `Пересчитано лотов: ${data.meta.count}`;
+      window.location.reload();
+      return;
+    }
+    statusEl.textContent = `Ошибка: ${errorMessage(data)}`;
+    recalcBtn.disabled = false;
   });
 
-  document.querySelectorAll(".evalBtn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const payload = {mode: cfg.mode, corridor_override: cfg.corridorOverride};
-      if (cfg.forecastId) payload.forecast_id = cfg.forecastId;
-      const res = await fetch(`/api/lots/${btn.dataset.lotId}/evaluate`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json", "X-CSRFToken": cfg.csrfToken},
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (data.ok) {
-        updateLotCard(btn.dataset.lotId, data.item);
-        statusEl.textContent = `Лот ${btn.dataset.lotId} оценен: балл ${fmt.score(data.item.summary_score)}, ставка ${fmt.bid(data.item.recommended_bid_hard)}.`;
-      } else {
-        statusEl.textContent = `Ошибка: ${errorMessage(data)}`;
-      }
+  startPackBtn?.addEventListener('click', async () => {
+    startPackBtn.disabled = true;
+    const res = await fetch(`/api/sessions/{{ session.id }}/add-start-pack`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+      body: JSON.stringify({})
     });
-  });
-
-  document.querySelectorAll(".shortlistBtn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const key = `ies-shortlist-${cfg.sessionId}`;
-      const existing = JSON.parse(localStorage.getItem(key) || "[]");
-      const lotId = Number(btn.dataset.lotId || 0);
-      const next = Array.from(new Set(existing.concat([lotId])));
-      localStorage.setItem(key, JSON.stringify(next));
-      statusEl.textContent = `Лот ${lotId} добавлен в shortlist (${next.length})`;
-    });
+    const data = await res.json();
+    if (data.ok) {
+      statusEl.textContent = `Добавлено объектов: ${data.created.length}`;
+      window.location.reload();
+      return;
+    }
+    statusEl.textContent = `Ошибка: ${errorMessage(data)}`;
+    startPackBtn.disabled = false;
   });
 })();
 </script>

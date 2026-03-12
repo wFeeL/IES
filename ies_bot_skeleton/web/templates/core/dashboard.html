@@ -6,7 +6,7 @@
     <article class="card">
       <p class="section-kicker">Новая сессия</p>
       <h1 class="h1">{{ session_terms.create_title }}</h1>
-      <p class="muted">Создайте сессию, чтобы собрать контекст, выбрать режим анализа и перейти к сравнению, рекомендациям и аукциону.</p>
+      <p class="muted">Создайте сессию, выберите правила и бюджет, затем загрузите прогноз и перейдите к оценке лотов.</p>
       <form method="post" class="stack gap-3 mt-4">
         {{ form.hidden_tag() }}
         <label class="label">{{ form.title.label }} {{ form.title(class_='input') }}</label>
@@ -21,26 +21,17 @@
         <p class="lead mt-2" id="strategySummaryText">{{ selected_strategy_meta.summary }}</p>
         <p class="muted mt-2" id="strategySummaryHint">{{ selected_strategy_meta.when_to_use }}</p>
       </article>
-      <div class="stack gap-2 mt-4">
-        <p class="section-kicker">Все стратегии</p>
-        {% for row in strategy_catalog %}
-        <div class="strategy-list-item">
-          <strong>{{ row.label }}</strong>
-          <span class="muted">{{ row.summary }}</span>
-        </div>
-        {% endfor %}
-      </div>
     </article>
 
     <article class="card">
       <p class="section-kicker">Импорт данных</p>
       <h2 class="h2">Импортировать сессию из JSON</h2>
-      <p class="muted mt-2">Вставьте JSON, полученный из экспорта сессии. Импорт нужен для переноса подготовленных данных между средами без CLI.</p>
+      <p class="muted mt-2">Переносит подготовленную сессию со всеми лотами, прогнозами и настройками без дополнительных утилит.</p>
       <form method="post" action="{{ url_for('pages.import_session_action') }}" class="stack gap-3 mt-4">
         {{ import_form.hidden_tag() }}
         <label class="label">
           {{ import_form.payload_json.label }}
-          {{ import_form.payload_json(class_='input h-48', placeholder='{\"session\": {...}, \"lots\": [...]}') }}
+          {{ import_form.payload_json(class_='input h-48', placeholder='{"session": {...}, "lots": [...]}') }}
         </label>
         <button class="btn btn-secondary" type="submit">Импортировать сессию</button>
       </form>
@@ -52,7 +43,7 @@
       <div class="section-head">
         <div>
           <p class="section-kicker">{{ session_terms.collection_title }}</p>
-          <h2 class="h2">Готовность к анализу</h2>
+          <h2 class="h2">Активные сессии</h2>
         </div>
       </div>
       <div class="stack gap-4 mt-4">
@@ -61,14 +52,15 @@
           <div class="session-card-main">
             <div>
               <h3 class="h3">{{ row.title }}</h3>
-              <p class="muted">Стратегия: {{ row.strategy_label }} · Бюджет: {{ '%.1f'|format(row.budget_total) }} · Обновлено: {{ row.updated_at_label }}</p>
+              <p class="muted">Стратегия: {{ row.strategy_label }} · Бюджет: {{ '%.1f'|format(row.budget_total) }} · Остаток: {{ '%.1f'|format(row.remaining_budget) }}</p>
+              <p class="muted">Активный прогноз: {{ row.forecast_name }} · {{ row.forecast_source }} · Обновлено: {{ row.updated_at_label }}</p>
             </div>
-            <span class="status-badge {{ 'status-fresh' if row.has_forecast else 'status-stale' }}">{{ row.analysis_mode_label }}</span>
+            <span class="status-badge status-fresh">Сессия активна</span>
           </div>
           <div class="session-card-stats">
             <span class="pill">{{ row.lots_count }} лотов</span>
             <span class="pill">{{ row.objects_count }} объектов</span>
-            <span class="pill">{{ 'есть прогноз' if row.has_forecast else 'без прогноза' }}</span>
+            <span class="pill">{{ row.bought_lots_count }} куплено</span>
           </div>
           <div class="actions mt-4">
             <a class="btn btn-primary" href="{{ row.url }}">{{ session_terms.open_cta }}</a>
@@ -76,9 +68,7 @@
           </div>
         </article>
         {% else %}
-        <div class="empty-state">
-          Пока нет сессий. Начните с карточки слева и создайте первую сессию.
-        </div>
+        <div class="empty-state">Пока нет сессий. Создайте первую сессию и начните с прогноза.</div>
         {% endfor %}
       </div>
     </article>

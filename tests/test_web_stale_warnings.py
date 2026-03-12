@@ -41,9 +41,8 @@ def test_stale_warning_banner_and_warn_only_behavior(client):
         },
     )
     assert lot_b.status_code == 200
-    lot_b_id = int(lot_b.get_json()["item"]["id"])
 
-    eval_resp = client.post(f"/api/lots/{lot_a_id}/evaluate", json={"mode": "forecast"})
+    eval_resp = client.post(f"/api/lots/{lot_a_id}/evaluate", json={})
     assert eval_resp.status_code == 200
 
     upd = client.put(
@@ -57,10 +56,8 @@ def test_stale_warning_banner_and_warn_only_behavior(client):
     html = session_page.get_data(as_text=True)
     assert "Обнаружены устаревшие оценки" in html
 
-    # warn-only: compare still available
-    compare_resp = client.post(
-        "/api/lots/compare",
-        json={"session_id": session_id, "lot_ids": [lot_a_id, lot_b_id], "mode": "forecast"},
-    )
-    assert compare_resp.status_code == 200
-    assert compare_resp.get_json()["ok"] is True
+    analytics_resp = client.get(f"/api/sessions/{session_id}/lots/analytics?status=available")
+    assert analytics_resp.status_code == 200
+    payload = analytics_resp.get_json()
+    assert payload["ok"] is True
+    assert len(payload["items"]) >= 1

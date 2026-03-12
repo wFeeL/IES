@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import copy
 import io
+import statistics
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -60,6 +61,50 @@ def _parse_float(value: Any) -> Optional[float]:
     except ValueError:
         return None
     return out
+
+
+def _series_stats(values: Iterable[Optional[float]]) -> Optional[Dict[str, float]]:
+    rows = [float(value) for value in values if value is not None]
+    if not rows:
+        return None
+    return {
+        "min": round(min(rows), 4),
+        "max": round(max(rows), 4),
+        "avg": round(sum(rows) / len(rows), 4),
+        "median": round(float(statistics.median(rows)), 4),
+    }
+
+
+def _quality_summary(*, headers: Iterable[str], warnings: List[str], series_stats: Dict[str, Dict[str, float] | None]) -> Dict[str, Any]:
+    required = {"wind", "illumination", "market_price"}
+    problem_columns: List[str] = []
+    empty_columns: List[str] = []
+    for key, stats in series_stats.items():
+        if stats is None:
+            empty_columns.append(key)
+            if key in required:
+                problem_columns.append(key)
+            continue
+        if abs(float(stats["max"]) - float(stats["min"])) < 1e-9:
+            problem_columns.append(key)
+    unique_headers = sorted({_norm(header) for header in headers if header})
+    for key in required:
+        if key not in unique_headers and key not in problem_columns:
+            problem_columns.append(key)
+
+    if problem_columns:
+        text = "Есть проблемные ряды: " + ", ".join(problem_columns)
+    elif warnings:
+        text = "Прогноз пригоден для оценки, но содержит предупреждения по данным."
+    else:
+        text = "Прогноз пригоден для оценки: все ключевые ряды заполнены."
+
+    return {
+        "warnings": list(warnings),
+        "problem_columns": sorted(set(problem_columns)),
+        "empty_columns": sorted(set(empty_columns)),
+        "text": text,
+    }
 
 
 def _guess_columns(headers: List[str]) -> Dict[str, Any]:
@@ -169,8 +214,18 @@ def bundled_forecast_summary() -> Dict[str, Any]:
             return None
         return round(sum(rows) / len(rows), 4)
 
+    series_stats: Dict[str, Dict[str, float] | None] = {
+        "wind": _series_stats(wind_rows.values()),
+        "illumination": _series_stats(solar_rows.values()),
+        "market_price": _series_stats(market_rows.values()),
+    }
+    consumer_averages = {key: avg(values.values()) for key, values in sorted(load_rows.items())}
+    for key, values in sorted(load_rows.items()):
+        series_stats[key] = _series_stats(values.values())
+
     return {
         "mode": "builtin",
+        "source_kind": "bundled_forecast",
         "forecast_id": None,
         "name": "Встроенный базовый прогноз",
         "source_file": str(DEFAULT_FORECASTS_DIR),
@@ -181,6 +236,13 @@ def bundled_forecast_summary() -> Dict[str, Any]:
         "avg_illumination": avg(solar_rows.values()),
         "avg_market_price": avg(market_rows.values()),
         "load_series": sorted(load_rows.keys()),
+        "consumer_averages": consumer_averages,
+        "series_stats": series_stats,
+        "quality": _quality_summary(
+            headers=["wind", "illumination", "market_price", *load_rows.keys()],
+            warnings=[],
+            series_stats=series_stats,
+        ),
         "warnings": [],
         "text": "Используется встроенный базовый прогноз проекта.",
     }
@@ -351,6 +413,7 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
     if not periods:
         return {
             "forecast_id": forecast.id,
+            "source_kind": "selected_forecast",
             "name": forecast.name,
             "source_file": forecast.source_file,
             "count": 0,
@@ -360,6 +423,14 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
             "avg_illumination": None,
             "avg_market_price": None,
             "load_series": [],
+            "consumer_averages": {},
+            "series_stats": {},
+            "quality": {
+                "warnings": list((forecast.metadata_json or {}).get("warnings_detail") or []),
+                "problem_columns": ["wind", "illumination", "market_price"],
+                "empty_columns": ["wind", "illumination", "market_price"],
+                "text": f"Прогноз '{forecast.name}' пустой.",
+            },
             "warnings": list((forecast.metadata_json or {}).get("warnings_detail") or []),
             "text": f"Прогноз '{forecast.name}' пустой.",
         }
@@ -377,8 +448,24 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
             for key in (period.consumption_json or {}).keys()
         }
     )
+    consumer_averages = {
+        key: avg(
+            (period.consumption_json or {}).get(key)
+            for period in periods
+        )
+        for key in load_series
+    }
+    series_stats: Dict[str, Dict[str, float] | None] = {
+        "wind": _series_stats(period.wind for period in periods),
+        "illumination": _series_stats(period.illumination for period in periods),
+        "market_price": _series_stats(period.market_price for period in periods),
+    }
+    for key in load_series:
+        series_stats[key] = _series_stats((period.consumption_json or {}).get(key) for period in periods)
+    warnings = list((forecast.metadata_json or {}).get("warnings_detail") or [])
     return {
         "forecast_id": forecast.id,
+        "source_kind": "selected_forecast",
         "name": forecast.name,
         "source_file": forecast.source_file,
         "count": len(periods),
@@ -388,7 +475,14 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
         "avg_illumination": avg(period.illumination for period in periods),
         "avg_market_price": avg(period.market_price for period in periods),
         "load_series": load_series,
-        "warnings": list((forecast.metadata_json or {}).get("warnings_detail") or []),
+        "consumer_averages": consumer_averages,
+        "series_stats": series_stats,
+        "quality": _quality_summary(
+            headers=[*load_series, "wind", "illumination", "market_price"],
+            warnings=warnings,
+            series_stats=series_stats,
+        ),
+        "warnings": warnings,
         "text": (
             f"Периоды {min(period.tick for period in periods)}-{max(period.tick for period in periods)}, "
             f"рядов потребления: {len(load_series)}."

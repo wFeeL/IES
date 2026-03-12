@@ -14,15 +14,17 @@ flask --app ies_bot_skeleton.web.app:create_app run
 
 ## Структура
 
-- `ies_bot_skeleton/web/` — Flask app, ORM, routes, forms, templates, static
-- `ies_bot_skeleton/application/` — use-cases для lot CRUD, анализа, рекомендаций и импорта
-- `ies_bot_skeleton/domain/lot_analysis/` — доменная логика скоринга, прогноза, сети и auction EV
-- `ies_bot_skeleton/resources/` — встроенные bundled forecasts и internal import fixtures
+- `ies_bot_skeleton/web/` - Flask app, ORM, routes, forms, templates, static
+- `ies_bot_skeleton/application/` - use-cases для сессий, лотов, портфеля, анализа, рекомендаций и импорта
+- `ies_bot_skeleton/domain/lot_analysis/` - доменная логика скоринга, прогноза, сети и auction EV
+- `ies_bot_skeleton/resources/` - встроенный базовый прогноз и internal import fixtures
 
 ## Ключевые принципы
 
-- Никаких публичных CLI-режимов `online/offline/lottool/fill-lots`
+- Никаких публичных CLI-режимов `online`, `offline`, `lottool`, `fill-lots`
 - Никакой регистрации роутов через import side effects
 - SSR и JSON API используют одну и ту же бизнес-логику
-- `forecast` без выбранного пользовательского прогноза использует bundled forecast
-- `no_forecast` использует ручной коридор неопределённости
+- Анализ всегда выполняется по прогнозу
+- Если пользовательский прогноз не выбран, используется встроенный базовый прогноз
+- Портфель купленных лотов участвует в последующей аналитике
+- Отдельного compare-flow в публичном продукте нет

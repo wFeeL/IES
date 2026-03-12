@@ -7,9 +7,7 @@
     <div>
       <p class="section-kicker">Редактор лота</p>
       <h1 class="h1">{{ 'Редактировать лот' if editor_mode == 'edit' else 'Добавить лот в сессию' }}</h1>
-      {% if lot %}
-      <p class="muted">Лот #{{ lot.id }}</p>
-      {% endif %}
+      {% if lot %}<p class="muted">Лот #{{ lot.id }}</p>{% endif %}
     </div>
   </div>
   <form method="post" class="stack gap-3 mt-3" id="lotEditorForm">
@@ -19,9 +17,8 @@
     {{ form.items_json(id='items_json') }}
 
     <label class="label">{{ form.name.label }} {{ form.name(class_='input') }}</label>
-    <div class="grid cols-3 gap-3">
+    <div class="grid cols-2 gap-3">
       <label class="label">{{ form.scope.label }} {{ form.scope(class_='input') }}</label>
-      <label class="label">{{ form.status.label }} {{ form.status(class_='input') }}</label>
       <label class="label">{{ form.available_round.label }} {{ form.available_round(class_='input') }}</label>
     </div>
     <div class="grid cols-2 gap-3">
@@ -41,12 +38,7 @@
       <div class="table-wrap mt-3">
         <table class="table" id="lotEditorTable">
           <thead>
-            <tr>
-              <th>Тип объекта</th>
-              <th>Количество</th>
-              <th>Категория</th>
-              <th></th>
-            </tr>
+            <tr><th>Тип объекта</th><th>Количество</th><th>Категория</th><th></th></tr>
           </thead>
           <tbody id="lotEditorRows"></tbody>
         </table>
@@ -56,9 +48,7 @@
 
     <div class="actions mt-3">
       <button class="btn btn-primary" type="submit">{{ 'Сохранить изменения' if editor_mode == 'edit' else 'Сохранить лот' }}</button>
-      {% if cancel_url %}
-      <a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>
-      {% endif %}
+      {% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>{% endif %}
     </div>
   </form>
 </section>

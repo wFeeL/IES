@@ -100,7 +100,7 @@ def test_admin_end_to_end_flow(client, app):
         },
     )
     assert lot_b_resp.status_code == 200
-    lot_b_id = int(lot_b_resp.get_json()["item"]["id"])
+    assert int(lot_b_resp.get_json()["item"]["id"]) > 0
 
     csv_payload = io.BytesIO(
         b"tick,wind,illumination,houseA,factory,market_price\n0,3,0.7,10,12,11\n1,4,0.8,11,13,10\n"
@@ -117,44 +117,35 @@ def test_admin_end_to_end_flow(client, app):
     assert upload_resp.status_code == 200
     forecast_json = upload_resp.get_json()
     assert forecast_json["ok"] is True
-    forecast_id = int(forecast_json["item"]["id"])
+    assert int(forecast_json["item"]["id"]) > 0
 
     eval_resp = client.post(
         f"/api/lots/{lot_a_id}/evaluate",
-        json={"mode": "forecast", "forecast_id": forecast_id},
+        json={},
     )
     assert eval_resp.status_code == 200
     eval_json = eval_resp.get_json()
     assert eval_json["ok"] is True
     assert "summary_score" in eval_json["item"]
     assert "recommended_bid_hard" in eval_json["item"]
-    assert eval_json["item"]["analysis_context"]["mode"] == "forecast"
-    assert eval_json["item"]["analysis_context"]["source"] == "selected_forecast"
+    assert eval_json["item"]["forecast_context"]["source"] == "selected_forecast"
 
-    compare_resp = client.post(
-        "/api/lots/compare",
-        json={
-            "session_id": session_id,
-            "lot_ids": [lot_a_id, lot_b_id],
-            "mode": "forecast",
-            "forecast_id": forecast_id,
-        },
-    )
-    assert compare_resp.status_code == 200
-    compare_json = compare_resp.get_json()
-    assert compare_json["ok"] is True
-    assert len(compare_json["items"]) == 2
-    assert compare_json["items"][0]["analysis_context"]["mode"] == "forecast"
+    analytics_resp = client.get(f"/api/sessions/{session_id}/lots/analytics?status=available&sort=utility_desc")
+    assert analytics_resp.status_code == 200
+    analytics_json = analytics_resp.get_json()
+    assert analytics_json["ok"] is True
+    assert len(analytics_json["items"]) == 2
+    assert analytics_json["items"][0]["forecast_context"]["source"] == "selected_forecast"
 
     rec_resp = client.post(
         "/api/recommend/best-lot",
-        json={"session_id": session_id, "mode": "forecast", "forecast_id": forecast_id},
+        json={"session_id": session_id},
     )
     assert rec_resp.status_code == 200
     rec_json = rec_resp.get_json()
     assert rec_json["ok"] is True
     assert rec_json["item"]["best"] is not None
-    assert rec_json["item"]["best"]["analysis_context"]["source"] == "selected_forecast"
+    assert rec_json["item"]["best"]["forecast_context"]["source"] == "selected_forecast"
 
     export_json_resp = client.get(f"/api/sessions/{session_id}/export.json")
     assert export_json_resp.status_code == 200

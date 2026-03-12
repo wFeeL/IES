@@ -12,7 +12,6 @@ from ...application.context import (
 )
 from ..services.navigation import build_breadcrumbs, safe_back_url
 from ..services.stale import stale_summary_for_session
-from ..services.ui_text import analysis_mode_label
 
 
 def parse_json(raw: str, *, field_name: str, default: Any) -> Any:
@@ -57,9 +56,8 @@ def session_analysis_view(session: GameSession) -> Dict[str, Any]:
     analysis_ctx = resolve_session_analysis_context(session)
     return {
         "analysis_settings": settings,
-        "analysis_mode_label": analysis_mode_label(settings["analysis_mode"]),
         "forecast_summary": analysis_ctx["forecast_summary"],
-        "corridor_summary": settings["corridor_summary"],
+        "forecast_context": analysis_ctx["forecast_context"],
         "analysis_source": analysis_ctx["source"],
         "analysis_source_label": analysis_ctx["source_label"],
     }

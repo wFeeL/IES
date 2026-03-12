@@ -17,8 +17,6 @@ def test_dashboard_uses_session_terms_and_strategy_help(client):
     assert "Создать сессию" in html
     assert "Пояснение к стратегии" in html
     assert "Открыть сессию" in html
-    assert "Открыть рабочее место" not in html
-    assert "Подготовить рабочее место" not in html
     assert "Экологическая" in html
     assert f"/sessions/{session_id}" in html
 
@@ -51,8 +49,8 @@ def test_catalog_renders_glossary_for_russian_users(client):
     assert "Англо-русский словарь терминов" in html
     assert "generation_mw" in html
     assert "объём генерации" in html
-    assert "consumer" in html
-    assert "потребители" in html
+    assert "bundled_forecast" in html
+    assert "встроенный базовый прогноз" in html
 
 
 def test_admin_edit_forms_hide_raw_json_and_show_typed_sections(client):
@@ -93,7 +91,7 @@ def test_system_and_lot_edit_pages_hide_unwanted_analysis_noise(client):
     assert "Состав JSON" not in lot_edit_html
 
 
-def test_workbench_exposes_history_and_export_actions(client):
+def test_workbench_focuses_on_forecast_portfolio_and_export_actions(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Workbench actions")
 
@@ -101,9 +99,12 @@ def test_workbench_exposes_history_and_export_actions(client):
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
 
-    assert f"/evaluation/{session_id}" in html
+    assert "Бюджет и портфель" in html
+    assert "Активный прогноз" in html
+    assert "Пересчитать все лоты" in html
     assert f"/api/sessions/{session_id}/export.json" in html
     assert f"/api/sessions/{session_id}/evaluations.csv" in html
+    assert f"/evaluation/{session_id}" not in html
 
 
 def test_dashboard_imports_session_via_ssr_form(client):
@@ -159,3 +160,4 @@ def test_quick_auction_uses_user_facing_actions_without_debug_block(client):
     assert "Технический ответ" not in html
     assert "Текущая ставка по лоту" in html
     assert f"/lots/item/{lot_a}" in html
+    assert "Открыть сравнение" not in html

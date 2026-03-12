@@ -19,11 +19,6 @@ STRATEGY_LABELS: Dict[str, str] = {
     "aggressive": "Агрессивная аукционная",
 }
 
-ANALYSIS_MODE_LABELS: Dict[str, str] = {
-    "forecast": "С прогнозом",
-    "no_forecast": "Без прогноза",
-}
-
 CATEGORY_LABELS: Dict[str, str] = {
     "consumer": "Потребители",
     "generator": "Генераторы",
@@ -49,14 +44,6 @@ def strategy_label(code: str | None) -> str:
     if not code:
         return "Не выбрана"
     return STRATEGY_LABELS.get(code, code)
-
-
-def analysis_mode_label(code: str | None) -> str:
-    if not code:
-        return "Не выбран"
-    return ANALYSIS_MODE_LABELS.get(code, code)
-
-
 def category_label(code: str | None) -> str:
     if not code:
         return "Без категории"

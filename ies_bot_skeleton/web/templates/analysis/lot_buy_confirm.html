@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Покупка лота {{ lot.id }} | IES{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+{% include "components/analysis_context.html" %}
+
+<section class="page-grid mt-4">
+  <article class="card">
+    <p class="section-kicker">Покупка лота</p>
+    <h1 class="h1">Подтверждение сделки</h1>
+    <div class="table-wrap mt-3">
+      <table class="table">
+        <tbody>
+          <tr><th>Лот</th><td>{{ lot.name }}</td></tr>
+          <tr><th>Текущая ставка</th><td>{{ '%.1f'|format(lot.current_bid or 0.0) }}</td></tr>
+          <tr><th>Остаток бюджета до покупки</th><td>{{ '%.1f'|format(portfolio.remaining_budget) }}</td></tr>
+          <tr><th>Рабочий максимум</th><td>{{ '%.1f'|format(evaluation.decision_summary.hard_bid) }}</td></tr>
+          <tr><th>Ожидаемая чистая прибыль</th><td>{{ '%.2f'|format(evaluation.financial_breakdown.result.net_profit) }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <form method="post" class="stack gap-3 mt-4">
+      {{ form.hidden_tag() }}
+      <label class="label">{{ form.purchase_price.label }} {{ form.purchase_price(class_='input') }}</label>
+      {% if (form.purchase_price.data or 0) > portfolio.remaining_budget %}
+      <div class="flash flash-warning">Цена покупки превышает остаток бюджета.</div>
+      {% endif %}
+      <div class="actions">
+        <button class="btn btn-primary" type="submit">Купить лот</button>
+        {% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>{% endif %}
+      </div>
+    </form>
+  </article>
+
+  <article class="card">
+    <p class="section-kicker">Ожидаемый эффект</p>
+    <h2 class="h2">Что изменится после покупки</h2>
+    <div class="metric-strip mt-3">
+      <div><span class="metric-label">Итоговая полезность</span><strong>{{ '%.2f'|format(evaluation.summary_score) }}</strong></div>
+      <div><span class="metric-label">Чистая прибыль</span><strong>{{ '%.2f'|format(evaluation.financial_breakdown.result.net_profit) }}</strong></div>
+      <div><span class="metric-label">Риск</span><strong>{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.risk_total) }}</strong></div>
+    </div>
+    <ul class="stack gap-2 mt-3">
+      {% for reason in evaluation.reasons %}
+      <li>{{ reason }}</li>
+      {% else %}
+      <li class="muted">Подробные причины отсутствуют.</li>
+      {% endfor %}
+    </ul>
+    <div class="risk-block mt-3">{{ evaluation.risk_commentary }}</div>
+  </article>
+</section>
+{% endblock %}

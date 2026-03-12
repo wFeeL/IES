@@ -177,7 +177,6 @@ class GameSession(db.Model):
     title = db.Column(db.String(255), nullable=False)
     ruleset_id = db.Column(db.Integer, db.ForeignKey("rulesets.id"), nullable=False)
     selected_strategy = db.Column(db.String(64), nullable=False, default="balanced")
-    analysis_mode = db.Column(db.String(32), nullable=False, default="no_forecast")
     selected_forecast_id = db.Column(
         db.Integer,
         db.ForeignKey(
@@ -187,7 +186,6 @@ class GameSession(db.Model):
         ),
         nullable=True,
     )
-    corridor_settings_json = db.Column(db.JSON, nullable=False, default=dict)
     budget_total = db.Column(db.Float, nullable=False, default=200.0)
     allpay_spent = db.Column(db.Float, nullable=False, default=0.0)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
@@ -224,9 +222,7 @@ class GameSession(db.Model):
             "title": self.title,
             "ruleset_id": self.ruleset_id,
             "selected_strategy": self.selected_strategy,
-            "analysis_mode": self.analysis_mode,
             "selected_forecast_id": self.selected_forecast_id,
-            "corridor_settings": dict(self.corridor_settings_json or {}),
             "budget_total": self.budget_total,
             "allpay_spent": self.allpay_spent,
             "created_at": self.created_at.isoformat() if self.created_at else None,
@@ -333,6 +329,8 @@ class Lot(db.Model):
     status = db.Column(db.String(32), nullable=False, default="available")
     base_bid = db.Column(db.Float, nullable=False, default=0.0)
     current_bid = db.Column(db.Float, nullable=False, default=0.0)
+    purchase_price = db.Column(db.Float, nullable=True)
+    purchased_at = db.Column(db.DateTime(timezone=True), nullable=True)
     note = db.Column(db.Text, nullable=False, default="")
     available_round = db.Column(db.Integer, nullable=False, default=1)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
@@ -361,6 +359,8 @@ class Lot(db.Model):
             "status": self.status,
             "base_bid": self.base_bid,
             "current_bid": self.current_bid,
+            "purchase_price": self.purchase_price,
+            "purchased_at": self.purchased_at.isoformat() if self.purchased_at else None,
             "note": self.note,
             "available_round": self.available_round,
             "items": [item.to_dict() for item in self.items],

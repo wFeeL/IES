@@ -21,8 +21,7 @@ def app_ctx():
         db.session.add(session)
         db.session.flush()
 
-        # Add start pack so network is minimally valid.
-        from ies_bot_skeleton.web.models import ObjectInstance, ObjectType
+        from ies_bot_skeleton.web.models import LotItem, ObjectInstance, ObjectType
 
         tmap = {x.code: x for x in db.session.query(ObjectType).all()}
         main = ObjectInstance(session_id=session.id, object_type_id=tmap["main_substation"].id)
@@ -46,9 +45,6 @@ def app_ctx():
         lot = Lot(session_id=session.id, name="Scoring Lot", scope="normal", status="available")
         db.session.add(lot)
         db.session.flush()
-
-        from ies_bot_skeleton.web.models import LotItem
-
         db.session.add(LotItem(lot_id=lot.id, object_type_id=tmap["wind"].id, quantity=1))
         db.session.commit()
 
@@ -76,11 +72,11 @@ def test_recommended_bid_is_within_budget(app_ctx):
     lot = app_ctx["lot"]
     forecast = app_ctx["forecast"]
 
-    out = evaluate_lot(session=session, lot=lot, mode="forecast", forecast=forecast, persist=False)
+    out = evaluate_lot(session=session, lot=lot, forecast=forecast, persist=False)
 
     hard = float(out["recommended_bid_hard"])
     soft = float(out["recommended_bid_soft"])
-    remaining = float(session.budget_total - session.allpay_spent)
+    remaining = float(out["portfolio_context"]["remaining_budget"])
 
     assert hard >= 0.0
     assert soft >= 0.0
@@ -88,3 +84,4 @@ def test_recommended_bid_is_within_budget(app_ctx):
     assert soft <= hard + 1e-9
     assert 0.0 <= float(out["confidence"]) <= 1.0
     assert "delta_score" in out["metrics"]
+    assert out["forecast_context"]["source"] == "selected_forecast"

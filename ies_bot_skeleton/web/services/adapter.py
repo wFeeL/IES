@@ -218,20 +218,23 @@ def _build_network_plan(objects: Iterable[ObjectInstance], cfg: Dict) -> Network
 def session_to_state(
     session: GameSession,
     cfg: Dict,
-    *,
-    corridor_override: Optional[Dict[str, float]] = None,
 ) -> Tuple[State, List[ObjectItem]]:
     owned_items = collect_owned_items(session)
     time_cfg = cfg.get("time", {}) or {}
     eval_cfg = cfg.get("evaluation", {}) or {}
+    scenarios_cfg = cfg.get("scenarios", {}) or {}
     corridor = dict(
-        corridor_override
-        or (cfg.get("scenarios", {}) or {}).get("corridor")
+        scenarios_cfg.get("corridor")
         or {
             "wind_mul": 0.10,
             "solar_mul": 0.10,
             "load_mul": 0.10,
         }
+    )
+    spent_total = sum(
+        float(lot.purchase_price or 0.0)
+        for lot in session.lots
+        if str(lot.status or "") == "bought"
     )
 
     state = State(
@@ -241,7 +244,7 @@ def session_to_state(
             horizon_ticks=int(time_cfg.get("horizon_ticks", 48) or 48),
         ),
         budget=Budget(
-            cash=float(session.budget_total or 0.0), allpay_spent=float(session.allpay_spent or 0.0)
+            cash=float(session.budget_total or 0.0), allpay_spent=float(spent_total)
         ),
         owned_lots=[],
         owned_objects_override=list(owned_items),

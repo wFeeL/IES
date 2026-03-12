@@ -10,7 +10,7 @@ def _type_map(client):
 
 def _build_two_lots(client, session_id: int):
     tmap = _type_map(client)
-    lot_a = client.post(
+    assert client.post(
         "/api/lots",
         json={
             "session_id": session_id,
@@ -23,10 +23,8 @@ def _build_two_lots(client, session_id: int):
                 {"object_type_id": tmap["storage"], "quantity": 1},
             ],
         },
-    )
-    assert lot_a.status_code == 200
-
-    lot_b = client.post(
+    ).status_code == 200
+    assert client.post(
         "/api/lots",
         json={
             "session_id": session_id,
@@ -36,33 +34,31 @@ def _build_two_lots(client, session_id: int):
             "current_bid": 95,
             "items": [{"object_type_id": tmap["wind"], "quantity": 1}],
         },
-    )
-    assert lot_b.status_code == 200
+    ).status_code == 200
 
 
 
-def test_compare_recommend_and_quick_pages_render_extended_blocks(client):
+def test_recommend_and_quick_pages_render_forecast_only_blocks(client):
     login(client, "admin", "admin123")
-    session_id = create_session(client, title="Compare quick")
+    session_id = create_session(client, title="Quick forecast")
     assert client.post(f"/api/sessions/{session_id}/add-start-pack", json={}).status_code == 200
     _build_two_lots(client, session_id)
 
     compare_resp = client.get(f"/compare/{session_id}")
-    assert compare_resp.status_code == 200
-    compare_html = compare_resp.get_data(as_text=True)
-    assert "Соответствие стратегии" in compare_html
-    assert "Пояснение" in compare_html
+    assert compare_resp.status_code == 404
 
     recommend_resp = client.get(f"/recommend/{session_id}")
     assert recommend_resp.status_code == 200
     recommend_html = recommend_resp.get_data(as_text=True)
-    assert "Рекомендация по лучшему лоту" in recommend_html
-    assert "risk" in recommend_html.lower() or "Риск" in recommend_html
+    assert "Лучший доступный лот" in recommend_html
+    assert "Учитываются активный прогноз" in recommend_html
+    assert "Купить" in recommend_html
 
     quick_resp = client.get(f"/quick-auction/{session_id}")
     assert quick_resp.status_code == 200
     quick_html = quick_resp.get_data(as_text=True)
-    assert "Рекоменд. ставка" in quick_html
-    assert "Соотв. стратегии" in quick_html
-    assert "qaApplyFilters" in quick_html
-    assert "quickEvalRow" in quick_html
+    assert "Быстрый аукцион" in quick_html
+    assert "Рабочий максимум" in quick_html
+    assert "Открыть сравнение" not in quick_html
+    assert "Технический ответ" not in quick_html
+    assert "Купить" in quick_html

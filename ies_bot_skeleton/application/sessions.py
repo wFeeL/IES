@@ -4,9 +4,6 @@ from typing import Any, Dict
 
 from ..web.extensions import db
 from ..web.models import GameSession, Ruleset
-from .context import default_corridor_settings_for_ruleset
-
-
 def load_session_or_none(session_id: int) -> GameSession | None:
     return db.session.get(GameSession, session_id)
 
@@ -35,10 +32,7 @@ def create_session_record(payload: Dict[str, Any]) -> GameSession:
         title=title,
         ruleset_id=int(ruleset_id),
         selected_strategy=str(payload.get("selected_strategy", "balanced")),
-        analysis_mode=str(payload.get("analysis_mode", "no_forecast") or "no_forecast"),
-        corridor_settings_json=dict(
-            payload.get("corridor_settings") or default_corridor_settings_for_ruleset(cfg)
-        ),
+        selected_forecast_id=payload.get("selected_forecast_id"),
         budget_total=budget_value,
         allpay_spent=float(payload.get("allpay_spent", 0.0) or 0.0),
     )

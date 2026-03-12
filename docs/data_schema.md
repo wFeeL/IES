@@ -6,18 +6,12 @@
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 4,
   "session": {
     "title": "Demo",
     "selected_strategy": "balanced",
-    "analysis_mode": "forecast",
     "selected_forecast_id": 3,
-    "corridor_settings": {
-      "consumer_load_pct": 10.0,
-      "producer_generation_pct": 10.0,
-      "solar_output_pct": null,
-      "wind_output_pct": null
-    }
+    "budget_total": 200.0
   },
   "objects": [],
   "lots": [],
@@ -27,10 +21,10 @@
 ```
 
 Ключевые поля:
-- `schema_version` — версия схемы импорта/экспорта;
-- `session.analysis_mode` — `forecast` или `no_forecast`;
-- `session.selected_forecast_id` — активный прогноз сессии, если выбран;
-- `session.corridor_settings` — ручной коридор для режима без прогноза.
+- `schema_version` - версия схемы импорта и экспорта;
+- `session.selected_forecast_id` - активный пользовательский прогноз сессии, если выбран;
+- `session.budget_total` - общий бюджет сессии;
+- старые поля `analysis_mode` и `corridor_settings` при импорте игнорируются для backward compatibility.
 
 ## Lot payload
 
@@ -45,6 +39,8 @@
   "status": "available",
   "base_bid": 120.0,
   "current_bid": 130.0,
+  "purchase_price": null,
+  "purchased_at": null,
   "note": "",
   "available_round": 1,
   "items": [
@@ -63,3 +59,54 @@
 - `quantity >= 1`;
 - `overrides` должен быть объектом;
 - пустой лот не допускается.
+
+## Evaluation payload
+
+Оценка лота возвращает расширенную прогнозную аналитику:
+
+```json
+{
+  "summary_score": 123.4,
+  "forecast_context": {
+    "source": "selected_forecast",
+    "source_label": "Пользовательский прогноз",
+    "forecast_id": 3,
+    "forecast_name": "Forecast 1",
+    "tick_from": 1,
+    "tick_to": 48,
+    "periods_count": 48
+  },
+  "portfolio_context": {
+    "bought_lots_count": 2,
+    "spent_total": 130.0,
+    "remaining_budget": 70.0,
+    "owned_objects_count": 9
+  },
+  "scenario_breakdown": {
+    "worst": {},
+    "base": {},
+    "best": {}
+  },
+  "financial_breakdown": {
+    "income": {},
+    "expenses": {},
+    "losses_and_risks": {},
+    "result": {}
+  },
+  "decision_summary": {
+    "soft_bid": 40.0,
+    "hard_bid": 52.0,
+    "stop_bid": 58.0
+  },
+  "reasons": [],
+  "risk_commentary": "",
+  "strategy_fit_text": "",
+  "is_stale": false,
+  "stale_reason": ""
+}
+```
+
+Ключевые правила:
+- анализ всегда выполняется по активному прогнозу;
+- если пользовательский прогноз не выбран, используется встроенный базовый прогноз;
+- отдельного режима без прогноза и отдельного compare-flow в схеме продукта нет.

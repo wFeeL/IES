@@ -5,27 +5,18 @@ from typing import Dict, List
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
-from ...application.context import (
-    default_corridor_settings_for_ruleset,
-    session_analysis_settings_for_session,
-    update_analysis_settings_for_session,
-)
+from ...application.analysis import rank_session_lots
+from ...application.context import resolve_session_analysis_context, update_analysis_settings_for_session
+from ...application.portfolio import portfolio_rows, portfolio_summary
 from ...application.sessions import create_session_record, delete_session_record
 from ..extensions import db
-from ..forms import (
-    AnalysisModeForm,
-    ConfirmDeleteForm,
-    CorridorSettingsForm,
-    ForecastSelectionForm,
-    LoginForm,
-    SessionForm,
-    SessionImportForm,
-)
+from ..forms import ConfirmDeleteForm, ForecastSelectionForm, LoginForm, SessionForm, SessionImportForm
 from ..models import GameSession, ObjectType, Ruleset, User
 from ..services.navigation import is_safe_internal_url, safe_next_url
 from ..services.session_io import import_session_payload
+from ..services.stale import mark_stale_for_session
 from ..services.strategy_catalog import strategy_list, strategy_meta
-from ..services.ui_text import SESSION_TERMS, analysis_mode_label, strategy_label
+from ..services.ui_text import SESSION_TERMS, strategy_label
 from .page_support import nav, parse_json, session_analysis_view, session_stale_ctx
 from .shared import pages_bp
 
@@ -44,18 +35,20 @@ def _missing_session_redirect():
 def _dashboard_cards(sessions: List[GameSession]) -> List[Dict[str, object]]:
     out: List[Dict[str, object]] = []
     for session in sessions:
+        analysis_ctx = resolve_session_analysis_context(session)
+        portfolio = portfolio_summary(session)
         out.append(
             {
                 "id": session.id,
                 "title": session.title,
-                "strategy": session.selected_strategy,
                 "strategy_label": strategy_label(session.selected_strategy),
                 "budget_total": float(session.budget_total or 0.0),
+                "remaining_budget": float(portfolio["remaining_budget"]),
                 "lots_count": len(session.lots),
                 "objects_count": len(session.objects),
-                "has_forecast": bool(session.selected_forecast_id or session.forecasts),
-                "analysis_mode": session.analysis_mode,
-                "analysis_mode_label": analysis_mode_label(session.analysis_mode),
+                "bought_lots_count": int(portfolio["bought_lots_count"]),
+                "forecast_name": analysis_ctx["forecast_context"]["forecast_name"],
+                "forecast_source": analysis_ctx["forecast_context"]["source_label"],
                 "updated_at_label": _fmt_datetime(session.updated_at),
                 "url": url_for("pages.session_page", session_id=session.id),
                 "delete_url": url_for("pages.session_delete_confirm_page", session_id=session.id),
@@ -64,32 +57,34 @@ def _dashboard_cards(sessions: List[GameSession]) -> List[Dict[str, object]]:
     return out
 
 
-def _workbench_forms(session: GameSession) -> Dict[str, object]:
-    settings = session_analysis_settings_for_session(session)
-
-    mode_form = AnalysisModeForm()
-    mode_form.analysis_mode.data = settings["analysis_mode"]
-
-    corridor_form = CorridorSettingsForm()
-    corridor_form.consumer_load_pct.data = settings["corridor_settings"]["consumer_load_pct"]
-    corridor_form.producer_generation_pct.data = settings["corridor_settings"][
-        "producer_generation_pct"
-    ]
-    corridor_form.solar_output_pct.data = settings["corridor_settings"]["solar_output_pct"]
-    corridor_form.wind_output_pct.data = settings["corridor_settings"]["wind_output_pct"]
-
-    forecast_form = ForecastSelectionForm()
-    forecast_form.selected_forecast_id.choices = [(0, "Не выбран")] + [
-        (forecast.id, f"{forecast.name} ({forecast.source_file})")
-        for forecast in session.forecasts
-    ]
-    forecast_form.selected_forecast_id.data = int(settings["selected_forecast_id"] or 0)
-
-    return {
-        "mode_form": mode_form,
-        "corridor_form": corridor_form,
-        "forecast_form": forecast_form,
-    }
+def _workbench_lot_summary(session: GameSession, ranking: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    rows: List[Dict[str, object]] = []
+    lots_by_id = {int(lot.id): lot for lot in session.lots}
+    for item in ranking:
+        lot = lots_by_id.get(int(item["lot_id"]))
+        if lot is None or lot.status != "available":
+            continue
+        names = []
+        for lot_item in lot.items[:4]:
+            code = lot_item.object_type.code if lot_item.object_type else lot_item.object_type_id
+            names.append(f"{code} ×{max(1, int(lot_item.quantity or 1))}")
+        financial = dict(item.get("financial_breakdown") or {})
+        result = dict(financial.get("result") or {})
+        losses = dict(financial.get("losses_and_risks") or {})
+        rows.append(
+            {
+                "lot_id": int(lot.id),
+                "name": lot.name,
+                "structure": ", ".join(names) if names else "Пустой лот",
+                "utility": float(item.get("summary_score", 0.0) or 0.0),
+                "net_profit": float(result.get("net_profit", 0.0) or 0.0),
+                "risk": float(losses.get("risk_total", 0.0) or 0.0),
+                "max_bid": float((item.get("decision_summary") or {}).get("hard_bid", 0.0) or 0.0),
+                "status": lot.status,
+                "is_stale": bool(item.get("is_stale")),
+            }
+        )
+    return rows
 
 
 @pages_bp.get("/")
@@ -141,26 +136,19 @@ def dashboard():
         if not form.ruleset_id.data:
             form.ruleset_id.data = rulesets[0].id
         cfg = dict(rulesets[0].config_json or {})
-        auction_cfg = dict(cfg.get("auction", {}) or {})
-        default_budget = float(auction_cfg.get("starting_budget", 200.0) or 200.0)
+        default_budget = float((cfg.get("auction", {}) or {}).get("starting_budget", 200.0) or 200.0)
     else:
         form.ruleset_id.choices = []
     if request.method == "GET" and not form.budget_total.data:
         form.budget_total.data = default_budget
 
     if form.validate_on_submit():
-        selected_ruleset = db.session.get(Ruleset, int(form.ruleset_id.data))
-        selected_cfg = dict((selected_ruleset.config_json or {}) if selected_ruleset else {})
-        selected_auction = dict(selected_cfg.get("auction", {}) or {})
-        selected_budget = float(selected_auction.get("starting_budget", 200.0) or 200.0)
         row = create_session_record(
             {
                 "title": form.title.data,
                 "ruleset_id": form.ruleset_id.data,
                 "selected_strategy": form.selected_strategy.data,
-                "analysis_mode": "no_forecast",
-                "corridor_settings": default_corridor_settings_for_ruleset(selected_cfg),
-                "budget_total": float(form.budget_total.data or selected_budget),
+                "budget_total": float(form.budget_total.data or default_budget),
                 "allpay_spent": 0.0,
             }
         )
@@ -185,6 +173,27 @@ def session_page(session_id: int):
     session = db.session.get(GameSession, session_id)
     if session is None:
         return _missing_session_redirect()
+
+    analysis_ctx = resolve_session_analysis_context(session)
+    forecast_form = ForecastSelectionForm()
+    forecast_form.selected_forecast_id.choices = [(0, "Встроенный базовый прогноз")] + [
+        (forecast.id, f"{forecast.name} ({forecast.source_file})")
+        for forecast in session.forecasts
+    ]
+    forecast_form.selected_forecast_id.data = int(session.selected_forecast_id or 0)
+
+    ranking = rank_session_lots(session=session, lots=session.lots, persist=False) if session.lots else []
+    analytics_by_lot = {int(row["lot_id"]): row for row in ranking}
+    portfolio = portfolio_summary(session, analytics_by_lot=analytics_by_lot)
+    purchased_rows = portfolio_rows(session, analytics_by_lot=analytics_by_lot)
+    available_rows = _workbench_lot_summary(session, ranking)
+    readiness = {
+        "objects_count": len(session.objects),
+        "lots_count": len(session.lots),
+        "forecasts_count": len(session.forecasts),
+        "active_forecast_name": analysis_ctx["forecast_context"]["forecast_name"],
+        "uses_bundled_forecast": analysis_ctx["forecast_context"]["source"] == "bundled_forecast",
+    }
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -192,39 +201,19 @@ def session_page(session_id: int):
         ],
         fallback_endpoint="pages.dashboard",
     )
-    readiness = {
-        "objects_count": len(session.objects),
-        "lots_count": len(session.lots),
-        "forecasts_count": len(session.forecasts),
-        "selected_forecast_name": session.selected_forecast.name
-        if session.selected_forecast is not None
-        else None,
-    }
-    quick_links = [
-        {"label": "Лоты", "url": url_for("pages.lots_page", session_id=session.id)},
-        {
-            "label": "История оценок",
-            "url": url_for("pages.evaluation_page", session_id=session.id),
-        },
-        {
-            "label": "Быстрый аукцион",
-            "url": url_for("pages.quick_auction_page", session_id=session.id),
-        },
-        {"label": "Сравнение", "url": url_for("pages.compare_page", session_id=session.id)},
-        {
-            "label": "Рекомендации",
-            "url": url_for("pages.recommend_page", session_id=session.id),
-        },
-    ]
     return render_template(
         "core/workbench.html",
         session=session,
         readiness=readiness,
-        quick_links=quick_links,
+        forecast_form=forecast_form,
+        forecast_card=analysis_ctx["forecast_summary"],
+        portfolio=portfolio,
+        available_rows=available_rows[:8],
+        purchased_rows=purchased_rows,
         delete_url=url_for("pages.session_delete_confirm_page", session_id=session.id),
         export_json_url=url_for("api.export_session", session_id=session.id),
         export_csv_url=url_for("api.export_evaluations", session_id=session.id),
-        **_workbench_forms(session),
+        recalculate_url=url_for("api.recalculate_session_lots", session_id=session.id),
         **session_analysis_view(session),
         **ctx,
         **session_stale_ctx(session),
@@ -271,50 +260,6 @@ def session_delete_confirm_page(session_id: int):
     )
 
 
-@pages_bp.post("/sessions/<int:session_id>/analysis-mode")
-@login_required
-def session_analysis_mode_action(session_id: int):
-    session = db.session.get(GameSession, session_id)
-    if session is None:
-        return _missing_session_redirect()
-    form = AnalysisModeForm()
-    if form.validate_on_submit():
-        update_analysis_settings_for_session(session, {"analysis_mode": form.analysis_mode.data})
-        db.session.add(session)
-        db.session.commit()
-        flash("Режим анализа обновлен", "success")
-    else:
-        flash("Не удалось обновить режим анализа", "error")
-    return redirect(url_for("pages.session_page", session_id=session.id))
-
-
-@pages_bp.post("/sessions/<int:session_id>/corridor")
-@login_required
-def session_corridor_action(session_id: int):
-    session = db.session.get(GameSession, session_id)
-    if session is None:
-        return _missing_session_redirect()
-    form = CorridorSettingsForm()
-    if form.validate_on_submit():
-        update_analysis_settings_for_session(
-            session,
-            {
-                "corridor_settings": {
-                    "consumer_load_pct": form.consumer_load_pct.data,
-                    "producer_generation_pct": form.producer_generation_pct.data,
-                    "solar_output_pct": form.solar_output_pct.data,
-                    "wind_output_pct": form.wind_output_pct.data,
-                }
-            },
-        )
-        db.session.add(session)
-        db.session.commit()
-        flash("Коридор неопределенности сохранен", "success")
-    else:
-        flash("Не удалось сохранить коридор", "error")
-    return redirect(url_for("pages.session_page", session_id=session.id))
-
-
 @pages_bp.post("/sessions/<int:session_id>/forecast-selection")
 @login_required
 def session_forecast_selection_action(session_id: int):
@@ -322,18 +267,18 @@ def session_forecast_selection_action(session_id: int):
     if session is None:
         return _missing_session_redirect()
     form = ForecastSelectionForm()
-    form.selected_forecast_id.choices = [(0, "Не выбран")] + [
+    form.selected_forecast_id.choices = [(0, "Встроенный базовый прогноз")] + [
         (forecast.id, f"{forecast.name} ({forecast.source_file})")
         for forecast in session.forecasts
     ]
+    previous_forecast_id = int(session.selected_forecast_id or 0)
     if form.validate_on_submit():
-        update_analysis_settings_for_session(
-            session,
-            {"selected_forecast_id": form.selected_forecast_id.data or None},
-        )
+        update_analysis_settings_for_session(session, {"selected_forecast_id": form.selected_forecast_id.data or None})
         db.session.add(session)
         db.session.commit()
-        flash("Активный прогноз обновлен", "success")
+        if int(session.selected_forecast_id or 0) != previous_forecast_id:
+            mark_stale_for_session(session.id, reason="forecast_changed")
+        flash("Активный прогноз обновлён", "success")
     else:
         flash("Не удалось выбрать прогноз", "error")
     return redirect(url_for("pages.session_page", session_id=session.id))

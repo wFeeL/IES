@@ -30,7 +30,7 @@ def _create_lot(client, session_id: int) -> int:
     return int(created.get_json()["item"]["id"])
 
 
-def test_evaluation_uses_session_mode_and_bundled_forecast_fallback(client):
+def test_evaluation_uses_bundled_forecast_when_session_has_no_selected_forecast(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Bundled fallback")
     assert client.post(f"/api/sessions/{session_id}/add-start-pack", json={}).status_code == 200
@@ -38,7 +38,7 @@ def test_evaluation_uses_session_mode_and_bundled_forecast_fallback(client):
 
     settings_resp = client.put(
         f"/api/sessions/{session_id}/analysis-settings",
-        json={"analysis_mode": "forecast", "selected_forecast_id": None},
+        json={"selected_forecast_id": None},
     )
     assert settings_resp.status_code == 200
 
@@ -46,13 +46,13 @@ def test_evaluation_uses_session_mode_and_bundled_forecast_fallback(client):
     assert eval_resp.status_code == 200
     item = eval_resp.get_json()["item"]
 
+    assert item["forecast_context"]["source"] == "bundled_forecast"
+    assert item["forecast_context"]["forecast_id"] is None
     assert item["analysis_context"]["mode"] == "forecast"
-    assert item["analysis_context"]["source"] == "bundled_forecast"
-    assert item["analysis_context"]["forecast_id"] is None
     assert item["forecast_summary"]["name"] == "Встроенный базовый прогноз"
 
 
-def test_evaluation_uses_selected_forecast_from_session_when_mode_not_passed(client):
+def test_evaluation_uses_selected_forecast_from_session(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Selected forecast")
     assert client.post(f"/api/sessions/{session_id}/add-start-pack", json={}).status_code == 200
@@ -72,7 +72,7 @@ def test_evaluation_uses_selected_forecast_from_session_when_mode_not_passed(cli
 
     settings_resp = client.put(
         f"/api/sessions/{session_id}/analysis-settings",
-        json={"analysis_mode": "forecast", "selected_forecast_id": forecast_id},
+        json={"selected_forecast_id": forecast_id},
     )
     assert settings_resp.status_code == 200
 
@@ -80,10 +80,9 @@ def test_evaluation_uses_selected_forecast_from_session_when_mode_not_passed(cli
     assert eval_resp.status_code == 200
     item = eval_resp.get_json()["item"]
 
-    assert item["analysis_context"]["mode"] == "forecast"
-    assert item["analysis_context"]["source"] == "selected_forecast"
-    assert item["analysis_context"]["forecast_id"] == forecast_id
-    assert item["forecast_summary"]["forecast_id"] == forecast_id
+    assert item["forecast_context"]["source"] == "selected_forecast"
+    assert item["forecast_context"]["forecast_id"] == forecast_id
+    assert item["forecast_summary"]["source_kind"] == "selected_forecast"
 
 
 def test_api_errors_use_structured_schema(client):

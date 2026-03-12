@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable
 
-from sqlalchemy import func
-
 from ..extensions import db
 from ..models import EvaluationResult, GameSession, LotItem
 
@@ -71,18 +69,31 @@ def mark_stale_for_object_type(
     return mark_results_stale(rows, reason)
 
 
+def mark_stale_for_session(
+    session_id: int,
+    *,
+    reason: str,
+) -> int:
+    rows = db.session.query(EvaluationResult).filter_by(session_id=int(session_id)).all()
+    return mark_results_stale(rows, reason)
+
+
 def stale_summary_for_session(session_id: int) -> Dict[str, Any]:
-    total = (
-        db.session.query(func.count(EvaluationResult.id))
-        .filter_by(session_id=int(session_id), is_stale=True)
-        .scalar()
-        or 0
-    )
-    last = (
+    rows = (
         db.session.query(EvaluationResult)
-        .filter_by(session_id=int(session_id), is_stale=True)
-        .order_by(EvaluationResult.stale_marked_at.desc(), EvaluationResult.id.desc())
-        .first()
+        .filter_by(session_id=int(session_id))
+        .order_by(EvaluationResult.lot_id.asc(), EvaluationResult.created_at.desc(), EvaluationResult.id.desc())
+        .all()
+    )
+    latest_by_lot: dict[int, EvaluationResult] = {}
+    for row in rows:
+        latest_by_lot.setdefault(int(row.lot_id), row)
+    stale_rows = [row for row in latest_by_lot.values() if row.is_stale]
+    total = len(stale_rows)
+    last = max(
+        stale_rows,
+        key=lambda row: (row.stale_marked_at or _utcnow(), row.id),
+        default=None,
     )
     return {
         "session_id": int(session_id),

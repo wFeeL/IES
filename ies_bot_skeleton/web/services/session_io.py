@@ -25,7 +25,7 @@ def export_session_payload(session: GameSession) -> Dict[str, Any]:
     if session.ruleset and session.ruleset.active_start_pack_template is not None:
         start_pack_payload = session.ruleset.active_start_pack_template.to_dict(include_items=True)
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "session": session.to_dict(),
         "ruleset": ruleset_payload,
         "ruleset_start_pack_template": start_pack_payload,
@@ -142,9 +142,7 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
         title=title,
         ruleset_id=ruleset.id,
         selected_strategy=str(session_payload.get("selected_strategy", "balanced")),
-        analysis_mode=str(session_payload.get("analysis_mode", "no_forecast") or "no_forecast"),
         selected_forecast_id=None,
-        corridor_settings_json=dict(session_payload.get("corridor_settings") or {}),
         budget_total=float(session_payload.get("budget_total", 9999.0) or 9999.0),
         allpay_spent=float(session_payload.get("allpay_spent", 0.0) or 0.0),
     )
@@ -201,6 +199,12 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
             status=str(row.get("status", "available")),
             base_bid=float(row.get("base_bid", 0.0) or 0.0),
             current_bid=float(row.get("current_bid", 0.0) or 0.0),
+            purchase_price=(
+                float(row.get("purchase_price", 0.0) or 0.0)
+                if row.get("purchase_price") not in (None, "")
+                else None
+            ),
+            purchased_at=None,
             note=str(row.get("note", "")),
             available_round=int(row.get("available_round", 1) or 1),
         )

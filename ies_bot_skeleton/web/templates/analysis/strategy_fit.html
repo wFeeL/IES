@@ -2,9 +2,7 @@
 {% block title %}Стратегии лота {{ lot.id }} | IES{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
-{% if show_analysis_context is not defined or show_analysis_context %}
 {% include "components/analysis_context.html" %}
-{% endif %}
 
 <section class="card mt-4">
   <div class="section-head">
@@ -15,7 +13,7 @@
   </div>
   <div class="table-wrap mt-3">
     <table class="table">
-      <thead><tr><th>#</th><th>Стратегия</th><th>Оценка</th><th>Потолок ставки</th><th>Уверенность</th><th>Обоснование</th></tr></thead>
+      <thead><tr><th>#</th><th>Стратегия</th><th>Итоговая полезность</th><th>Рабочий максимум</th><th>Уверенность</th><th>Обоснование</th></tr></thead>
       <tbody>
         {% for row in fit.rows %}
         <tr>

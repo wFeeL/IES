@@ -19,13 +19,8 @@ from .admin import (
     update_ruleset_for_admin,
     update_start_pack_template_for_admin,
 )
-from .analysis import compare_session_lots, evaluate_session_lot
-from .context import (
-    default_corridor_settings_for_ruleset,
-    resolve_session_analysis_context,
-    session_analysis_settings_for_session,
-    update_analysis_settings_for_session,
-)
+from .analysis import evaluate_session_lot, rank_session_lots
+from .context import resolve_session_analysis_context, session_analysis_settings_for_session, update_analysis_settings_for_session
 from .forecasts import (
     bundled_forecast_summary,
     load_bundled_forecasts,
@@ -34,6 +29,7 @@ from .forecasts import (
 )
 from .legacy_import import run_legacy_import
 from .lots import delete_lot
+from .portfolio import buy_lot, portfolio_rows, portfolio_summary, reject_lot, remaining_budget, restore_lot, spent_total, undo_lot_purchase
 from .recommendations import recommend_for_session, strategy_fit_for_lot
 from .sessions import create_session_record, delete_session_record, load_session_or_none
 
@@ -41,8 +37,8 @@ __all__ = [
     "activate_ruleset_for_admin",
     "apply_start_pack_to_session",
     "bundled_forecast_summary",
+    "buy_lot",
     "build_default_ruleset_payload",
-    "compare_session_lots",
     "copy_ruleset_for_admin",
     "create_object_type_for_admin",
     "create_ruleset_for_admin",
@@ -51,7 +47,6 @@ __all__ = [
     "deactivate_object_type_for_admin",
     "deactivate_ruleset_for_admin",
     "deactivate_start_pack_template_for_admin",
-    "default_corridor_settings_for_ruleset",
     "delete_lot",
     "delete_session_record",
     "evaluate_session_lot",
@@ -64,12 +59,20 @@ __all__ = [
     "load_bundled_forecasts",
     "load_session_or_none",
     "parse_uploaded_forecast",
+    "portfolio_rows",
+    "portfolio_summary",
+    "rank_session_lots",
     "recommend_for_session",
+    "reject_lot",
+    "remaining_budget",
     "resolve_session_analysis_context",
+    "restore_lot",
     "run_legacy_import",
     "session_analysis_settings_for_session",
+    "spent_total",
     "strategy_fit_for_lot",
     "summarize_stored_forecast",
+    "undo_lot_purchase",
     "update_analysis_settings_for_session",
     "update_object_type_for_admin",
     "update_ruleset_for_admin",

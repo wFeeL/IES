@@ -2,13 +2,10 @@
 {% block title %}Прогнозы {{ session.id }} | IES{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
-{% if show_analysis_context is not defined or show_analysis_context %}
-{% include "components/analysis_context.html" %}
-{% endif %}
 
 <section class="page-grid mt-4">
   <article class="card">
-    <p class="section-kicker">Источник аналитического контекста</p>
+    <p class="section-kicker">Загрузка CSV</p>
     <h1 class="h1">Центр прогноза</h1>
     <form id="forecastForm" class="stack gap-3 mt-3" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
@@ -17,42 +14,44 @@
       <label class="label">CSV прогноз <input class="input" type="file" name="file" accept=".csv" /></label>
       <button class="btn btn-primary" type="submit">Загрузить прогноз</button>
     </form>
-    <div id="forecastOut" class="stack gap-2 mt-4"></div>
   </article>
 
   <article class="card">
-    <p class="section-kicker">Краткая справка</p>
-    <h2 class="h2">Что важно проверить</h2>
-    <ul class="stack gap-2 mt-3">
-      <li class="issue issue-ok">tick/time должен быть заполнен для всех строк.</li>
-      <li class="issue issue-ok">Потребление должно содержать серии `houseA`, `houseB`, `office`, `factory` или `load_*`.</li>
-      <li class="issue issue-ok">После загрузки выберите активный прогноз в сессии или ниже в таблице.</li>
-    </ul>
+    <p class="section-kicker">Активный прогноз</p>
+    <h2 class="h2">{{ active_forecast_summary.name or 'Встроенный базовый прогноз' }}</h2>
+    <p class="muted">{{ forecast_context.source_label }}</p>
+    <div class="insight-grid mt-3">
+      <div class="metric-card"><span class="metric-label">Такты</span><strong>{{ active_forecast_summary.tick_from or '—' }}–{{ active_forecast_summary.tick_to or '—' }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Периодов</span><strong>{{ active_forecast_summary.count or 0 }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ '%.2f'|format(active_forecast_summary.avg_wind or 0.0) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ '%.2f'|format(active_forecast_summary.avg_illumination or 0.0) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Средняя цена рынка</span><strong>{{ '%.2f'|format(active_forecast_summary.avg_market_price or 0.0) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Ряды нагрузки</span><strong>{{ active_forecast_summary.load_series|length }}</strong></div>
+    </div>
+    <div class="risk-block mt-3">{{ active_forecast_summary.quality.text }}</div>
   </article>
 </section>
 
 <section class="card mt-4">
   <div class="section-head">
     <div>
-      <p class="section-kicker">Загруженные данные</p>
-      <h2 class="h2">Прогнозы сессии</h2>
+      <p class="section-kicker">Загруженные прогнозы</p>
+      <h2 class="h2">Список прогнозов сессии</h2>
     </div>
   </div>
   <div class="table-wrap mt-3">
     <table class="table">
-      <thead><tr><th>ID</th><th>Название</th><th>Период</th><th>Ряды нагрузки</th><th>Активный</th><th>Действия</th></tr></thead>
+      <thead><tr><th>ID</th><th>Название</th><th>Диапазон</th><th>Ряды нагрузки</th><th>Качество</th><th>Активный</th><th>Действия</th></tr></thead>
       <tbody>
         {% for fc in forecasts %}
         {% set summary = forecast_summaries[fc.id] %}
         <tr>
           <td>{{ fc.id }}</td>
-          <td>
-            <strong>{{ fc.name }}</strong>
-            <div class="muted">{{ fc.source_file }}</div>
-          </td>
+          <td><strong>{{ fc.name }}</strong><div class="muted">{{ fc.source_file }}</div></td>
           <td>{{ summary.tick_from or '—' }}–{{ summary.tick_to or '—' }}</td>
           <td>{{ summary.load_series|join(', ') if summary.load_series else 'не найдены' }}</td>
-          <td>{{ 'да' if session.selected_forecast_id == fc.id else 'нет' }}</td>
+          <td>{{ summary.quality.text }}</td>
+          <td>{% if active_forecast_id == fc.id %}<span class="status-badge status-fresh">Да</span>{% else %}Нет{% endif %}</td>
           <td>
             <div class="actions">
               <form method="post" action="{{ url_for('pages.session_forecast_selection_action', session_id=session.id) }}">
@@ -61,15 +60,31 @@
                 <button class="btn btn-secondary" type="submit">Сделать активным</button>
               </form>
               <button class="btn btn-secondary analyzeBtn" data-forecast-id="{{ fc.id }}" type="button">Диагностика</button>
+              <button class="btn btn-secondary chartBtn" data-forecast-id="{{ fc.id }}" type="button">График</button>
             </div>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="muted">Прогнозы еще не загружены.</td></tr>
+        <tr><td colspan="7" class="muted">Прогнозы ещё не загружены. Пока будет использоваться встроенный базовый прогноз.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+</section>
+
+<section class="page-grid mt-4">
+  <article class="card">
+    <p class="section-kicker">Диагностика прогноза</p>
+    <h2 class="h2">Статистика и качество данных</h2>
+    <div id="forecastOut" class="stack gap-3 mt-3">
+      <div class="muted">Выберите прогноз и нажмите «Диагностика».</div>
+    </div>
+  </article>
+  <article class="card">
+    <p class="section-kicker">График</p>
+    <h2 class="h2">Предпросмотр рядов</h2>
+    <div id="forecastChart" class="forecast-chart mt-3"></div>
+  </article>
 </section>
 
 <script>
