@@ -39,6 +39,15 @@ LOT_STATUS_LABELS: Dict[str, str] = {
     "rejected": "Отклонен",
 }
 
+STALE_REASON_LABELS: Dict[str, str] = {
+    "forecast_changed": "изменился активный прогноз",
+    "lot_changed": "изменились параметры лота",
+    "portfolio_changed": "изменился портфель сессии",
+    "object_changed": "изменилась энергосистема",
+    "ruleset_changed": "изменились правила расчёта",
+    "object_type_changed": "обновлены типы объектов",
+}
+
 
 def strategy_label(code: str | None) -> str:
     if not code:
@@ -60,3 +69,19 @@ def lot_status_label(code: str | None) -> str:
     if not code:
         return "—"
     return LOT_STATUS_LABELS.get(code, code)
+
+
+def stale_reason_label(raw_reason: str | None) -> str:
+    if not raw_reason:
+        return ""
+    parts = [part.strip() for part in str(raw_reason).split(";") if part.strip()]
+    if not parts:
+        return ""
+    translated: list[str] = []
+    for part in parts:
+        translated.append(STALE_REASON_LABELS.get(part, part.replace("_", " ")))
+    uniq: list[str] = []
+    for item in translated:
+        if item not in uniq:
+            uniq.append(item)
+    return "; ".join(uniq)

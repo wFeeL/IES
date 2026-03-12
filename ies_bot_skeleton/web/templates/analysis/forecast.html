@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Прогнозы {{ session.id }} | IES{% endblock %}
+{% block page_title %}Прогноз сессии #{{ session.id }}{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
 
@@ -18,7 +19,7 @@
 
   <article class="card">
     <p class="section-kicker">Активный прогноз</p>
-    <h2 class="h2">{{ active_forecast_summary.name or 'Встроенный базовый прогноз' }}</h2>
+    <h2 class="h2 text-ellipsis" title="{{ active_forecast_summary.name or 'Встроенный базовый прогноз' }}">{{ active_forecast_summary.name or 'Встроенный базовый прогноз' }}</h2>
     <p class="muted">{{ forecast_context.source_label }}</p>
     <div class="insight-grid mt-3">
       <div class="metric-card"><span class="metric-label">Такты</span><strong>{{ active_forecast_summary.tick_from or '—' }}–{{ active_forecast_summary.tick_to or '—' }}</strong></div>
@@ -47,9 +48,9 @@
         {% set summary = forecast_summaries[fc.id] %}
         <tr>
           <td>{{ fc.id }}</td>
-          <td><strong>{{ fc.name }}</strong><div class="muted">{{ fc.source_file }}</div></td>
+          <td><strong class="text-ellipsis" title="{{ fc.name }}">{{ fc.name }}</strong><div class="muted text-ellipsis" title="{{ fc.source_file }}">{{ fc.source_file }}</div></td>
           <td>{{ summary.tick_from or '—' }}–{{ summary.tick_to or '—' }}</td>
-          <td>{{ summary.load_series|join(', ') if summary.load_series else 'не найдены' }}</td>
+          <td class="text-ellipsis" title="{{ summary.load_series|join(', ') if summary.load_series else 'не найдены' }}">{{ summary.load_series|join(', ') if summary.load_series else 'не найдены' }}</td>
           <td>{{ summary.quality.text }}</td>
           <td>{% if active_forecast_id == fc.id %}<span class="status-badge status-fresh">Да</span>{% else %}Нет{% endif %}</td>
           <td>

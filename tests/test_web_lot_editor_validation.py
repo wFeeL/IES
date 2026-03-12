@@ -151,8 +151,14 @@ def test_lot_detail_and_edit_flow(client):
     assert detail_resp.status_code == 200
     detail_html = detail_resp.get_data(as_text=True)
     assert "Lot detail source" in detail_html
-    assert "Текущая оценка" in detail_html
-    assert "Worst / Base / Best" in detail_html
+    assert "Декомпозиция расчёта" in detail_html
+    assert "Worst" in detail_html
+    assert "Base" in detail_html
+    assert "Best" in detail_html
+
+    strategy_fit_redirect = client.get(f"/strategy-fit/{lot_id}", follow_redirects=False)
+    assert strategy_fit_redirect.status_code in (302, 303)
+    assert strategy_fit_redirect.headers["Location"].endswith(f"/lots/item/{lot_id}")
 
     edit_form = {
         "session_id": str(session_id),

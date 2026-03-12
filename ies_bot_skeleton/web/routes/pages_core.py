@@ -5,7 +5,6 @@ from typing import Dict, List
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
-from ...application.analysis import rank_session_lots
 from ...application.context import resolve_session_analysis_context, update_analysis_settings_for_session
 from ...application.portfolio import portfolio_rows, portfolio_summary
 from ...application.sessions import create_session_record, delete_session_record
@@ -13,6 +12,12 @@ from ..extensions import db
 from ..forms import ConfirmDeleteForm, ForecastSelectionForm, LoginForm, SessionForm, SessionImportForm
 from ..models import GameSession, ObjectType, Ruleset, User
 from ..services.navigation import is_safe_internal_url, safe_next_url
+from ..services.lots_dashboard import (
+    analytics_by_lot_for_session,
+    filter_lot_rows,
+    lot_rows_for_session,
+    sort_lot_rows,
+)
 from ..services.session_io import import_session_payload
 from ..services.stale import mark_stale_for_session
 from ..services.strategy_catalog import strategy_list, strategy_meta
@@ -55,36 +60,6 @@ def _dashboard_cards(sessions: List[GameSession]) -> List[Dict[str, object]]:
             }
         )
     return out
-
-
-def _workbench_lot_summary(session: GameSession, ranking: List[Dict[str, object]]) -> List[Dict[str, object]]:
-    rows: List[Dict[str, object]] = []
-    lots_by_id = {int(lot.id): lot for lot in session.lots}
-    for item in ranking:
-        lot = lots_by_id.get(int(item["lot_id"]))
-        if lot is None or lot.status != "available":
-            continue
-        names = []
-        for lot_item in lot.items[:4]:
-            code = lot_item.object_type.code if lot_item.object_type else lot_item.object_type_id
-            names.append(f"{code} ×{max(1, int(lot_item.quantity or 1))}")
-        financial = dict(item.get("financial_breakdown") or {})
-        result = dict(financial.get("result") or {})
-        losses = dict(financial.get("losses_and_risks") or {})
-        rows.append(
-            {
-                "lot_id": int(lot.id),
-                "name": lot.name,
-                "structure": ", ".join(names) if names else "Пустой лот",
-                "utility": float(item.get("summary_score", 0.0) or 0.0),
-                "net_profit": float(result.get("net_profit", 0.0) or 0.0),
-                "risk": float(losses.get("risk_total", 0.0) or 0.0),
-                "max_bid": float((item.get("decision_summary") or {}).get("hard_bid", 0.0) or 0.0),
-                "status": lot.status,
-                "is_stale": bool(item.get("is_stale")),
-            }
-        )
-    return rows
 
 
 @pages_bp.get("/")
@@ -182,17 +157,51 @@ def session_page(session_id: int):
     ]
     forecast_form.selected_forecast_id.data = int(session.selected_forecast_id or 0)
 
-    ranking = rank_session_lots(session=session, lots=session.lots, persist=False) if session.lots else []
-    analytics_by_lot = {int(row["lot_id"]): row for row in ranking}
+    analytics_by_lot = analytics_by_lot_for_session(session)
     portfolio = portfolio_summary(session, analytics_by_lot=analytics_by_lot)
     purchased_rows = portfolio_rows(session, analytics_by_lot=analytics_by_lot)
-    available_rows = _workbench_lot_summary(session, ranking)
-    readiness = {
-        "objects_count": len(session.objects),
-        "lots_count": len(session.lots),
-        "forecasts_count": len(session.forecasts),
-        "active_forecast_name": analysis_ctx["forecast_context"]["forecast_name"],
-        "uses_bundled_forecast": analysis_ctx["forecast_context"]["source"] == "bundled_forecast",
+    rows = lot_rows_for_session(session, ranking_map=analytics_by_lot)
+    sort_key = str(request.args.get("sort", "utility_desc") or "utility_desc")
+    available_rows = [row for row in rows if row["status"] == "available"]
+    available_rows = sort_lot_rows(filter_lot_rows(available_rows, request.args), sort_key)
+
+    stale_ctx = session_stale_ctx(session)
+    stale_warning = stale_ctx.get("stale_warning") or {}
+    has_stale = bool(stale_warning.get("has_stale"))
+    uses_bundled = analysis_ctx["forecast_context"]["source"] == "bundled_forecast"
+    readiness_cards = [
+        {
+            "label": "Энергосистема",
+            "value": len(session.objects),
+            "hint": "объектов в модели",
+            "status": "ready" if len(session.objects) > 0 else "attention",
+        },
+        {
+            "label": "Лоты",
+            "value": len(session.lots),
+            "hint": "лотов в сессии",
+            "status": "ready" if len(session.lots) > 0 else "attention",
+        },
+        {
+            "label": "Прогноз",
+            "value": analysis_ctx["forecast_context"]["forecast_name"],
+            "hint": "встроенный базовый" if uses_bundled else "загружен пользователем",
+            "status": "attention" if uses_bundled else "ready",
+        },
+        {
+            "label": "Актуальность оценок",
+            "value": "Требует внимания" if has_stale else "Готово",
+            "hint": f"устаревших оценок: {int(stale_warning.get('stale_count', 0) or 0)}",
+            "status": "attention" if has_stale else "ready",
+        },
+    ]
+    kpis = {
+        "lots_total": len(session.lots),
+        "bought_total": int(portfolio["bought_lots_count"]),
+        "portfolio_utility": float(sum(float(row.get("utility", 0.0) or 0.0) for row in purchased_rows)),
+        "portfolio_net_profit": float(portfolio["aggregate_net_profit"]),
+        "risk_profile": portfolio["risk_profile_label"],
+        "data_status": "Готово" if len(session.lots) > 0 and len(session.objects) > 0 else "Требует внимания",
     }
     ctx = nav(
         breadcrumb_items=[
@@ -204,19 +213,22 @@ def session_page(session_id: int):
     return render_template(
         "core/workbench.html",
         session=session,
-        readiness=readiness,
+        kpis=kpis,
+        readiness_cards=readiness_cards,
         forecast_form=forecast_form,
         forecast_card=analysis_ctx["forecast_summary"],
         portfolio=portfolio,
-        available_rows=available_rows[:8],
+        available_rows=available_rows,
         purchased_rows=purchased_rows,
+        sort_key=sort_key,
+        filters=request.args,
         delete_url=url_for("pages.session_delete_confirm_page", session_id=session.id),
         export_json_url=url_for("api.export_session", session_id=session.id),
         export_csv_url=url_for("api.export_evaluations", session_id=session.id),
         recalculate_url=url_for("api.recalculate_session_lots", session_id=session.id),
         **session_analysis_view(session),
         **ctx,
-        **session_stale_ctx(session),
+        **stale_ctx,
     )
 
 

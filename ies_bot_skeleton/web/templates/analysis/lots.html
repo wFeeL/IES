@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Лоты {{ session.id }} | IES{% endblock %}
+{% block page_title %}Лоты сессии #{{ session.id }}{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
 {% include "components/analysis_context.html" %}
@@ -9,7 +10,7 @@
     <div>
       <p class="section-kicker">Каталог лотов</p>
       <h1 class="h1">Лоты сессии</h1>
-      <p class="muted">Отсортируйте доступные лоты по полезности, прибыли, риску или цене и примите решение по активному прогнозу.</p>
+      <p class="muted">Фильтруйте и сортируйте лоты по ключевым метрикам, затем принимайте решение в карточке лота.</p>
     </div>
     <div class="actions">
       <a class="btn btn-primary" href="{{ url_for('pages.lots_edit', session_id=session.id) }}">Добавить лот</a>
@@ -17,7 +18,8 @@
       <button class="btn btn-secondary" id="recalculateLotsBtn" type="button">Пересчитать все лоты</button>
     </div>
   </div>
-  <form method="get" class="grid cols-4 gap-3 mt-4">
+
+  <form method="get" class="grid cols-4 gap-3 mt-3">
     <label class="label">Статус
       <select class="input" name="status">
         <option value="all" {{ 'selected' if filters.get('status', 'all') == 'all' else '' }}>Все</option>
@@ -39,91 +41,95 @@
     <label class="label">Сортировка
       <select class="input" name="sort">
         <option value="utility_desc" {{ 'selected' if sort_key == 'utility_desc' else '' }}>Полезность ↓</option>
-        <option value="profit_desc" {{ 'selected' if sort_key == 'profit_desc' else '' }}>Прибыль ↓</option>
+        <option value="profit_desc" {{ 'selected' if sort_key == 'profit_desc' else '' }}>Чистая прибыль ↓</option>
         <option value="risk_asc" {{ 'selected' if sort_key == 'risk_asc' else '' }}>Риск ↑</option>
-        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Рабочий максимум ↓</option>
+        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Макс. ставка ↓</option>
         <option value="price_asc" {{ 'selected' if sort_key == 'price_asc' else '' }}>Цена ↑</option>
         <option value="price_desc" {{ 'selected' if sort_key == 'price_desc' else '' }}>Цена ↓</option>
       </select>
     </label>
-    <div class="actions">
-      <button class="btn btn-secondary" type="submit">Применить</button>
-      <a class="btn btn-secondary" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Сбросить</a>
-    </div>
     <label class="label">Цена от <input class="input" name="price_min" value="{{ filters.get('price_min', '') }}" type="number" step="0.1" /></label>
     <label class="label">Цена до <input class="input" name="price_max" value="{{ filters.get('price_max', '') }}" type="number" step="0.1" /></label>
     <label class="label">Полезность от <input class="input" name="utility_min" value="{{ filters.get('utility_min', '') }}" type="number" step="0.1" /></label>
     <label class="label">Риск до <input class="input" name="risk_max" value="{{ filters.get('risk_max', '') }}" type="number" step="0.1" /></label>
+    <div class="actions">
+      <button class="btn btn-secondary" type="submit">Применить</button>
+      <a class="btn btn-ghost" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Сбросить</a>
+    </div>
   </form>
   <div id="lotsStatus" class="muted mt-3"></div>
 </section>
 
 <section class="card mt-4">
   <div class="table-wrap">
-    <table class="table">
+    <table class="table table-fixed">
       <thead>
         <tr>
-          <th>Лот</th>
-          <th>Состав</th>
-          <th>Цена</th>
-          <th>Итоговая полезность</th>
-          <th>Ожидаемая чистая прибыль</th>
-          <th>Риск</th>
-          <th>Рабочий максимум</th>
-          <th>Статус</th>
-          <th>Действия</th>
+          <th class="col-text">Лот</th>
+          <th class="col-text">Состав</th>
+          <th class="col-num">Цена</th>
+          <th class="col-num">Полезность</th>
+          <th class="col-num">Чистая прибыль</th>
+          <th class="col-num">Риск</th>
+          <th class="col-num">Макс. ставка</th>
+          <th class="col-text">Статус</th>
+          <th class="col-actions">Действия</th>
         </tr>
       </thead>
       <tbody>
         {% for row in lot_rows %}
         <tr>
-          <td>
-            <strong>{{ row.name }}</strong>
-            <div class="muted">{{ row.composition_label }}</div>
+          <td class="col-text">
+            <strong class="text-ellipsis" title="{{ row.name }}">{{ row.name }}</strong>
+            <div class="muted text-ellipsis" title="{{ row.composition_label }}">{{ row.composition_label }}</div>
           </td>
-          <td>{{ row.structure }}</td>
-          <td>{{ '%.1f'|format(row.price) }}</td>
-          <td>{{ '%.2f'|format(row.utility) }}</td>
-          <td>{{ '%.2f'|format(row.net_profit) }}</td>
-          <td>{{ '%.2f'|format(row.risk) }}</td>
-          <td>{{ '%.2f'|format(row.max_bid) }}</td>
-          <td>
-            {{ lot_status_label(row.status) }}
-            {% if row.is_stale %}<div><span class="status-badge status-stale">Оценка устарела</span></div>{% endif %}
+          <td class="col-text"><span class="text-ellipsis" title="{{ row.structure }}">{{ row.structure }}</span></td>
+          <td class="num">{{ '%.1f'|format(row.price) }}</td>
+          <td class="num">{{ '%.2f'|format(row.utility) }}</td>
+          <td class="num">{{ '%.2f'|format(row.net_profit) }}</td>
+          <td class="num">{{ '%.2f'|format(row.risk) }}</td>
+          <td class="num">{{ '%.2f'|format(row.max_bid) }}</td>
+          <td class="col-text">
+            <span>{{ lot_status_label(row.status) }}</span>
+            {% if row.is_stale %}<div><span class="status-badge status-stale" title="{{ row.stale_reason_label or row.stale_reason }}">Оценка устарела</span></div>{% endif %}
           </td>
-          <td>
-            <div class="actions">
+          <td class="actions-col">
+            <div class="row-actions" data-row-actions>
               <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть</a>
-              <a class="btn btn-secondary" href="{{ url_for('pages.lot_edit_page', lot_id=row.lot_id) }}">Редактировать</a>
-              {% if row.status == 'available' %}
-              <a class="btn btn-secondary" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=row.lot_id) }}">Купить</a>
-              <form method="post" action="{{ url_for('pages.lot_reject_action', lot_id=row.lot_id) }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-                <button class="btn btn-secondary" type="submit">Отклонить</button>
-              </form>
-              {% elif row.status == 'bought' %}
-              <form method="post" action="{{ url_for('pages.lot_undo_buy_action', lot_id=row.lot_id) }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-                <button class="btn btn-secondary" type="submit">Отменить покупку</button>
-              </form>
-              {% elif row.status == 'rejected' %}
-              <form method="post" action="{{ url_for('pages.lot_restore_action', lot_id=row.lot_id) }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-                <button class="btn btn-secondary" type="submit">Восстановить</button>
-              </form>
-              {% endif %}
-              <a class="btn btn-danger" href="{{ url_for('pages.lot_delete_confirm_page', lot_id=row.lot_id) }}">Удалить</a>
+              <a class="btn btn-secondary {{ '' if row.status == 'available' else 'is-disabled' }}" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=row.lot_id) if row.status == 'available' else '#' }}">Купить</a>
+              <button class="btn btn-ghost" type="button" data-actions-toggle aria-haspopup="menu" aria-expanded="false">Ещё</button>
+              <div class="row-actions-menu" data-actions-menu role="menu" hidden>
+                <a role="menuitem" href="{{ url_for('pages.lot_edit_page', lot_id=row.lot_id) }}">Редактировать</a>
+                <a role="menuitem" href="{{ url_for('pages.lot_delete_confirm_page', lot_id=row.lot_id) }}">Удалить</a>
+                {% if row.status == 'available' %}
+                <form method="post" action="{{ url_for('pages.lot_reject_action', lot_id=row.lot_id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <button role="menuitem" type="submit">Отклонить</button>
+                </form>
+                {% elif row.status == 'bought' %}
+                <form method="post" action="{{ url_for('pages.lot_undo_buy_action', lot_id=row.lot_id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <button role="menuitem" type="submit">Отменить покупку</button>
+                </form>
+                {% elif row.status == 'rejected' %}
+                <form method="post" action="{{ url_for('pages.lot_restore_action', lot_id=row.lot_id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <button role="menuitem" type="submit">Восстановить</button>
+                </form>
+                {% endif %}
+              </div>
             </div>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="9" class="muted">Лоты ещё не добавлены. Создайте первый лот или примените стартовый пакет.</td></tr>
+        <tr><td colspan="9"><div class="empty-state">Лоты ещё не добавлены. Создайте первый лот или добавьте стартовый пакет.</div></td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
 
+<script defer src="{{ url_for('static', filename='js/analysis/row_actions.js') }}"></script>
 <script>
 (() => {
   const statusEl = document.getElementById('lotsStatus');
@@ -137,6 +143,7 @@
 
   recalcBtn?.addEventListener('click', async () => {
     recalcBtn.disabled = true;
+    statusEl.textContent = 'Пересчитываю лоты...';
     const res = await fetch('{{ recalculate_url }}', {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
@@ -154,6 +161,7 @@
 
   startPackBtn?.addEventListener('click', async () => {
     startPackBtn.disabled = true;
+    statusEl.textContent = 'Добавляю стартовый пакет...';
     const res = await fetch(`/api/sessions/{{ session.id }}/add-start-pack`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},

@@ -21,7 +21,6 @@ from ...application.portfolio import (
     restore_lot,
     undo_lot_purchase,
 )
-from ...application.recommendations import recommend_for_session, strategy_fit_for_lot
 from ..extensions import db
 from ..forms import (
     ConfirmDeleteForm,
@@ -33,8 +32,15 @@ from ..forms import (
     LotUndoPurchaseForm,
     ObjectInstanceForm,
 )
-from ..models import EvaluationResult, Forecast, GameSession, Lot, ObjectInstance, ObjectType
+from ..models import Forecast, GameSession, Lot, ObjectInstance, ObjectType
 from ..services.forecast_service import summarize_forecast
+from ..services.lots_dashboard import (
+    analytics_by_lot_for_session,
+    filter_lot_rows,
+    lot_rows_for_session,
+    lot_summary,
+    sort_lot_rows,
+)
 from ..services.network import validate_session_network
 from ..services.object_instance_editor import parameter_rows, parameters_from_form
 from ..services.stale import mark_stale_for_session
@@ -108,128 +114,6 @@ def _forecast_line(session: GameSession) -> str:
     tick_from = forecast.get("tick_from") or "—"
     tick_to = forecast.get("tick_to") or "—"
     return f"Анализ выполнен по прогнозу: {name}, такты {tick_from}–{tick_to}."
-
-
-def _lot_summary(lot: Lot) -> Dict[str, Any]:
-    counts = {"consumer": 0, "generator": 0, "storage": 0, "infrastructure": 0}
-    items_total = 0
-    names: List[str] = []
-    for item in lot.items:
-        qty = max(1, int(item.quantity or 1))
-        items_total += qty
-        category = (item.object_type.category if item.object_type else "other") or "other"
-        counts[category] = counts.get(category, 0) + qty
-        if item.object_type is not None:
-            names.append(f"{item.object_type.name} ×{qty}")
-    if counts.get("infrastructure", 0) > 0 and counts.get("generator", 0) > 0 and counts.get("consumer", 0) > 0:
-        composition = "mixed"
-    elif counts.get("generator", 0) > 0 and counts.get("consumer", 0) > 0:
-        composition = "mixed"
-    elif counts.get("generator", 0) > 0:
-        composition = "generator"
-    elif counts.get("consumer", 0) > 0:
-        composition = "consumer"
-    elif counts.get("storage", 0) > 0:
-        composition = "storage"
-    elif counts.get("infrastructure", 0) > 0:
-        composition = "infrastructure"
-    else:
-        composition = "all"
-    compatibility = "Состав требует ручной сетевой проверки."
-    if composition == "mixed":
-        compatibility = "Смешанный лот: генерация и потребление в одном составе."
-    elif composition == "generator":
-        compatibility = "Преимущественно генераторный лот."
-    elif composition == "consumer":
-        compatibility = "Преимущественно потребительский лот."
-    elif composition == "infrastructure":
-        compatibility = "Инфраструктурный лот, влияние зависит от существующего портфеля."
-    return {
-        "items_total": items_total,
-        "counts": counts,
-        "compatibility": compatibility,
-        "composition": composition,
-        "composition_label": {
-            "all": "Все",
-            "consumer": "Потребительский",
-            "generator": "Генераторный",
-            "mixed": "Смешанный",
-            "infrastructure": "Инфраструктурный",
-            "storage": "Накопительный",
-        }.get(composition, "Смешанный"),
-        "structure": ", ".join(names[:4]) if names else "Пустой лот",
-    }
-
-
-def _lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Dict[str, Any]:
-    financial = dict(evaluation.get("financial_breakdown") or {})
-    result = dict(financial.get("result") or {})
-    losses = dict(financial.get("losses_and_risks") or {})
-    return {
-        "lot": lot,
-        "lot_id": int(lot.id),
-        "name": lot.name,
-        "structure": summary["structure"],
-        "composition": summary["composition"],
-        "composition_label": summary["composition_label"],
-        "summary": summary,
-        "evaluation": evaluation,
-        "price": float(lot.purchase_price if lot.status == "bought" and lot.purchase_price is not None else lot.current_bid or 0.0),
-        "utility": float(evaluation.get("summary_score", 0.0) or 0.0),
-        "net_profit": float(result.get("net_profit", 0.0) or 0.0),
-        "risk": float(losses.get("risk_total", 0.0) or 0.0),
-        "max_bid": float((evaluation.get("decision_summary") or {}).get("hard_bid", 0.0) or 0.0),
-        "status": lot.status,
-        "is_stale": bool(evaluation.get("is_stale")),
-        "stale_reason": evaluation.get("stale_reason") or "",
-    }
-
-
-def _sort_lot_rows(rows: List[Dict[str, Any]], sort_key: str) -> List[Dict[str, Any]]:
-    sort_key = str(sort_key or "utility_desc")
-    if sort_key == "profit_desc":
-        return sorted(rows, key=lambda row: row["net_profit"], reverse=True)
-    if sort_key == "risk_asc":
-        return sorted(rows, key=lambda row: row["risk"])
-    if sort_key == "bid_desc":
-        return sorted(rows, key=lambda row: row["max_bid"], reverse=True)
-    if sort_key == "price_asc":
-        return sorted(rows, key=lambda row: row["price"])
-    if sort_key == "price_desc":
-        return sorted(rows, key=lambda row: row["price"], reverse=True)
-    return sorted(rows, key=lambda row: row["utility"], reverse=True)
-
-
-def _filter_lot_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    status_filter = str(request.args.get("status", "all") or "all")
-    composition_filter = str(request.args.get("composition", "all") or "all")
-    price_min = request.args.get("price_min", type=float)
-    price_max = request.args.get("price_max", type=float)
-    utility_min = request.args.get("utility_min", type=float)
-    utility_max = request.args.get("utility_max", type=float)
-    risk_max = request.args.get("risk_max", type=float)
-
-    out = rows
-    if status_filter != "all":
-        out = [row for row in out if row["status"] == status_filter]
-    if composition_filter != "all":
-        out = [row for row in out if row["composition"] == composition_filter]
-    if price_min is not None:
-        out = [row for row in out if row["price"] >= price_min]
-    if price_max is not None:
-        out = [row for row in out if row["price"] <= price_max]
-    if utility_min is not None:
-        out = [row for row in out if row["utility"] >= utility_min]
-    if utility_max is not None:
-        out = [row for row in out if row["utility"] <= utility_max]
-    if risk_max is not None:
-        out = [row for row in out if row["risk"] <= risk_max]
-    return out
-
-
-def _ranking_map(session: GameSession) -> Dict[int, Dict[str, Any]]:
-    ranking = rank_session_lots(session=session, lots=session.lots, persist=False) if session.lots else []
-    return {int(row["lot_id"]): row for row in ranking}
 
 
 def _render_object_editor(*, session: GameSession, form: ObjectInstanceForm, obj: ObjectInstance | None):
@@ -476,11 +360,11 @@ def lots_page(session_id: int):
     if session is None:
         return _missing_session_redirect()
 
-    ranking_map = _ranking_map(session)
-    rows = [_lot_row(lot, ranking_map.get(lot.id, {}), _lot_summary(lot)) for lot in session.lots]
-    rows = _filter_lot_rows(rows)
+    ranking_map = analytics_by_lot_for_session(session)
+    rows = lot_rows_for_session(session, ranking_map=ranking_map)
+    rows = filter_lot_rows(rows, request.args)
     sort_key = str(request.args.get("sort", "utility_desc") or "utility_desc")
-    rows = _sort_lot_rows(rows, sort_key)
+    rows = sort_lot_rows(rows, sort_key)
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -531,7 +415,7 @@ def lot_detail_page(lot_id: int):
         "analysis/lot_detail.html",
         session=session,
         lot=lot,
-        lot_summary=_lot_summary(lot),
+        lot_summary=lot_summary(lot),
         evaluation=evaluation,
         buy_form=LotPurchaseForm(),
         undo_form=LotUndoPurchaseForm(),
@@ -854,32 +738,8 @@ def evaluation_page(session_id: int):
     session = db.session.get(GameSession, session_id)
     if session is None:
         return _missing_session_redirect()
-    evaluations = (
-        db.session.query(EvaluationResult)
-        .filter_by(session_id=session_id)
-        .order_by(EvaluationResult.created_at.desc())
-        .limit(100)
-        .all()
-    )
-    ctx = nav(
-        breadcrumb_items=[
-            ("Сессии", "pages.dashboard", None),
-            (f"Сессия #{session.id}", "pages.session_page", {"session_id": session.id}),
-            ("Оценки", None, None),
-        ],
-        fallback_endpoint="pages.session_page",
-        fallback_values={"session_id": session.id},
-    )
-    return render_template(
-        "analysis/evaluation.html",
-        session=session,
-        evaluations=evaluations,
-        forecast_line=_forecast_line(session),
-        show_analysis_context=False,
-        **session_analysis_view(session),
-        **ctx,
-        **session_stale_ctx(session),
-    )
+    flash("Раздел «История оценок» снят из основного UX. Используйте dashboard сессии.", "warning")
+    return redirect(url_for("pages.session_page", session_id=session.id))
 
 
 @pages_bp.get("/recommend/<int:session_id>")
@@ -888,26 +748,8 @@ def recommend_page(session_id: int):
     session = db.session.get(GameSession, session_id)
     if session is None:
         return _missing_session_redirect()
-    recommendation = recommend_for_session(session=session, lots=session.lots)
-    ctx = nav(
-        breadcrumb_items=[
-            ("Сессии", "pages.dashboard", None),
-            (f"Сессия #{session.id}", "pages.session_page", {"session_id": session.id}),
-            ("Рекомендации", None, None),
-        ],
-        fallback_endpoint="pages.session_page",
-        fallback_values={"session_id": session.id},
-    )
-    return render_template(
-        "analysis/recommend.html",
-        session=session,
-        recommendation=recommendation,
-        forecast_line=_forecast_line(session),
-        show_analysis_context=False,
-        **session_analysis_view(session),
-        **ctx,
-        **session_stale_ctx(session),
-    )
+    flash("Раздел «Рекомендации» объединён с основной аналитикой лотов в dashboard.", "warning")
+    return redirect(url_for("pages.session_page", session_id=session.id))
 
 
 @pages_bp.get("/quick-auction/<int:session_id>")
@@ -951,29 +793,5 @@ def strategy_fit_page(lot_id: int):
     lot = db.session.get(Lot, lot_id)
     if lot is None:
         return _missing_lot_redirect(lot_id=lot_id)
-    session = db.session.get(GameSession, lot.session_id)
-    if session is None:
-        return _missing_session_redirect()
-
-    fit = strategy_fit_for_lot(session=session, lot=lot)
-    ctx = nav(
-        breadcrumb_items=[
-            ("Сессии", "pages.dashboard", None),
-            (f"Сессия #{session.id}", "pages.session_page", {"session_id": session.id}),
-            ("Лоты", "pages.lots_page", {"session_id": session.id}),
-            (f"Стратегии / Лот {lot.id}", None, None),
-        ],
-        fallback_endpoint="pages.lots_page",
-        fallback_values={"session_id": session.id},
-    )
-    return render_template(
-        "analysis/strategy_fit.html",
-        session=session,
-        lot=lot,
-        fit=fit,
-        forecast_line=_forecast_line(session),
-        show_analysis_context=False,
-        **session_analysis_view(session),
-        **ctx,
-        **session_stale_ctx(session),
-    )
+    flash("Страница «Strategy fit» выведена из основного сценария. Открыта карточка лота.", "warning")
+    return redirect(url_for("pages.lot_detail_page", lot_id=lot.id))

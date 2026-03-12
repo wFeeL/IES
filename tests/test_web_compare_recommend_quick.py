@@ -47,12 +47,9 @@ def test_recommend_and_quick_pages_render_forecast_only_blocks(client):
     compare_resp = client.get(f"/compare/{session_id}")
     assert compare_resp.status_code == 404
 
-    recommend_resp = client.get(f"/recommend/{session_id}")
-    assert recommend_resp.status_code == 200
-    recommend_html = recommend_resp.get_data(as_text=True)
-    assert "Лучший доступный лот" in recommend_html
-    assert "Учитываются активный прогноз" in recommend_html
-    assert "Купить" in recommend_html
+    recommend_resp = client.get(f"/recommend/{session_id}", follow_redirects=False)
+    assert recommend_resp.status_code in (302, 303)
+    assert recommend_resp.headers["Location"].endswith(f"/sessions/{session_id}")
 
     quick_resp = client.get(f"/quick-auction/{session_id}")
     assert quick_resp.status_code == 200

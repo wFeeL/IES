@@ -1,39 +1,59 @@
 {% extends "base.html" %}
 {% block title %}Сессия {{ session.id }} | IES{% endblock %}
+{% block page_title %}Сессия #{{ session.id }}{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
 
-<section class="page-grid section-stack mt-4">
-  <article class="card">
-    <div class="section-head">
-      <div>
-        <p class="section-kicker">Бюджет и портфель</p>
-        <h2 class="h2">Текущий контекст сессии</h2>
-      </div>
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Контур работы</p>
+      <h2 class="h2">Сессия → Прогноз → Лоты → Покупка</h2>
+      <p class="muted">Основной рабочий сценарий: оцените лоты по активному прогнозу и сформируйте портфель в рамках бюджета.</p>
     </div>
-    <div class="insight-grid mt-3">
-      <div class="metric-card"><span class="metric-label">Общий бюджет</span><strong>{{ '%.1f'|format(portfolio.budget_total) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Уже потрачено</span><strong>{{ '%.1f'|format(portfolio.spent_total) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Осталось</span><strong>{{ '%.1f'|format(portfolio.remaining_budget) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Куплено лотов</span><strong>{{ portfolio.bought_lots_count }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Ожидаемый доход</span><strong>{{ '%.1f'|format(portfolio.aggregate_income_total) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Чистая прибыль</span><strong>{{ '%.1f'|format(portfolio.aggregate_net_profit) }}</strong></div>
+    <div class="pill-row">
+      <span class="pill">Статус: активна</span>
+      <span class="pill">Прогноз: {{ forecast_context.source_label }}</span>
+      <span class="pill">Остаток: {{ '%.1f'|format(portfolio.remaining_budget) }}</span>
     </div>
-    <div class="key-value mt-3">
-      <span>Ожидаемые расходы</span>
-      <strong>{{ '%.1f'|format(portfolio.aggregate_expenses_total) }}</strong>
-    </div>
-    <div class="key-value">
-      <span>Профиль риска портфеля</span>
-      <strong>{{ portfolio.risk_profile_label }}</strong>
-    </div>
-  </article>
+  </div>
+</section>
 
+<section class="kpi-grid mt-4">
+  <article class="kpi-card">
+    <span class="metric-label">Лотов в сессии</span>
+    <strong>{{ kpis.lots_total }}</strong>
+  </article>
+  <article class="kpi-card">
+    <span class="metric-label">Куплено лотов</span>
+    <strong>{{ kpis.bought_total }}</strong>
+  </article>
+  <article class="kpi-card">
+    <span class="metric-label">Суммарная полезность портфеля</span>
+    <strong>{{ '%.2f'|format(kpis.portfolio_utility) }}</strong>
+  </article>
+  <article class="kpi-card">
+    <span class="metric-label">Чистая прибыль портфеля</span>
+    <strong>{{ '%.2f'|format(kpis.portfolio_net_profit) }}</strong>
+  </article>
+  <article class="kpi-card">
+    <span class="metric-label">Риск портфеля</span>
+    <strong>{{ kpis.risk_profile }}</strong>
+  </article>
+  <article class="kpi-card">
+    <span class="metric-label">Готовность данных</span>
+    <strong>{{ kpis.data_status }}</strong>
+  </article>
+</section>
+
+<section class="page-grid mt-4">
   <article class="card">
     <div class="section-head">
       <div>
-        <p class="section-kicker">Прогноз</p>
-        <h2 class="h2">Активный прогноз</h2>
+        <p class="section-kicker">Активный прогноз</p>
+        <h2 class="h2 text-ellipsis" title="{{ forecast_card.name or 'Встроенный базовый прогноз' }}">
+          {{ forecast_card.name or 'Встроенный базовый прогноз' }}
+        </h2>
         <p class="muted">{{ forecast_context.source_label }}</p>
       </div>
     </div>
@@ -43,36 +63,43 @@
       <button class="btn btn-secondary" type="submit">Сделать активным</button>
     </form>
     <div class="insight-grid mt-4">
-      <div class="metric-card"><span class="metric-label">Название</span><strong>{{ forecast_card.name or 'Встроенный базовый прогноз' }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Диапазон тактов</span><strong>{{ forecast_card.tick_from or '—' }}–{{ forecast_card.tick_to or '—' }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Такты</span><strong>{{ forecast_card.tick_from or '—' }}–{{ forecast_card.tick_to or '—' }}</strong></div>
       <div class="metric-card"><span class="metric-label">Периодов</span><strong>{{ forecast_card.count or 0 }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ '%.2f'|format(forecast_card.avg_wind or 0.0) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ '%.2f'|format(forecast_card.avg_illumination or 0.0) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Средняя рыночная цена</span><strong>{{ '%.2f'|format(forecast_card.avg_market_price or 0.0) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Средняя цена рынка</span><strong>{{ '%.2f'|format(forecast_card.avg_market_price or 0.0) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Рядов нагрузки</span><strong>{{ forecast_card.load_series|length }}</strong></div>
     </div>
-    <div class="mt-4">
-      <p class="section-kicker">Ряды нагрузки</p>
-      <div class="pill-row mt-2">
+    <div class="mt-3">
+      <div class="pill-row">
         {% for series in forecast_card.load_series %}
-        <span class="pill">{{ series }}: {{ '%.2f'|format(forecast_card.consumer_averages.get(series, 0.0)) }}</span>
+        <span class="pill text-ellipsis" title="{{ series }}">{{ series }}: {{ '%.2f'|format(forecast_card.consumer_averages.get(series, 0.0)) }}</span>
         {% else %}
-        <span class="muted">Ряды нагрузки не обнаружены.</span>
+        <span class="muted">Ряды нагрузки не найдены.</span>
         {% endfor %}
       </div>
     </div>
-    <details class="mt-4">
-      <summary>Подробная статистика по рядам</summary>
-      <div class="table-wrap mt-3">
+    <details class="mt-3">
+      <summary>Статистика по столбцам прогноза</summary>
+      <div class="table-wrap mt-2">
         <table class="table">
-          <thead><tr><th>Ряд</th><th>Минимум</th><th>Максимум</th><th>Среднее</th><th>Медиана</th></tr></thead>
+          <thead>
+            <tr>
+              <th class="col-text">Ряд</th>
+              <th class="col-num">Мин.</th>
+              <th class="col-num">Макс.</th>
+              <th class="col-num">Среднее</th>
+              <th class="col-num">Медиана</th>
+            </tr>
+          </thead>
           <tbody>
             {% for key, stats in forecast_card.series_stats.items() %}
             <tr>
-              <td>{{ key }}</td>
-              <td>{{ '%.3f'|format(stats.min or 0.0) }}</td>
-              <td>{{ '%.3f'|format(stats.max or 0.0) }}</td>
-              <td>{{ '%.3f'|format(stats.avg or 0.0) }}</td>
-              <td>{{ '%.3f'|format(stats.median or 0.0) }}</td>
+              <td class="text-ellipsis" title="{{ key }}">{{ key }}</td>
+              <td class="num">{{ '%.3f'|format(stats.min or 0.0) }}</td>
+              <td class="num">{{ '%.3f'|format(stats.max or 0.0) }}</td>
+              <td class="num">{{ '%.3f'|format(stats.avg or 0.0) }}</td>
+              <td class="num">{{ '%.3f'|format(stats.median or 0.0) }}</td>
             </tr>
             {% else %}
             <tr><td colspan="5" class="muted">Статистика пока недоступна.</td></tr>
@@ -83,71 +110,133 @@
     </details>
     <div class="risk-block mt-3">{{ forecast_card.quality.text }}</div>
   </article>
-</section>
 
-<section class="page-grid section-stack mt-4">
-  <article class="card">
-    <p class="section-kicker">Готовность данных</p>
-    <div class="insight-grid mt-3">
-      <div class="metric-card"><span class="metric-label">Энергосистема</span><strong>{{ readiness.objects_count }}</strong><span class="muted">объектов в системе</span></div>
-      <div class="metric-card"><span class="metric-label">Лоты</span><strong>{{ readiness.lots_count }}</strong><span class="muted">в сессии</span></div>
-      <div class="metric-card"><span class="metric-label">Прогноз</span><strong>{{ readiness.active_forecast_name }}</strong><span class="muted">{{ 'используется bundled forecast' if readiness.uses_bundled_forecast else 'выбран пользователем' }}</span></div>
-    </div>
-  </article>
+  <div class="stack gap-4">
+    <article class="card">
+      <p class="section-kicker">Готовность данных</p>
+      <div class="readiness-grid mt-3">
+        {% for card in readiness_cards %}
+        <div class="readiness-card readiness-{{ card.status }}">
+          <span class="metric-label">{{ card.label }}</span>
+          <strong class="text-ellipsis" title="{{ card.value }}">{{ card.value }}</strong>
+          <span class="muted">{{ card.hint }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </article>
 
-  <article class="card">
-    <p class="section-kicker">Быстрые действия</p>
-    <div class="stack gap-3 mt-3">
-      <a class="action-card" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Лоты</a>
-      <a class="action-card" href="{{ url_for('pages.forecast_page', session_id=session.id) }}">Прогноз</a>
-      <a class="action-card" href="{{ url_for('pages.quick_auction_page', session_id=session.id) }}">Быстрый аукцион</a>
-      <a class="action-card" href="{{ url_for('pages.system_view', session_id=session.id) }}">Проверить энергосистему</a>
-      <a class="action-card" href="{{ export_json_url }}">Экспорт сессии</a>
-    </div>
-    <div class="actions mt-4">
-      <button class="btn btn-secondary" type="button" id="recalculateLotsBtn" data-url="{{ recalculate_url }}">Пересчитать все лоты</button>
-      <a class="btn btn-secondary" href="{{ export_csv_url }}">Скачать оценки CSV</a>
-    </div>
-  </article>
+    <article class="card">
+      <p class="section-kicker">Быстрые действия</p>
+      <div class="quick-actions-grid mt-3">
+        <a class="action-card" href="{{ url_for('pages.lots_page', session_id=session.id) }}"><span class="action-icon">Л</span><strong>Лоты</strong><span>Список, фильтры и решения</span></a>
+        <a class="action-card" href="{{ url_for('pages.forecast_page', session_id=session.id) }}"><span class="action-icon">П</span><strong>Прогноз</strong><span>Загрузка и диагностика CSV</span></a>
+        <a class="action-card" href="{{ url_for('pages.quick_auction_page', session_id=session.id) }}"><span class="action-icon">А</span><strong>Быстрый аукцион</strong><span>Оценка лотов в динамике</span></a>
+        <a class="action-card" href="{{ url_for('pages.system_view', session_id=session.id) }}"><span class="action-icon">ЭС</span><strong>Проверить энергосистему</strong><span>Валидация структуры объектов</span></a>
+        <a class="action-card" href="{{ export_json_url }}"><span class="action-icon">EX</span><strong>Экспорт сессии</strong><span>Сохранить JSON-снимок</span></a>
+      </div>
+      <div class="actions mt-4">
+        <button class="btn btn-secondary" type="button" id="recalculateLotsBtn" data-url="{{ recalculate_url }}">Пересчитать все лоты</button>
+        <a class="btn btn-secondary" href="{{ export_csv_url }}">Скачать оценки CSV</a>
+      </div>
+      <div id="dashboardStatus" class="muted mt-2"></div>
+    </article>
+  </div>
 </section>
 
 <section class="card mt-4">
   <div class="section-head">
     <div>
       <p class="section-kicker">Доступные лоты</p>
-      <h2 class="h2">Лоты для следующего решения</h2>
+      <h2 class="h2">Рабочая таблица принятия решений</h2>
     </div>
-    <a class="btn btn-primary" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Открыть все лоты</a>
+    <a class="btn btn-primary" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Открыть расширенный список</a>
   </div>
+  <form method="get" class="grid cols-4 gap-3 mt-3">
+    <label class="label">Состав
+      <select class="input" name="composition">
+        <option value="all" {{ 'selected' if filters.get('composition', 'all') == 'all' else '' }}>Все</option>
+        <option value="consumer" {{ 'selected' if filters.get('composition') == 'consumer' else '' }}>Потребительский</option>
+        <option value="generator" {{ 'selected' if filters.get('composition') == 'generator' else '' }}>Генераторный</option>
+        <option value="mixed" {{ 'selected' if filters.get('composition') == 'mixed' else '' }}>Смешанный</option>
+        <option value="infrastructure" {{ 'selected' if filters.get('composition') == 'infrastructure' else '' }}>Инфраструктурный</option>
+        <option value="storage" {{ 'selected' if filters.get('composition') == 'storage' else '' }}>Накопительный</option>
+      </select>
+    </label>
+    <label class="label">Сортировка
+      <select class="input" name="sort">
+        <option value="utility_desc" {{ 'selected' if sort_key == 'utility_desc' else '' }}>Полезность ↓</option>
+        <option value="profit_desc" {{ 'selected' if sort_key == 'profit_desc' else '' }}>Чистая прибыль ↓</option>
+        <option value="risk_asc" {{ 'selected' if sort_key == 'risk_asc' else '' }}>Риск ↑</option>
+        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Макс. ставка ↓</option>
+        <option value="price_asc" {{ 'selected' if sort_key == 'price_asc' else '' }}>Цена ↑</option>
+        <option value="price_desc" {{ 'selected' if sort_key == 'price_desc' else '' }}>Цена ↓</option>
+      </select>
+    </label>
+    <label class="label">Цена от <input class="input" name="price_min" value="{{ filters.get('price_min', '') }}" type="number" step="0.1" /></label>
+    <label class="label">Риск до <input class="input" name="risk_max" value="{{ filters.get('risk_max', '') }}" type="number" step="0.1" /></label>
+    <label class="label">Полезность от <input class="input" name="utility_min" value="{{ filters.get('utility_min', '') }}" type="number" step="0.1" /></label>
+    <div class="actions">
+      <button class="btn btn-secondary" type="submit">Применить</button>
+      <a class="btn btn-ghost" href="{{ url_for('pages.session_page', session_id=session.id) }}">Сбросить</a>
+    </div>
+  </form>
   <div class="table-wrap mt-3">
-    <table class="table">
-      <thead><tr><th>Лот</th><th>Состав</th><th>Полезность</th><th>Чистая прибыль</th><th>Риск</th><th>Рабочий максимум</th><th>Статус</th><th>Действия</th></tr></thead>
+    <table class="table table-fixed">
+      <thead>
+        <tr>
+          <th class="col-text">Лот</th>
+          <th class="col-text">Состав</th>
+          <th class="col-num">Полезность</th>
+          <th class="col-num">Чистая прибыль</th>
+          <th class="col-num">Риск</th>
+          <th class="col-num">Макс. ставка</th>
+          <th class="col-text">Статус</th>
+          <th class="col-actions">Действия</th>
+        </tr>
+      </thead>
       <tbody>
         {% for row in available_rows %}
         <tr>
-          <td><strong>{{ row.name }}</strong></td>
-          <td>{{ row.structure }}</td>
-          <td>{{ '%.2f'|format(row.utility) }}</td>
-          <td>{{ '%.2f'|format(row.net_profit) }}</td>
-          <td>{{ '%.2f'|format(row.risk) }}</td>
-          <td>{{ '%.2f'|format(row.max_bid) }}</td>
-          <td>
-            {{ lot_status_label(row.status) }}
-            {% if row.is_stale %}<span class="status-badge status-stale">Оценка устарела</span>{% endif %}
+          <td class="col-text"><strong class="text-ellipsis" title="{{ row.name }}">{{ row.name }}</strong></td>
+          <td class="col-text"><span class="text-ellipsis" title="{{ row.structure }}">{{ row.structure }}</span></td>
+          <td class="num">{{ '%.2f'|format(row.utility) }}</td>
+          <td class="num">{{ '%.2f'|format(row.net_profit) }}</td>
+          <td class="num">{{ '%.2f'|format(row.risk) }}</td>
+          <td class="num">{{ '%.2f'|format(row.max_bid) }}</td>
+          <td class="col-text">
+            <span>{{ lot_status_label(row.status) }}</span>
+            {% if row.is_stale %}<div><span class="status-badge status-stale" title="{{ row.stale_reason_label or row.stale_reason }}">Оценка устарела</span></div>{% endif %}
           </td>
-          <td>
-            <div class="actions">
+          <td class="actions-col">
+            <div class="row-actions" data-row-actions>
               <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть</a>
-              <a class="btn btn-secondary" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=row.lot_id) }}">Купить</a>
-              <form method="post" action="{{ url_for('pages.lot_reject_action', lot_id=row.lot_id) }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-                <button class="btn btn-secondary" type="submit">Отклонить</button>
-              </form>
+              <a class="btn btn-secondary {{ '' if row.status == 'available' else 'is-disabled' }}" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=row.lot_id) if row.status == 'available' else '#' }}">Купить</a>
+              <button class="btn btn-ghost" type="button" data-actions-toggle aria-haspopup="menu" aria-expanded="false">Ещё</button>
+              <div class="row-actions-menu" data-actions-menu role="menu" hidden>
+                <a role="menuitem" href="{{ url_for('pages.lot_edit_page', lot_id=row.lot_id) }}">Редактировать</a>
+                <a role="menuitem" href="{{ url_for('pages.lot_delete_confirm_page', lot_id=row.lot_id) }}">Удалить</a>
+                {% if row.status == 'available' %}
+                <form method="post" action="{{ url_for('pages.lot_reject_action', lot_id=row.lot_id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <button role="menuitem" type="submit">Отклонить</button>
+                </form>
+                {% elif row.status == 'bought' %}
+                <form method="post" action="{{ url_for('pages.lot_undo_buy_action', lot_id=row.lot_id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <button role="menuitem" type="submit">Отменить покупку</button>
+                </form>
+                {% elif row.status == 'rejected' %}
+                <form method="post" action="{{ url_for('pages.lot_restore_action', lot_id=row.lot_id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <button role="menuitem" type="submit">Вернуть в доступные</button>
+                </form>
+                {% endif %}
+              </div>
             </div>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="muted">Нет доступных лотов. Проверьте прогноз или создайте новые лоты.</td></tr>
+        <tr><td colspan="8"><div class="empty-state">Нет доступных лотов. Загрузите прогноз или добавьте новые лоты.</div></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -157,30 +246,52 @@
 <section class="card mt-4">
   <div class="section-head">
     <div>
-      <p class="section-kicker">Купленные лоты</p>
-      <h2 class="h2">Текущий портфель</h2>
+      <p class="section-kicker">Бюджет и портфель</p>
+      <h2 class="h2">Купленные лоты</h2>
     </div>
   </div>
+  <div class="insight-grid mt-3">
+    <div class="metric-card"><span class="metric-label">Стартовый бюджет</span><strong>{{ '%.1f'|format(portfolio.budget_total) }}</strong></div>
+    <div class="metric-card"><span class="metric-label">Потрачено</span><strong>{{ '%.1f'|format(portfolio.spent_total) }}</strong></div>
+    <div class="metric-card"><span class="metric-label">Осталось</span><strong>{{ '%.1f'|format(portfolio.remaining_budget) }}</strong></div>
+    <div class="metric-card"><span class="metric-label">Куплено лотов</span><strong>{{ portfolio.bought_lots_count }}</strong></div>
+    <div class="metric-card"><span class="metric-label">Ожидаемый доход</span><strong>{{ '%.1f'|format(portfolio.aggregate_income_total) }}</strong></div>
+    <div class="metric-card"><span class="metric-label">Ожидаемые расходы</span><strong>{{ '%.1f'|format(portfolio.aggregate_expenses_total) }}</strong></div>
+    <div class="metric-card"><span class="metric-label">Чистая прибыль</span><strong>{{ '%.1f'|format(portfolio.aggregate_net_profit) }}</strong></div>
+    <div class="metric-card"><span class="metric-label">Уровень риска</span><strong>{{ portfolio.risk_profile_label }}</strong></div>
+  </div>
   <div class="table-wrap mt-3">
-    <table class="table">
-      <thead><tr><th>Лот</th><th>Цена покупки</th><th>Ожидаемая прибыль</th><th>Вклад в риск</th><th>Статус</th><th>Действия</th></tr></thead>
+    <table class="table table-fixed">
+      <thead>
+        <tr>
+          <th class="col-text">Лот</th>
+          <th class="col-num">Цена покупки</th>
+          <th class="col-num">Ожидаемая прибыль</th>
+          <th class="col-num">Риск</th>
+          <th class="col-num">Вклад в портфель</th>
+          <th class="col-actions">Действия</th>
+        </tr>
+      </thead>
       <tbody>
         {% for row in purchased_rows %}
         <tr>
-          <td>{{ row.name }}</td>
-          <td>{{ '%.1f'|format(row.purchase_price) }}</td>
-          <td>{{ '%.2f'|format(row.net_profit) }}</td>
-          <td>{{ '%.2f'|format(row.risk) }}</td>
-          <td>{{ row.status_label }}</td>
-          <td>
-            <form method="post" action="{{ url_for('pages.lot_undo_buy_action', lot_id=row.lot_id) }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-              <button class="btn btn-secondary" type="submit">Отменить покупку</button>
-            </form>
+          <td class="text-ellipsis" title="{{ row.name }}">{{ row.name }}</td>
+          <td class="num">{{ '%.1f'|format(row.purchase_price) }}</td>
+          <td class="num">{{ '%.2f'|format(row.net_profit) }}</td>
+          <td class="num">{{ '%.2f'|format(row.risk) }}</td>
+          <td class="num">{{ '%.1f'|format((row.net_profit / portfolio.aggregate_net_profit * 100.0) if portfolio.aggregate_net_profit else 0.0) }}%</td>
+          <td class="actions-col">
+            <div class="actions">
+              <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть</a>
+              <form method="post" action="{{ url_for('pages.lot_undo_buy_action', lot_id=row.lot_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <button class="btn btn-secondary" type="submit">Отменить покупку</button>
+              </form>
+            </div>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="muted">Портфель пока пуст. Купленные лоты появятся здесь.</td></tr>
+        <tr><td colspan="6"><div class="empty-state">Портфель пока пуст. Купите первый лот из таблицы выше.</div></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -194,12 +305,15 @@
   </div>
 </section>
 
+<script defer src="{{ url_for('static', filename='js/analysis/row_actions.js') }}"></script>
 <script>
 (() => {
   const button = document.getElementById('recalculateLotsBtn');
+  const status = document.getElementById('dashboardStatus');
   if (!button) return;
   button.addEventListener('click', async () => {
     button.disabled = true;
+    status.textContent = 'Пересчитываю лоты...';
     const res = await fetch(button.dataset.url, {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}'},
@@ -207,11 +321,12 @@
     });
     const data = await res.json();
     if (data.ok) {
+      status.textContent = `Пересчитано лотов: ${data.meta.count}`;
       window.location.reload();
       return;
     }
     button.disabled = false;
-    alert(data?.error?.message || 'Не удалось пересчитать лоты.');
+    status.textContent = data?.error?.message || 'Не удалось пересчитать лоты.';
   });
 })();
 </script>

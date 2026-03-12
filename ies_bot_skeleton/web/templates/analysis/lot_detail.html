@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ lot.name }} | Лот {{ lot.id }} | IES{% endblock %}
+{% block page_title %}Лот #{{ lot.id }}{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
 {% include "components/analysis_context.html" %}
@@ -8,14 +9,20 @@
   <div class="section-head">
     <div>
       <p class="section-kicker">Лот #{{ lot.id }}</p>
-      <h1 class="h1">{{ lot.name }}</h1>
-      <p class="muted">{{ lot_scope_label(lot.scope) }} · {{ lot_status_label(lot.status) }} · стартовая цена {{ '%.1f'|format(lot.base_bid or 0.0) }} · текущая ставка {{ '%.1f'|format(lot.current_bid or 0.0) }}</p>
-      {% if evaluation.is_stale %}<p class="muted"><span class="status-badge status-stale">Оценка устарела</span> {{ evaluation.stale_reason }}</p>{% endif %}
+      <h1 class="h1 text-ellipsis" title="{{ lot.name }}">{{ lot.name }}</h1>
+      <p class="muted">
+        {{ lot_scope_label(lot.scope) }} · {{ lot_status_label(lot.status) }} ·
+        стартовая цена {{ '%.1f'|format(lot.base_bid or 0.0) }} ·
+        текущая ставка {{ '%.1f'|format(lot.current_bid or 0.0) }}
+      </p>
+      <p class="muted text-ellipsis" title="{{ lot_summary.structure }}">Состав: {{ lot_summary.structure }}</p>
+      {% if evaluation.is_stale %}
+      <p class="muted"><span class="status-badge status-stale">Оценка устарела</span> {{ stale_reason_label(evaluation.stale_reason) or evaluation.stale_reason }}</p>
+      {% endif %}
     </div>
     <div class="actions">
-      <a class="btn btn-primary" href="{{ url_for('pages.lot_edit_page', lot_id=lot.id) }}">Редактировать</a>
       {% if lot.status == 'available' %}
-      <a class="btn btn-secondary" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=lot.id) }}">Купить лот</a>
+      <a class="btn btn-primary" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=lot.id) }}">Купить</a>
       <form method="post" action="{{ url_for('pages.lot_reject_action', lot_id=lot.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <button class="btn btn-secondary" type="submit">Отклонить</button>
@@ -28,115 +35,65 @@
       {% elif lot.status == 'rejected' %}
       <form method="post" action="{{ url_for('pages.lot_restore_action', lot_id=lot.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-        <button class="btn btn-secondary" type="submit">Восстановить</button>
+        <button class="btn btn-secondary" type="submit">Вернуть в доступные</button>
       </form>
       {% endif %}
+      <a class="btn btn-secondary" href="{{ url_for('pages.lot_edit_page', lot_id=lot.id) }}">Редактировать</a>
       <button class="btn btn-secondary" id="recalculateLotBtn" type="button">Пересчитать</button>
       <a class="btn btn-danger" href="{{ url_for('pages.lot_delete_confirm_page', lot_id=lot.id) }}">Удалить</a>
     </div>
   </div>
 </section>
 
-<section class="grid cols-2 gap-4 mt-4">
-  <article class="card">
-    <p class="section-kicker">Состав</p>
-    <h2 class="h2">Объекты лота</h2>
-    <div class="pill-row mt-3">
-      <span class="pill">{{ lot_summary.items_total }} объектов</span>
-      <span class="pill">{{ lot_summary.counts.consumer or 0 }} потреб.</span>
-      <span class="pill">{{ lot_summary.counts.generator or 0 }} ген.</span>
-      <span class="pill">{{ lot_summary.counts.infrastructure or 0 }} инфр.</span>
-    </div>
-    <ul class="stack gap-2 mt-3">
-      {% for item in lot.items %}
-      <li>
-        <strong>{{ item.object_type.name if item.object_type else item.object_type_id }}</strong>
-        <span class="muted">· <code>{{ item.object_type.code if item.object_type else item.object_type_id }}</code> ×{{ item.quantity }}</span>
-      </li>
-      {% else %}
-      <li class="muted">Лот пока пустой.</li>
-      {% endfor %}
-    </ul>
-    <div class="risk-block mt-3">{{ lot_summary.compatibility }}</div>
-    {% if lot.note %}<div class="risk-block mt-3">{{ lot.note }}</div>{% endif %}
-    {% if lot.status == 'bought' %}
-    <div class="risk-block mt-3">Лот куплен по цене {{ '%.1f'|format(lot.purchase_price or 0.0) }}.</div>
-    {% endif %}
-  </article>
-
-  <article class="card">
-    <p class="section-kicker">Итог</p>
-    <h2 class="h2">Текущая оценка</h2>
-    <div class="metric-strip mt-3">
-      <div><span class="metric-label">Итоговая полезность</span><strong>{{ '%.2f'|format(evaluation.summary_score) }}</strong></div>
-      <div><span class="metric-label">Ожидаемая чистая прибыль</span><strong>{{ '%.2f'|format(evaluation.financial_breakdown.result.net_profit) }}</strong></div>
-      <div><span class="metric-label">Риск</span><strong>{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.risk_total) }}</strong></div>
-    </div>
-    <div class="table-wrap mt-3">
-      <table class="table">
-        <tbody>
-          <tr><th>Осторожная ставка</th><td>{{ '%.1f'|format(evaluation.decision_summary.soft_bid) }}</td></tr>
-          <tr><th>Рабочий максимум</th><td>{{ '%.1f'|format(evaluation.decision_summary.hard_bid) }}</td></tr>
-          <tr><th>Предел ставки</th><td>{{ '%.1f'|format(evaluation.decision_summary.stop_bid) }}</td></tr>
-          <tr><th>Соответствие стратегии</th><td>{{ evaluation.strategy_fit_text }}</td></tr>
-          <tr><th>Комментарий по рискам</th><td>{{ evaluation.risk_commentary }}</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="risk-block mt-3">{{ evaluation.score_definition }}</div>
-  </article>
+<section class="kpi-grid mt-4">
+  <article class="kpi-card"><span class="metric-label">Итоговая полезность</span><strong>{{ '%.2f'|format(evaluation.summary_score) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Ожидаемая чистая прибыль</span><strong>{{ '%.2f'|format(evaluation.financial_breakdown.result.net_profit) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Риск</span><strong>{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.risk_total) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Рекомендуемая макс. ставка</span><strong>{{ '%.1f'|format(evaluation.decision_summary.hard_bid) }}</strong></article>
 </section>
 
-<section class="card mt-4">
-  <p class="section-kicker">Worst / Base / Best</p>
-  <h2 class="h2">Сценарная аналитика</h2>
-  <div class="table-wrap mt-3">
-    <table class="table">
-      <thead><tr><th>Сценарий</th><th>Доход</th><th>Расходы</th><th>Потери и риски</th><th>Полезность</th><th>Рекомендованная ставка</th><th>Чистая прибыль</th><th>Комментарий</th></tr></thead>
-      <tbody>
-        {% for key in ['worst', 'base', 'best'] %}
-        {% set row = evaluation.scenario_breakdown[key] %}
-        <tr>
-          <td>{{ row.label }}</td>
-          <td>{{ '%.2f'|format(row.income_total) }}</td>
-          <td>{{ '%.2f'|format(row.expenses_total) }}</td>
-          <td>{{ '%.2f'|format(row.losses_total) }}</td>
-          <td>{{ '%.2f'|format(row.utility_total) }}</td>
-          <td>{{ '%.2f'|format(row.recommended_bid) }}</td>
-          <td>{{ '%.2f'|format(row.expected_net_profit_at_current_price) }}</td>
-          <td>{{ row.comment }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+<section class="grid cols-3 gap-4 mt-4">
+  {% for key in ['worst', 'base', 'best'] %}
+  {% set row = evaluation.scenario_breakdown[key] %}
+  <article class="card scenario-card">
+    <p class="section-kicker">{{ row.label }}</p>
+    <div class="key-value"><span>Доход</span><strong>{{ '%.2f'|format(row.income_total) }}</strong></div>
+    <div class="key-value"><span>Расходы</span><strong>{{ '%.2f'|format(row.expenses_total) }}</strong></div>
+    <div class="key-value"><span>Потери/риски</span><strong>{{ '%.2f'|format(row.losses_total) }}</strong></div>
+    <div class="key-value"><span>Чистая прибыль</span><strong>{{ '%.2f'|format(row.expected_net_profit_at_current_price) }}</strong></div>
+    <div class="key-value"><span>Полезность</span><strong>{{ '%.2f'|format(row.utility_total) }}</strong></div>
+    <div class="key-value"><span>Реком. ставка</span><strong>{{ '%.2f'|format(row.recommended_bid) }}</strong></div>
+    <div class="risk-block mt-3">{{ row.comment }}</div>
+  </article>
+  {% endfor %}
 </section>
 
 <section class="grid cols-2 gap-4 mt-4">
   <article class="card">
-    <p class="section-kicker">Финансовая раскладка</p>
-    <h2 class="h2">Доходы, расходы и потери</h2>
+    <p class="section-kicker">Декомпозиция расчёта</p>
+    <h2 class="h2">Из чего складывается оценка</h2>
     <div class="table-wrap mt-3">
       <table class="table">
         <tbody>
-          <tr><th>Доход от объектов</th><td>{{ '%.2f'|format(evaluation.financial_breakdown.income.object_income) }}</td></tr>
-          <tr><th>Доход от рынка</th><td>{{ '%.2f'|format(evaluation.financial_breakdown.income.market_income) }}</td></tr>
-          <tr><th>Экологический вклад</th><td>{{ '%.2f'|format(evaluation.financial_breakdown.income.eco_value) }}</td></tr>
-          <tr><th>Цена входа</th><td>{{ '%.2f'|format(evaluation.financial_breakdown.expenses.entry_price) }}</td></tr>
-          <tr><th>Контрактные расходы</th><td>{{ '%.2f'|format(evaluation.financial_breakdown.expenses.contract_costs) }}</td></tr>
-          <tr><th>Топливо и налоги</th><td>{{ '%.2f'|format(evaluation.financial_breakdown.expenses.fuel_and_taxes) }}</td></tr>
-          <tr><th>Допзакупка на рынке</th><td>{{ '%.2f'|format(evaluation.financial_breakdown.expenses.market_purchase) }}</td></tr>
-          <tr><th>Сетевые потери</th><td>{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.network_losses) }}</td></tr>
-          <tr><th>Штрафы</th><td>{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.penalties) }}</td></tr>
-          <tr><th>Риск-премия</th><td>{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.risk_total) }}</td></tr>
+          <tr><th class="col-text">Доход от объектов</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.income.object_income) }}</td></tr>
+          <tr><th class="col-text">Доход от рынка</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.income.market_income) }}</td></tr>
+          <tr><th class="col-text">Экологический вклад</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.income.eco_value) }}</td></tr>
+          <tr><th class="col-text">Цена входа</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.expenses.entry_price) }}</td></tr>
+          <tr><th class="col-text">Контрактные расходы</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.expenses.contract_costs) }}</td></tr>
+          <tr><th class="col-text">Топливо и налоги</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.expenses.fuel_and_taxes) }}</td></tr>
+          <tr><th class="col-text">Допзакупка на рынке</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.expenses.market_purchase) }}</td></tr>
+          <tr><th class="col-text">Сетевые потери</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.network_losses) }}</td></tr>
+          <tr><th class="col-text">Штрафы</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.penalties) }}</td></tr>
+          <tr><th class="col-text">Риск-премия</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.risk_total) }}</td></tr>
+          <tr><th class="col-text">Итог</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.result.net_profit) }}</td></tr>
         </tbody>
       </table>
     </div>
   </article>
 
   <article class="card">
-    <p class="section-kicker">Почему этот лот хороший / плохой</p>
-    <h2 class="h2">Ключевые причины</h2>
+    <p class="section-kicker">Комментарий аналитики</p>
+    <h2 class="h2">Ключевые причины оценки</h2>
     <ul class="stack gap-2 mt-3">
       {% for reason in evaluation.reasons %}
       <li>{{ reason }}</li>
@@ -144,6 +101,20 @@
       <li class="muted">Ключевые причины не рассчитаны.</li>
       {% endfor %}
     </ul>
+    <div class="table-wrap mt-3">
+      <table class="table">
+        <tbody>
+          <tr><th class="col-text">Осторожная ставка</th><td class="num">{{ '%.1f'|format(evaluation.decision_summary.soft_bid) }}</td></tr>
+          <tr><th class="col-text">Рабочий максимум</th><td class="num">{{ '%.1f'|format(evaluation.decision_summary.hard_bid) }}</td></tr>
+          <tr><th class="col-text">Предел ставки</th><td class="num">{{ '%.1f'|format(evaluation.decision_summary.stop_bid) }}</td></tr>
+          <tr><th class="col-text">Соответствие стратегии</th><td>{{ evaluation.strategy_fit_text }}</td></tr>
+          <tr><th class="col-text">Комментарий по рискам</th><td>{{ evaluation.risk_commentary }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="risk-block mt-3">{{ evaluation.score_definition }}</div>
+    {% if lot.note %}<div class="risk-block mt-3">{{ lot.note }}</div>{% endif %}
+    {% if lot.status == 'bought' %}<div class="risk-block mt-3">Лот куплен по цене {{ '%.1f'|format(lot.purchase_price or 0.0) }}.</div>{% endif %}
   </article>
 </section>
 

@@ -28,3 +28,4 @@ flask --app ies_bot_skeleton.web.app:create_app run
 - Если пользовательский прогноз не выбран, используется встроенный базовый прогноз
 - Портфель купленных лотов участвует в последующей аналитике
 - Отдельного compare-flow в публичном продукте нет
+- Legacy SSR-маршруты `/recommend/<session_id>`, `/strategy-fit/<lot_id>`, `/evaluation/<session_id>` сохранены только для совместимости и редиректят в основной dashboard-поток

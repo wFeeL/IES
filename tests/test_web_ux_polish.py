@@ -105,6 +105,7 @@ def test_workbench_focuses_on_forecast_portfolio_and_export_actions(client):
     assert f"/api/sessions/{session_id}/export.json" in html
     assert f"/api/sessions/{session_id}/evaluations.csv" in html
     assert f"/evaluation/{session_id}" not in html
+    assert f"/recommend/{session_id}" not in html
 
 
 def test_dashboard_imports_session_via_ssr_form(client):

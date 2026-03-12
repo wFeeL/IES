@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Быстрый аукцион {{ session.id }} | IES{% endblock %}
+{% block page_title %}Быстрый аукцион #{{ session.id }}{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
 {% include "components/analysis_context.html" %}
@@ -70,7 +71,7 @@
   </div>
   <div class="actions mt-3">
     <button id="qaApplyFilters" class="btn btn-secondary" type="button">Применить фильтры</button>
-    <a class="btn btn-secondary" href="{{ url_for('pages.recommend_page', session_id=session.id) }}">Открыть рекомендации</a>
+    <a class="btn btn-secondary" href="{{ url_for('pages.session_page', session_id=session.id) }}">Вернуться в dashboard</a>
   </div>
 </section>
 

@@ -87,3 +87,16 @@ def test_missing_admin_entities_redirect_with_flash_message(client):
     type_resp = client.get("/admin/object-types/999999/edit", follow_redirects=True)
     assert type_resp.status_code == 200
     assert "Тип объекта не найден." in type_resp.get_data(as_text=True)
+
+
+def test_legacy_analysis_pages_redirect_to_main_flow(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Legacy redirects")
+
+    evaluation = client.get(f"/evaluation/{session_id}", follow_redirects=False)
+    assert evaluation.status_code in (302, 303)
+    assert evaluation.headers["Location"].endswith(f"/sessions/{session_id}")
+
+    recommend = client.get(f"/recommend/{session_id}", follow_redirects=False)
+    assert recommend.status_code in (302, 303)
+    assert recommend.headers["Location"].endswith(f"/sessions/{session_id}")

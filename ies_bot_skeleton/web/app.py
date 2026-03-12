@@ -24,6 +24,7 @@ from .services.ui_text import (
     category_label,
     lot_scope_label,
     lot_status_label,
+    stale_reason_label,
     strategy_label,
 )
 
@@ -59,6 +60,7 @@ def create_app(config_name: Optional[str] = None) -> Flask:
             "category_label": category_label,
             "lot_scope_label": lot_scope_label,
             "lot_status_label": lot_status_label,
+            "stale_reason_label": stale_reason_label,
             "category_labels": CATEGORY_LABELS,
             "session_terms": SESSION_TERMS,
             "breadcrumbs": [],
