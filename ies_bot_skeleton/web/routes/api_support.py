@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from flask import jsonify, request
+from werkzeug.exceptions import BadRequest
 
 from ...application.lots import normalize_lot_items
 from ..extensions import db
@@ -26,8 +27,30 @@ class ApiError(ValueError):
 
 
 def json_payload() -> Dict[str, Any]:
-    payload = request.get_json(silent=True)
-    return payload if isinstance(payload, dict) else {}
+    raw_body = request.get_data(cache=True)
+    if not raw_body or not raw_body.strip():
+        return {}
+
+    if not request.is_json:
+        return {}
+
+    try:
+        payload = request.get_json(silent=False)
+    except BadRequest as exc:
+        raise ApiError(
+            code="bad_request",
+            message="Некорректный JSON",
+            status_code=400,
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise ApiError(
+            code="bad_request",
+            message="JSON payload должен быть объектом",
+            status_code=400,
+        )
+
+    return payload
 
 
 def get_session_or_404(session_id: int) -> GameSession:

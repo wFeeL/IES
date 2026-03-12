@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 from ..web.extensions import db
 from ..web.models import GameSession, ObjectInstance, ObjectType
+from ..web.services.stale import mark_stale_for_session
 
 
 def list_session_objects(session_id: int) -> List[ObjectInstance]:
@@ -87,6 +88,7 @@ def create_session_object(payload: Dict[str, Any]) -> ObjectInstance:
     )
     db.session.add(row)
     db.session.commit()
+    mark_stale_for_session(session.id, reason="object_changed")
     return row
 
 
@@ -109,10 +111,12 @@ def update_session_object(row: ObjectInstance, payload: Dict[str, Any]) -> Objec
         row.is_active = bool(payload["is_active"])
     db.session.add(row)
     db.session.commit()
+    mark_stale_for_session(row.session_id, reason="object_changed")
     return row
 
 
 def delete_session_object(row: ObjectInstance) -> Dict[str, Any]:
+    session_id = int(row.session_id)
     summary = {
         "object_id": int(row.id),
         "custom_name": row.custom_name,
@@ -123,4 +127,5 @@ def delete_session_object(row: ObjectInstance) -> Dict[str, Any]:
         db.session.add(child)
     db.session.delete(row)
     db.session.commit()
+    mark_stale_for_session(session_id, reason="object_changed")
     return summary

@@ -11,7 +11,7 @@ from ...application.context import (
     session_analysis_settings_for_session,
     update_analysis_settings_for_session,
 )
-from ...application.analysis import compare_session_lots, evaluate_session_lot
+from ...application.analysis import evaluate_session_lot, rank_session_lots
 from ...application.forecasts import parse_uploaded_forecast, summarize_stored_forecast
 from ...application.lots import delete_lot as delete_lot_use_case
 from ...application.objects import (
@@ -21,6 +21,7 @@ from ...application.objects import (
     list_session_objects,
     update_session_object,
 )
+from ...application.portfolio import buy_lot, reject_lot, restore_lot, undo_lot_purchase
 from ...application.recommendations import recommend_for_session, strategy_fit_for_lot
 from ...application.sessions import create_session_record
 from ..extensions import db
@@ -30,8 +31,10 @@ from ..services.session_io import (
     export_session_payload,
     import_session_payload,
 )
+from ..services.stale import mark_stale_for_session
 from .api_support import (
     ApiError,
+    api_error_response,
     get_lot_or_404,
     get_session_or_404,
     json_payload,
@@ -44,6 +47,11 @@ from .shared import api_bp
 @api_bp.errorhandler(ValueError)
 def _value_error(exc: ValueError):
     return value_error_response(exc)
+
+
+@api_bp.errorhandler(ApiError)
+def _api_error(exc: ApiError):
+    return api_error_response(exc)
 
 
 @api_bp.errorhandler(HTTPException)
@@ -102,9 +110,12 @@ def get_analysis_settings(session_id: int):
 def update_analysis_settings_endpoint(session_id: int):
     row = get_session_or_404(session_id)
     payload = json_payload()
+    previous_forecast_id = int(row.selected_forecast_id or 0)
     updated = update_analysis_settings_for_session(row, payload)
     db.session.add(row)
     db.session.commit()
+    if int(row.selected_forecast_id or 0) != previous_forecast_id:
+        mark_stale_for_session(row.id, reason="forecast_changed")
     return jsonify({"ok": True, "item": updated})
 
 
@@ -226,6 +237,7 @@ def list_lots():
     session_id = request.args.get("session_id", type=int)
     if not session_id:
         raise ValueError("session_id обязателен")
+    get_session_or_404(session_id)
     rows = db.session.query(Lot).filter_by(session_id=session_id).order_by(Lot.id).all()
     return jsonify({"ok": True, "items": [row.to_dict() for row in rows]})
 
@@ -243,7 +255,7 @@ def create_lot():
         session_id=session_id,
         name=str(payload.get("name", "Новый лот")),
         scope=str(payload.get("scope", "normal")),
-        status=str(payload.get("status", "available")),
+        status="available",
         base_bid=float(payload.get("base_bid", 0.0) or 0.0),
         current_bid=float(payload.get("current_bid", 0.0) or 0.0),
         note=str(payload.get("note", "")),
@@ -256,6 +268,7 @@ def create_lot():
 
     db.session.add(lot)
     db.session.commit()
+    mark_stale_for_session(session_id, reason="lot_changed")
     return jsonify({"ok": True, "item": lot.to_dict()})
 
 
@@ -271,7 +284,7 @@ def get_lot(lot_id: int):
 def update_lot(lot_id: int):
     lot = get_lot_or_404(lot_id)
     payload = json_payload()
-    for key in ("name", "scope", "status", "note"):
+    for key in ("name", "scope", "note"):
         if key in payload:
             setattr(lot, key, str(payload[key]))
     for key in ("base_bid", "current_bid"):
@@ -284,6 +297,7 @@ def update_lot(lot_id: int):
 
     db.session.add(lot)
     db.session.commit()
+    mark_stale_for_session(lot.session_id, reason="lot_changed")
     return jsonify({"ok": True, "item": lot.to_dict()})
 
 
@@ -291,68 +305,115 @@ def update_lot(lot_id: int):
 @login_required
 def delete_lot(lot_id: int):
     lot = get_lot_or_404(lot_id)
+    session_id = int(lot.session_id)
     summary = delete_lot_use_case(lot)
     db.session.commit()
+    mark_stale_for_session(session_id, reason="lot_changed")
     return jsonify({"ok": True, "item": summary})
 
 
 @api_bp.post("/lots/<int:lot_id>/evaluate")
 @login_required
 def evaluate_one_lot(lot_id: int):
-    payload = json_payload()
     lot = get_lot_or_404(lot_id)
     session = get_session_or_404(lot.session_id)
-
-    mode = str(payload.get("mode", session.analysis_mode or "no_forecast"))
-    strategy = payload.get("strategy")
-    forecast = None
-    if payload.get("forecast_id") is not None:
-        forecast = db.session.get(Forecast, int(payload["forecast_id"]))
+    payload = json_payload()
 
     out = evaluate_session_lot(
         session=session,
         lot=lot,
-        mode=mode,
-        strategy=strategy,
-        forecast=forecast,
-        corridor_override=payload.get("corridor_override"),
+        strategy=payload.get("strategy"),
         persist=True,
     )
     return jsonify({"ok": True, "item": out})
 
 
-@api_bp.post("/lots/compare")
+@api_bp.get("/sessions/<int:session_id>/lots/analytics")
 @login_required
-def compare_lots_endpoint():
-    payload = json_payload()
-    session_id = int(payload.get("session_id", 0) or 0)
-    lot_ids = [int(x) for x in payload.get("lot_ids", []) or []]
-    strategy = payload.get("strategy")
-
-    if session_id <= 0:
-        raise ValueError("session_id обязателен")
-    if len(lot_ids) < 2:
-        raise ValueError("lot_ids должен содержать минимум 2 лота")
-
+def lots_analytics(session_id: int):
     session = get_session_or_404(session_id)
-    mode = str(payload.get("mode", session.analysis_mode or "no_forecast"))
-    lots = db.session.query(Lot).filter(Lot.id.in_(lot_ids), Lot.session_id == session_id).all()
-    if len(lots) < 2:
-        raise ValueError("Лоты не найдены")
+    rows = rank_session_lots(session=session, lots=session.lots, persist=False)
 
-    forecast = None
-    if payload.get("forecast_id") is not None:
-        forecast = db.session.get(Forecast, int(payload["forecast_id"]))
+    status_filter = str(request.args.get("status", "all") or "all")
+    composition_filter = str(request.args.get("composition", "all") or "all")
+    price_min = request.args.get("price_min", type=float)
+    price_max = request.args.get("price_max", type=float)
+    utility_min = request.args.get("utility_min", type=float)
+    utility_max = request.args.get("utility_max", type=float)
+    risk_max = request.args.get("risk_max", type=float)
+    sort_key = str(request.args.get("sort", "utility_desc") or "utility_desc")
 
-    out = compare_session_lots(
-        session=session,
-        lots=lots,
-        mode=mode,
-        strategy=strategy,
-        forecast=forecast,
-        corridor_override=payload.get("corridor_override"),
-    )
-    return jsonify({"ok": True, "items": out})
+    enriched = []
+    lots_by_id = {int(lot.id): lot for lot in session.lots}
+    for item in rows:
+        lot = lots_by_id.get(int(item["lot_id"]))
+        if lot is None:
+            continue
+        structure = ", ".join(
+            f"{it.object_type.code if it.object_type else it.object_type_id} ×{max(1, int(it.quantity or 1))}"
+            for it in lot.items[:4]
+        )
+        composition = "all"
+        categories = sorted({(it.object_type.category if it.object_type else "") for it in lot.items if it.object_type})
+        if "consumer" in categories and "generator" in categories:
+            composition = "mixed"
+        elif "generator" in categories:
+            composition = "generator"
+        elif "consumer" in categories:
+            composition = "consumer"
+        elif "storage" in categories:
+            composition = "storage"
+        elif "infrastructure" in categories:
+            composition = "infrastructure"
+        enriched.append(
+            {
+                **item,
+                "status": lot.status,
+                "structure": structure or "Пустой лот",
+                "composition": composition,
+                "price": float(lot.purchase_price if lot.status == "bought" and lot.purchase_price is not None else lot.current_bid or 0.0),
+                "risk": float((item.get("financial_breakdown") or {}).get("losses_and_risks", {}).get("risk_total", 0.0) or 0.0),
+                "net_profit": float((item.get("financial_breakdown") or {}).get("result", {}).get("net_profit", 0.0) or 0.0),
+            }
+        )
+
+    if status_filter != "all":
+        enriched = [row for row in enriched if row["status"] == status_filter]
+    if composition_filter != "all":
+        enriched = [row for row in enriched if row["composition"] == composition_filter]
+    if price_min is not None:
+        enriched = [row for row in enriched if row["price"] >= price_min]
+    if price_max is not None:
+        enriched = [row for row in enriched if row["price"] <= price_max]
+    if utility_min is not None:
+        enriched = [row for row in enriched if float(row.get("summary_score", 0.0)) >= utility_min]
+    if utility_max is not None:
+        enriched = [row for row in enriched if float(row.get("summary_score", 0.0)) <= utility_max]
+    if risk_max is not None:
+        enriched = [row for row in enriched if row["risk"] <= risk_max]
+
+    if sort_key == "profit_desc":
+        enriched.sort(key=lambda row: row["net_profit"], reverse=True)
+    elif sort_key == "risk_asc":
+        enriched.sort(key=lambda row: row["risk"])
+    elif sort_key == "bid_desc":
+        enriched.sort(key=lambda row: float((row.get("decision_summary") or {}).get("hard_bid", 0.0)), reverse=True)
+    elif sort_key == "price_asc":
+        enriched.sort(key=lambda row: row["price"])
+    elif sort_key == "price_desc":
+        enriched.sort(key=lambda row: row["price"], reverse=True)
+    else:
+        enriched.sort(key=lambda row: float(row.get("summary_score", 0.0)), reverse=True)
+
+    return jsonify({"ok": True, "items": enriched})
+
+
+@api_bp.post("/sessions/<int:session_id>/recalculate")
+@login_required
+def recalculate_session_lots(session_id: int):
+    session = get_session_or_404(session_id)
+    rows = rank_session_lots(session=session, lots=session.lots, persist=True)
+    return jsonify({"ok": True, "items": rows, "meta": {"count": len(rows)}})
 
 
 @api_bp.post("/forecast/upload")
@@ -388,6 +449,7 @@ def upload_forecast():
         session.selected_forecast_id = forecast.id
         db.session.add(session)
         db.session.commit()
+        mark_stale_for_session(session.id, reason="forecast_changed")
 
     return jsonify(
         {
@@ -434,6 +496,47 @@ def analyze_forecast(forecast_id: int):
     return jsonify({"ok": True, "item": summarize_stored_forecast(forecast)})
 
 
+@api_bp.post("/lots/<int:lot_id>/buy")
+@login_required
+def buy_lot_endpoint(lot_id: int):
+    lot = get_lot_or_404(lot_id)
+    session = get_session_or_404(lot.session_id)
+    payload = json_payload()
+    summary = buy_lot(session, lot, float(payload.get("purchase_price", 0.0) or 0.0))
+    db.session.commit()
+    return jsonify({"ok": True, "item": summary})
+
+
+@api_bp.post("/lots/<int:lot_id>/undo-buy")
+@login_required
+def undo_buy_lot_endpoint(lot_id: int):
+    lot = get_lot_or_404(lot_id)
+    session = get_session_or_404(lot.session_id)
+    summary = undo_lot_purchase(session, lot)
+    db.session.commit()
+    return jsonify({"ok": True, "item": summary})
+
+
+@api_bp.post("/lots/<int:lot_id>/reject")
+@login_required
+def reject_lot_endpoint(lot_id: int):
+    lot = get_lot_or_404(lot_id)
+    summary = reject_lot(lot)
+    db.session.commit()
+    mark_stale_for_session(lot.session_id, reason="lot_changed")
+    return jsonify({"ok": True, "item": summary})
+
+
+@api_bp.post("/lots/<int:lot_id>/restore")
+@login_required
+def restore_lot_endpoint(lot_id: int):
+    lot = get_lot_or_404(lot_id)
+    summary = restore_lot(lot)
+    db.session.commit()
+    mark_stale_for_session(lot.session_id, reason="lot_changed")
+    return jsonify({"ok": True, "item": summary})
+
+
 @api_bp.post("/recommend/best-lot")
 @login_required
 def recommend_best():
@@ -445,22 +548,14 @@ def recommend_best():
         raise ValueError("session_id обязателен")
 
     session = get_session_or_404(session_id)
-    mode = str(payload.get("mode", session.analysis_mode or "no_forecast"))
     lots = db.session.query(Lot).filter_by(session_id=session_id).all()
     if not lots:
         raise ValueError("Нет лотов для рекомендации")
 
-    forecast = None
-    if payload.get("forecast_id") is not None:
-        forecast = db.session.get(Forecast, int(payload["forecast_id"]))
-
     out = recommend_for_session(
         session=session,
         lots=lots,
-        mode=mode,
         strategy=strategy,
-        forecast=forecast,
-        corridor_override=payload.get("corridor_override"),
     )
     return jsonify({"ok": True, "item": out})
 
@@ -475,17 +570,9 @@ def recommend_strategy_fit():
 
     lot = get_lot_or_404(lot_id)
     session = get_session_or_404(lot.session_id)
-    mode = str(payload.get("mode", session.analysis_mode or "no_forecast"))
-
-    forecast = None
-    if payload.get("forecast_id") is not None:
-        forecast = db.session.get(Forecast, int(payload["forecast_id"]))
 
     out = strategy_fit_for_lot(
         session=session,
         lot=lot,
-        mode=mode,
-        forecast=forecast,
-        corridor_override=payload.get("corridor_override"),
     )
     return jsonify({"ok": True, "item": out})

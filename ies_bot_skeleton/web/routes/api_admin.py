@@ -22,12 +22,13 @@ from ...application.admin import (
     update_start_pack_template_for_admin,
 )
 from ..services.auth import is_admin, role_required
-from .api_support import json_payload
+from .api_support import ApiError, json_payload
 from .shared import api_bp
 
 
 @api_bp.get("/rulesets")
 @login_required
+@role_required("admin")
 def rulesets_list_endpoint():
     rows = list_rulesets_for_admin()
     return jsonify({"ok": True, "items": [row.to_dict() for row in rows]})
@@ -46,7 +47,7 @@ def rulesets_create_endpoint():
 @login_required
 @role_required("admin")
 def rulesets_update_endpoint(ruleset_id: int):
-    row = get_ruleset_for_admin(ruleset_id)
+    row = _get_ruleset_or_404(ruleset_id)
     payload = json_payload()
     updated = update_ruleset_for_admin(row, payload)
     return jsonify({"ok": True, "item": updated.to_dict()})
@@ -56,7 +57,7 @@ def rulesets_update_endpoint(ruleset_id: int):
 @login_required
 @role_required("admin")
 def rulesets_copy_endpoint(ruleset_id: int):
-    row = get_ruleset_for_admin(ruleset_id)
+    row = _get_ruleset_or_404(ruleset_id)
     payload = json_payload()
     copied = copy_ruleset_for_admin(row, name=payload.get("name"), code=payload.get("code"))
     return jsonify({"ok": True, "item": copied.to_dict()})
@@ -66,7 +67,7 @@ def rulesets_copy_endpoint(ruleset_id: int):
 @login_required
 @role_required("admin")
 def rulesets_activate_endpoint(ruleset_id: int):
-    row = get_ruleset_for_admin(ruleset_id)
+    row = _get_ruleset_or_404(ruleset_id)
     activate_ruleset_for_admin(row)
     return jsonify({"ok": True, "item": row.to_dict()})
 
@@ -75,13 +76,14 @@ def rulesets_activate_endpoint(ruleset_id: int):
 @login_required
 @role_required("admin")
 def rulesets_deactivate_endpoint(ruleset_id: int):
-    row = get_ruleset_for_admin(ruleset_id)
+    row = _get_ruleset_or_404(ruleset_id)
     deactivate_ruleset_for_admin(row)
     return jsonify({"ok": True, "item": row.to_dict()})
 
 
 @api_bp.get("/start-pack-templates")
 @login_required
+@role_required("admin")
 def start_pack_templates_list_endpoint():
     include_inactive = bool(request.args.get("include_inactive", type=int))
     if include_inactive and not is_admin():
@@ -92,8 +94,9 @@ def start_pack_templates_list_endpoint():
 
 @api_bp.get("/start-pack-templates/<int:template_id>")
 @login_required
+@role_required("admin")
 def start_pack_templates_get_endpoint(template_id: int):
-    row = get_start_pack_template_for_admin(template_id)
+    row = _get_start_pack_template_or_404(template_id)
     return jsonify({"ok": True, "item": row.to_dict(include_items=True)})
 
 
@@ -117,7 +120,7 @@ def start_pack_templates_create_endpoint():
 @login_required
 @role_required("admin")
 def start_pack_templates_update_endpoint(template_id: int):
-    row = get_start_pack_template_for_admin(template_id)
+    row = _get_start_pack_template_or_404(template_id)
     payload = json_payload()
     out = update_start_pack_template_for_admin(row=row, payload=payload)
     return jsonify({"ok": True, "item": out.to_dict(include_items=True)})
@@ -127,7 +130,7 @@ def start_pack_templates_update_endpoint(template_id: int):
 @login_required
 @role_required("admin")
 def start_pack_templates_delete_endpoint(template_id: int):
-    row = get_start_pack_template_for_admin(template_id)
+    row = _get_start_pack_template_or_404(template_id)
     deactivate_start_pack_template_for_admin(row)
     return jsonify({"ok": True})
 
@@ -145,7 +148,7 @@ def create_object_type():
 @login_required
 @role_required("admin")
 def update_object_type(object_type_id: int):
-    row = get_object_type_for_admin(object_type_id)
+    row = _get_object_type_or_404(object_type_id)
     payload = json_payload()
     out = update_object_type_for_admin(row, payload)
     return jsonify({"ok": True, "item": out.to_dict()})
@@ -155,6 +158,27 @@ def update_object_type(object_type_id: int):
 @login_required
 @role_required("admin")
 def delete_object_type(object_type_id: int):
-    row = get_object_type_for_admin(object_type_id)
+    row = _get_object_type_or_404(object_type_id)
     deactivate_object_type_for_admin(row)
     return jsonify({"ok": True})
+
+
+def _get_ruleset_or_404(ruleset_id: int):
+    try:
+        return get_ruleset_for_admin(ruleset_id)
+    except ValueError as exc:
+        raise ApiError(code="not_found", message=str(exc), status_code=404) from exc
+
+
+def _get_start_pack_template_or_404(template_id: int):
+    try:
+        return get_start_pack_template_for_admin(template_id)
+    except ValueError as exc:
+        raise ApiError(code="not_found", message=str(exc), status_code=404) from exc
+
+
+def _get_object_type_or_404(object_type_id: int):
+    try:
+        return get_object_type_for_admin(object_type_id)
+    except ValueError as exc:
+        raise ApiError(code="not_found", message=str(exc), status_code=404) from exc
