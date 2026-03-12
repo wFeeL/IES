@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from flask_wtf import FlaskForm
-from wtforms import FloatField, SelectField, StringField, SubmitField
-from wtforms.validators import DataRequired, Length, NumberRange
+from wtforms import FloatField, SelectField, StringField, SubmitField, TextAreaField
+from wtforms.validators import DataRequired, Length, NumberRange, Optional
 
 
 class SessionForm(FlaskForm):
@@ -32,3 +32,8 @@ class SessionForm(FlaskForm):
 
 class ConfirmDeleteForm(FlaskForm):
     submit = SubmitField("Удалить сессию")
+
+
+class SessionImportForm(FlaskForm):
+    payload_json = TextAreaField("JSON сессии", validators=[Optional()])
+    submit = SubmitField("Импортировать сессию")

@@ -3,13 +3,8 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from ies_bot_skeleton.offline.lottool import ensure_lottool_path
-
 from ..models import GameSession, Lot, LotItem, ObjectInstance
-
-ensure_lottool_path()
-
-from lottool.model.types import (  # noqa: E402
+from ies_bot_skeleton.domain.lot_analysis.types import (
     Assumptions,
     Branch,
     Budget,
@@ -20,7 +15,7 @@ from lottool.model.types import (  # noqa: E402
     State,
 )
 
-LOTTOOL_KIND_MAP = {
+DOMAIN_KIND_MAP = {
     "main": "main",
     "main_substation": "main",
     "main_substation_hq": "main",
@@ -53,8 +48,8 @@ def _norm(value: str) -> str:
     return "".join(ch.lower() for ch in str(value or "") if ch.isalnum() or ch == "_")
 
 
-def _to_lottool_kind(code: str) -> Optional[str]:
-    return LOTTOOL_KIND_MAP.get(_norm(code))
+def _to_domain_kind(code: str) -> Optional[str]:
+    return DOMAIN_KIND_MAP.get(_norm(code))
 
 
 def _merged_params(instance: ObjectInstance) -> Dict:
@@ -68,7 +63,7 @@ def _object_item_id(prefix: str, source_id: int, fallback: str = "") -> str:
 def instance_to_object_item(instance: ObjectInstance) -> Optional[ObjectItem]:
     if not instance.object_type:
         return None
-    kind = _to_lottool_kind(instance.object_type.code)
+    kind = _to_domain_kind(instance.object_type.code)
     if kind is None:
         return None
 
@@ -109,7 +104,7 @@ def instance_to_object_item(instance: ObjectInstance) -> Optional[ObjectItem]:
 def lot_item_to_object_item(lot_item: LotItem) -> Optional[ObjectItem]:
     if not lot_item.object_type:
         return None
-    kind = _to_lottool_kind(lot_item.object_type.code)
+    kind = _to_domain_kind(lot_item.object_type.code)
     if kind is None:
         return None
 
@@ -143,7 +138,7 @@ def lot_item_to_object_item(lot_item: LotItem) -> Optional[ObjectItem]:
     )
 
 
-def lot_to_lottool(lot: Lot) -> LotModel:
+def lot_to_domain_lot(lot: Lot) -> LotModel:
     items: List[ObjectItem] = []
     for it in lot.items:
         mapped = lot_item_to_object_item(it)

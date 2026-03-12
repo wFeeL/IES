@@ -11,7 +11,7 @@ from .cli import init_cli
 from .config import CONFIG_MAP
 from .extensions import csrf, db, login_manager, migrate
 from .models import User
-from .routes import api_bp, pages_bp
+from .routes import register_blueprints
 from .services.navigation import (
     build_breadcrumbs,
     is_safe_internal_url,
@@ -69,20 +69,7 @@ def create_app(config_name: Optional[str] = None) -> Flask:
             "stale_warning": None,
         }
 
-    app.register_blueprint(pages_bp)
-    app.register_blueprint(api_bp)
+    register_blueprints(app)
 
     init_cli(app)
     return app
-
-
-def main() -> int:
-    app = create_app()
-    host = os.getenv("IES_WEB_HOST", "127.0.0.1")
-    port = int(os.getenv("IES_WEB_PORT", "5000"))
-    app.run(host=host, port=port)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

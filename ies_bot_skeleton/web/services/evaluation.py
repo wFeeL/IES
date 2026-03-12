@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, Iterable, List, Optional
 
-from ies_bot_skeleton.offline.lottool import ensure_lottool_path
+from ies_bot_skeleton.domain.lot_analysis.auction.ev import recommended_bid_range
+from ies_bot_skeleton.domain.lot_analysis.scoring.marginal import marginal_value
+from ies_bot_skeleton.domain.lot_analysis.scoring.scenarios import summarize_delta
 
 from ..extensions import db
 from ..models import EvaluationResult, Forecast, GameSession, Lot
-from .adapter import lot_to_lottool, session_to_state
+from .adapter import lot_to_domain_lot, session_to_state
 from .analysis_context import resolve_analysis_context
 from .forecast_service import (
     build_forecast_pack,
@@ -19,12 +21,6 @@ from .network import validate_session_network
 from .ruleset import strategy_weights
 from .stale import stale_summary_for_session
 from .ui_text import strategy_label
-
-ensure_lottool_path()
-
-from lottool.auction.ev import recommended_bid_range  # noqa: E402
-from lottool.scoring.marginal import marginal_value  # noqa: E402
-from lottool.scoring.scenarios import summarize_delta  # noqa: E402
 
 DEFAULT_WEIGHTED = {"base": 0.50, "worst": 0.35, "best": 0.15, "custom": 0.0}
 
@@ -174,7 +170,7 @@ def evaluate_lot(
         rules_cfg,
         corridor_override=corridor_assumptions,
     )
-    lot_model = lot_to_lottool(lot)
+    lot_model = lot_to_domain_lot(lot)
 
     if mode == "no_forecast":
         forecasts = load_bundled_forecast_pack()
@@ -282,6 +278,19 @@ def evaluate_lot(
         "hard_bid": float(hard_bid),
         "stop_bid": float(stop_bid),
     }
+    analysis_context = {
+        "mode": mode,
+        "mode_label": analysis_ctx["mode_label"],
+        "source": analysis_ctx["source"],
+        "source_label": analysis_ctx["source_label"],
+        "forecast_id": (
+            int(analysis_ctx["forecast"].id) if analysis_ctx["forecast"] is not None else None
+        ),
+        "forecast_name": (
+            analysis_ctx["forecast"].name if analysis_ctx["forecast"] is not None else None
+        ),
+        "corridor_settings": analysis_ctx["corridor_settings"] if mode == "no_forecast" else None,
+    }
     stale_warning = stale_summary_for_session(session.id)
     ui_flags = {
         "has_stale_dependencies": bool(stale_warning.get("has_stale")),
@@ -313,6 +322,7 @@ def evaluate_lot(
         "risk_commentary": risk_commentary,
         "strategy_fit_text": strategy_fit_text,
         "analysis_mode_label": analysis_ctx["mode_label"],
+        "analysis_context": analysis_context,
         "corridor_summary": analysis_ctx["corridor_summary"],
         "forecast_summary": analysis_ctx["forecast_summary"],
         "scenario_band": scenario_band,
@@ -343,6 +353,7 @@ def evaluate_lot(
         "risk_commentary": risk_commentary,
         "strategy_fit_text": strategy_fit_text,
         "analysis_mode_label": analysis_ctx["mode_label"],
+        "analysis_context": analysis_context,
         "corridor_summary": analysis_ctx["corridor_summary"],
         "forecast_summary": analysis_ctx["forecast_summary"],
         "scenario_band": scenario_band,

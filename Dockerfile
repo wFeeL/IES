@@ -9,7 +9,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 
 COPY pyproject.toml README.md ./
 COPY ies_bot_skeleton ./ies_bot_skeleton
-COPY ies.py main.py ./
 
 RUN python -m pip install --upgrade pip && \
     python -m pip install .

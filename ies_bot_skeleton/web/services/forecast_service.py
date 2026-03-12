@@ -8,17 +8,13 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from ies_bot_skeleton.offline.lottool import ensure_lottool_path
+from ies_bot_skeleton.domain.lot_analysis.forecast_loader import load_forecasts
 
 from ..extensions import db
 from ..models import Forecast, ForecastPeriod, GameSession
 
-ensure_lottool_path()
-
-from lottool.io.forecast_loader import load_forecasts as load_lottool_forecasts  # noqa: E402
-
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_FORECASTS_DIR = ROOT / "lot_tool" / "data" / "forecasts"
+DEFAULT_FORECASTS_DIR = ROOT / "resources" / "lot_analysis" / "default_forecasts"
 
 
 @dataclass
@@ -136,7 +132,7 @@ def _read_csv(content: bytes) -> Tuple[List[str], List[Dict[str, str]]]:
 def _cached_bundled_forecast_pack() -> Dict[str, Dict[str, Dict[int, float]]]:
     if not DEFAULT_FORECASTS_DIR.exists():
         return _empty_forecast_pack()
-    return load_lottool_forecasts(str(DEFAULT_FORECASTS_DIR))
+    return load_forecasts(str(DEFAULT_FORECASTS_DIR))
 
 
 def load_bundled_forecast_pack() -> Dict[str, Dict[str, Dict[int, float]]]:

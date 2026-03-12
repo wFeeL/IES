@@ -59,6 +59,8 @@
     <div class="risk-block mt-2" data-role="risk-commentary">{{ latest_eval.risk_commentary or summary.compatibility }}</div>
 
     <div class="actions mt-3">
+      <a class="btn btn-primary" href="{{ url_for('pages.lot_detail_page', lot_id=lot.id) }}">Открыть</a>
+      <a class="btn btn-secondary" href="{{ url_for('pages.lot_edit_page', lot_id=lot.id) }}">Редактировать</a>
       <button class="btn btn-secondary evalBtn" data-lot-id="{{ lot.id }}">Оценить</button>
       <a class="btn btn-secondary" href="{{ url_for('pages.compare_page', session_id=session.id) }}">В сравнение</a>
       <a class="btn btn-secondary" href="{{ url_for('pages.strategy_fit_page', lot_id=lot.id) }}">Стратегии</a>
@@ -98,6 +100,10 @@ window.IES_LOTS_PAGE = {
     }
   };
 
+  function errorMessage(data) {
+    return data?.error?.message || data?.error || "Неизвестная ошибка";
+  }
+
   function updateLotCard(lotId, item) {
     const card = document.querySelector(`[data-lot-id="${lotId}"]`);
     if (!card || !item) return;
@@ -123,7 +129,7 @@ window.IES_LOTS_PAGE = {
       body: JSON.stringify({})
     });
     const data = await res.json();
-    statusEl.textContent = data.ok ? `Добавлено объектов: ${data.created.length}` : `Ошибка: ${data.error}`;
+    statusEl.textContent = data.ok ? `Добавлено объектов: ${data.created.length}` : `Ошибка: ${errorMessage(data)}`;
     if (data.ok) window.location.reload();
   });
 
@@ -141,7 +147,7 @@ window.IES_LOTS_PAGE = {
         updateLotCard(btn.dataset.lotId, data.item);
         statusEl.textContent = `Лот ${btn.dataset.lotId} оценен: балл ${fmt.score(data.item.summary_score)}, ставка ${fmt.bid(data.item.recommended_bid_hard)}.`;
       } else {
-        statusEl.textContent = `Ошибка: ${data.error}`;
+        statusEl.textContent = `Ошибка: ${errorMessage(data)}`;
       }
     });
   });

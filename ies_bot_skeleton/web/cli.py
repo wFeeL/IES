@@ -5,9 +5,9 @@ from pathlib import Path
 import click
 from flask.cli import with_appcontext
 
+from ..application.legacy_import import run_legacy_import
 from .extensions import db
 from .models import GameSession, User
-from .services.legacy_import import import_legacy_data
 from .services.seed import ensure_seed_data
 
 
@@ -54,7 +54,7 @@ def import_legacy_command(session_id: int, state_path: Path | None, lots_dir: Pa
     if lots_dir is not None:
         kwargs["lots_dir"] = lots_dir
 
-    report = import_legacy_data(**kwargs)
+    report = run_legacy_import(**kwargs)
     click.echo(f"Legacy import report: {report}")
 
 

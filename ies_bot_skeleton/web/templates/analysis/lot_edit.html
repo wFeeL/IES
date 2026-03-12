@@ -1,12 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Новый лот {{ session.id }} | IES{% endblock %}
+{% block title %}{{ 'Редактирование лота' if editor_mode == 'edit' else 'Новый лот' }} {{ session.id }} | IES{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
 <section class="card mt-4">
   <div class="section-head">
     <div>
       <p class="section-kicker">Редактор лота</p>
-      <h1 class="h1">Добавить лот в сессию</h1>
+      <h1 class="h1">{{ 'Редактировать лот' if editor_mode == 'edit' else 'Добавить лот в сессию' }}</h1>
+      {% if lot %}
+      <p class="muted">Лот #{{ lot.id }}</p>
+      {% endif %}
     </div>
   </div>
   <form method="post" class="stack gap-3 mt-3" id="lotEditorForm">
@@ -52,7 +55,7 @@
     </div>
 
     <div class="actions mt-3">
-      <button class="btn btn-primary" type="submit">Сохранить лот</button>
+      <button class="btn btn-primary" type="submit">{{ 'Сохранить изменения' if editor_mode == 'edit' else 'Сохранить лот' }}</button>
       {% if cancel_url %}
       <a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>
       {% endif %}

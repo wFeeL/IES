@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from tests.web_helpers import create_session, login
 
 
@@ -89,3 +91,71 @@ def test_system_and_lot_edit_pages_hide_unwanted_analysis_noise(client):
     lot_edit_html = lot_edit_resp.get_data(as_text=True)
     assert "raw JSON" not in lot_edit_html
     assert "Состав JSON" not in lot_edit_html
+
+
+def test_workbench_exposes_history_and_export_actions(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Workbench actions")
+
+    resp = client.get(f"/sessions/{session_id}")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    assert f"/evaluation/{session_id}" in html
+    assert f"/api/sessions/{session_id}/export.json" in html
+    assert f"/api/sessions/{session_id}/evaluations.csv" in html
+
+
+def test_dashboard_imports_session_via_ssr_form(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Export me")
+    payload = client.get(f"/api/sessions/{session_id}/export.json").get_json()["item"]
+
+    dashboard = client.get("/dashboard")
+    assert dashboard.status_code == 200
+    assert "/sessions/import" in dashboard.get_data(as_text=True)
+
+    imported = client.post(
+        "/sessions/import",
+        data={"payload_json": json.dumps(payload)},
+        follow_redirects=False,
+    )
+    assert imported.status_code in (302, 303)
+    assert "/sessions/" in imported.headers["Location"]
+
+
+def test_quick_auction_uses_user_facing_actions_without_debug_block(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Quick UX")
+    type_rows = client.get("/api/object-types").get_json()["items"]
+    wind_id = next(row["id"] for row in type_rows if row["code"] == "wind")
+
+    lot_a = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "QA lot 1",
+            "scope": "normal",
+            "base_bid": 100,
+            "current_bid": 105,
+            "items": [{"object_type_id": wind_id, "quantity": 1}],
+        },
+    ).get_json()["item"]["id"]
+    client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "QA lot 2",
+            "scope": "normal",
+            "base_bid": 90,
+            "current_bid": 95,
+            "items": [{"object_type_id": wind_id, "quantity": 1}],
+        },
+    )
+
+    resp = client.get(f"/quick-auction/{session_id}")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "Технический ответ" not in html
+    assert "Текущая ставка по лоту" in html
+    assert f"/lots/item/{lot_a}" in html

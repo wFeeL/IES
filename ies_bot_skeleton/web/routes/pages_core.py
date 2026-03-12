@@ -5,6 +5,12 @@ from typing import Dict, List
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
+from ...application.context import (
+    default_corridor_settings_for_ruleset,
+    session_analysis_settings_for_session,
+    update_analysis_settings_for_session,
+)
+from ...application.sessions import create_session_record, delete_session_record
 from ..extensions import db
 from ..forms import (
     AnalysisModeForm,
@@ -13,14 +19,14 @@ from ..forms import (
     ForecastSelectionForm,
     LoginForm,
     SessionForm,
+    SessionImportForm,
 )
 from ..models import GameSession, ObjectType, Ruleset, User
-from ..services.analysis_context import session_analysis_settings, update_session_analysis_settings
-from ..services.corridor import ruleset_default_corridor_settings
 from ..services.navigation import is_safe_internal_url, safe_next_url
+from ..services.session_io import import_session_payload
 from ..services.strategy_catalog import strategy_list, strategy_meta
 from ..services.ui_text import SESSION_TERMS, analysis_mode_label, strategy_label
-from .page_support import nav, session_analysis_view, session_stale_ctx
+from .page_support import nav, parse_json, session_analysis_view, session_stale_ctx
 from .shared import pages_bp
 
 
@@ -28,6 +34,11 @@ def _fmt_datetime(value) -> str:
     if value is None:
         return "—"
     return value.strftime("%d.%m.%Y %H:%M")
+
+
+def _missing_session_redirect():
+    flash("Сессия не найдена.", "error")
+    return redirect(url_for("pages.dashboard"))
 
 
 def _dashboard_cards(sessions: List[GameSession]) -> List[Dict[str, object]]:
@@ -54,7 +65,7 @@ def _dashboard_cards(sessions: List[GameSession]) -> List[Dict[str, object]]:
 
 
 def _workbench_forms(session: GameSession) -> Dict[str, object]:
-    settings = session_analysis_settings(session)
+    settings = session_analysis_settings_for_session(session)
 
     mode_form = AnalysisModeForm()
     mode_form.analysis_mode.data = settings["analysis_mode"]
@@ -120,6 +131,7 @@ def logout():
 @login_required
 def dashboard():
     form = SessionForm()
+    import_form = SessionImportForm()
     rulesets = db.session.query(Ruleset).filter_by(is_active=True).all()
     default_budget = 200.0
     if rulesets:
@@ -141,17 +153,17 @@ def dashboard():
         selected_cfg = dict((selected_ruleset.config_json or {}) if selected_ruleset else {})
         selected_auction = dict(selected_cfg.get("auction", {}) or {})
         selected_budget = float(selected_auction.get("starting_budget", 200.0) or 200.0)
-        row = GameSession(
-            title=form.title.data,
-            ruleset_id=form.ruleset_id.data,
-            selected_strategy=form.selected_strategy.data,
-            analysis_mode="no_forecast",
-            corridor_settings_json=ruleset_default_corridor_settings(selected_cfg),
-            budget_total=float(form.budget_total.data or selected_budget),
-            allpay_spent=0.0,
+        row = create_session_record(
+            {
+                "title": form.title.data,
+                "ruleset_id": form.ruleset_id.data,
+                "selected_strategy": form.selected_strategy.data,
+                "analysis_mode": "no_forecast",
+                "corridor_settings": default_corridor_settings_for_ruleset(selected_cfg),
+                "budget_total": float(form.budget_total.data or selected_budget),
+                "allpay_spent": 0.0,
+            }
         )
-        db.session.add(row)
-        db.session.commit()
         return redirect(url_for("pages.session_page", session_id=row.id))
 
     sessions = db.session.query(GameSession).order_by(GameSession.updated_at.desc()).all()
@@ -160,6 +172,7 @@ def dashboard():
         sessions=sessions,
         session_cards=_dashboard_cards(sessions),
         form=form,
+        import_form=import_form,
         session_terms=SESSION_TERMS,
         selected_strategy_meta=strategy_meta(form.selected_strategy.data or "balanced"),
         strategy_catalog=strategy_list(),
@@ -171,7 +184,7 @@ def dashboard():
 def session_page(session_id: int):
     session = db.session.get(GameSession, session_id)
     if session is None:
-        return redirect(url_for("pages.dashboard"))
+        return _missing_session_redirect()
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -190,6 +203,10 @@ def session_page(session_id: int):
     quick_links = [
         {"label": "Лоты", "url": url_for("pages.lots_page", session_id=session.id)},
         {
+            "label": "История оценок",
+            "url": url_for("pages.evaluation_page", session_id=session.id),
+        },
+        {
             "label": "Быстрый аукцион",
             "url": url_for("pages.quick_auction_page", session_id=session.id),
         },
@@ -205,6 +222,8 @@ def session_page(session_id: int):
         readiness=readiness,
         quick_links=quick_links,
         delete_url=url_for("pages.session_delete_confirm_page", session_id=session.id),
+        export_json_url=url_for("api.export_session", session_id=session.id),
+        export_csv_url=url_for("api.export_evaluations", session_id=session.id),
         **_workbench_forms(session),
         **session_analysis_view(session),
         **ctx,
@@ -217,13 +236,11 @@ def session_page(session_id: int):
 def session_delete_confirm_page(session_id: int):
     session = db.session.get(GameSession, session_id)
     if session is None:
-        return redirect(url_for("pages.dashboard"))
+        return _missing_session_redirect()
 
     form = ConfirmDeleteForm()
     if form.validate_on_submit():
-        title = session.title
-        db.session.delete(session)
-        db.session.commit()
+        title = delete_session_record(session)
         flash(f"Сессия «{title}» удалена", "success")
         return redirect(url_for("pages.dashboard"))
 
@@ -259,10 +276,10 @@ def session_delete_confirm_page(session_id: int):
 def session_analysis_mode_action(session_id: int):
     session = db.session.get(GameSession, session_id)
     if session is None:
-        return redirect(url_for("pages.dashboard"))
+        return _missing_session_redirect()
     form = AnalysisModeForm()
     if form.validate_on_submit():
-        update_session_analysis_settings(session, {"analysis_mode": form.analysis_mode.data})
+        update_analysis_settings_for_session(session, {"analysis_mode": form.analysis_mode.data})
         db.session.add(session)
         db.session.commit()
         flash("Режим анализа обновлен", "success")
@@ -276,10 +293,10 @@ def session_analysis_mode_action(session_id: int):
 def session_corridor_action(session_id: int):
     session = db.session.get(GameSession, session_id)
     if session is None:
-        return redirect(url_for("pages.dashboard"))
+        return _missing_session_redirect()
     form = CorridorSettingsForm()
     if form.validate_on_submit():
-        update_session_analysis_settings(
+        update_analysis_settings_for_session(
             session,
             {
                 "corridor_settings": {
@@ -303,14 +320,14 @@ def session_corridor_action(session_id: int):
 def session_forecast_selection_action(session_id: int):
     session = db.session.get(GameSession, session_id)
     if session is None:
-        return redirect(url_for("pages.dashboard"))
+        return _missing_session_redirect()
     form = ForecastSelectionForm()
     form.selected_forecast_id.choices = [(0, "Не выбран")] + [
         (forecast.id, f"{forecast.name} ({forecast.source_file})")
         for forecast in session.forecasts
     ]
     if form.validate_on_submit():
-        update_session_analysis_settings(
+        update_analysis_settings_for_session(
             session,
             {"selected_forecast_id": form.selected_forecast_id.data or None},
         )
@@ -320,6 +337,30 @@ def session_forecast_selection_action(session_id: int):
     else:
         flash("Не удалось выбрать прогноз", "error")
     return redirect(url_for("pages.session_page", session_id=session.id))
+
+
+@pages_bp.post("/sessions/import")
+@login_required
+def import_session_action():
+    form = SessionImportForm()
+    if not form.validate_on_submit():
+        flash("Не удалось импортировать сессию", "error")
+        return redirect(url_for("pages.dashboard"))
+
+    raw_payload = (form.payload_json.data or "").strip()
+    if not raw_payload:
+        flash("Вставьте JSON экспортированной сессии", "error")
+        return redirect(url_for("pages.dashboard"))
+
+    try:
+        payload = parse_json(raw_payload, field_name="session_import", default={})
+        row = import_session_payload(payload)
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("pages.dashboard"))
+
+    flash(f"Сессия «{row.title}» импортирована", "success")
+    return redirect(url_for("pages.session_page", session_id=row.id))
 
 
 @pages_bp.get("/catalog")

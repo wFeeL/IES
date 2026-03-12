@@ -89,10 +89,53 @@
     $("qaCommentary").textContent = item.risk_commentary || item.explanation || "Нет комментария.";
   }
 
+  function setStatus(text) {
+    if ($("qaStatus")) $("qaStatus").textContent = text;
+  }
+
+  function syncCurrentBid(lotId) {
+    const row = document.querySelector(`.auction-item[data-lot-id="${lotId}"]`);
+    if (!row || !$("currentBid")) return;
+    $("currentBid").value = row.dataset.currentBid || "";
+  }
+
+  async function persistCurrentBid(lotId) {
+    const bidInput = $("currentBid");
+    const cfg = window.IES_QUICK_AUCTION || {};
+    if (!bidInput || bidInput.value === "") return null;
+    const bid = Number(bidInput.value);
+    if (!Number.isFinite(bid) || bid < 0) {
+      setStatus("Текущая ставка должна быть числом не меньше нуля.");
+      return false;
+    }
+    const res = await fetch(`/api/lots/${lotId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": cfg.csrfToken || "",
+      },
+      body: JSON.stringify({current_bid: bid}),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      setStatus(data?.error?.message || "Не удалось сохранить текущую ставку.");
+      return false;
+    }
+    const row = document.querySelector(`.auction-item[data-lot-id="${lotId}"]`);
+    if (row) {
+      row.dataset.currentBid = String(bid);
+      const label = row.querySelector(".auction-item-bid");
+      if (label) label.textContent = `(${bid.toFixed(1)})`;
+    }
+    return true;
+  }
+
   async function evalLot(lotId) {
     const id = Number(lotId || 0);
     if (!id) return;
     const cfg = window.IES_QUICK_AUCTION || {};
+    const bidSaved = await persistCurrentBid(id);
+    if (bidSaved === false) return;
     const payload = {
       mode: cfg.mode || "no_forecast",
       corridor_override: cfg.corridorOverride || null,
@@ -107,8 +150,12 @@
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    $("quickOut").textContent = JSON.stringify(data, null, 2);
-    if (data.ok) updateDecisionPanel(data.item);
+    if (data.ok) {
+      updateDecisionPanel(data.item);
+      setStatus(`Лот ${id} переоценен. Комплексный балл ${Number(data.item.summary_score || 0).toFixed(2)}, потолок ставки ${Number(data.item.recommended_bid_hard || 0).toFixed(1)}.`);
+    } else {
+      setStatus(data?.error?.message || "Не удалось оценить лот.");
+    }
   }
 
   function rowActionsHtml(lotId, sessionId) {
@@ -116,7 +163,7 @@
       <div class="actions">
         <button class="btn btn-secondary quickEvalRow" data-lot-id="${lotId}" type="button">Оценить</button>
         <a class="btn btn-secondary" href="/strategy-fit/${lotId}">Стратегии</a>
-        <a class="btn btn-secondary" href="/lots/${sessionId}">Открыть лот</a>
+        <a class="btn btn-secondary" href="/lots/item/${lotId}">Открыть лот</a>
       </div>
     `;
   }
@@ -131,6 +178,7 @@
     body.innerHTML = "";
     if (!filtered.length) {
       body.innerHTML = '<tr><td colspan="8" class="muted">Нет строк после фильтрации.</td></tr>';
+      setStatus("После фильтрации подходящих лотов не осталось.");
       return;
     }
 
@@ -153,6 +201,8 @@
 
     body.querySelectorAll(".quickEvalRow").forEach((btn) => {
       btn.addEventListener("click", async () => {
+        $("currentLotId").value = btn.dataset.lotId;
+        syncCurrentBid(btn.dataset.lotId);
         await evalLot(btn.dataset.lotId);
       });
     });
@@ -171,7 +221,7 @@
 
     if (cfg.forecastId) payload.forecast_id = cfg.forecastId;
     if (!payload.session_id || payload.lot_ids.length < 2) {
-      $("quickOut").textContent = "Нужно минимум 2 лота для сравнения.";
+      setStatus("Нужно минимум 2 лота для сравнения.");
       return;
     }
 
@@ -184,11 +234,15 @@
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    $("quickOut").textContent = JSON.stringify(data, null, 2);
     if (data.ok && Array.isArray(data.items)) {
       state.ranking = data.items;
       renderRanking(state.ranking);
-      if (data.items[0]) updateDecisionPanel(data.items[0]);
+      if (data.items[0]) {
+        updateDecisionPanel(data.items[0]);
+        setStatus(`Ранжирование обновлено. В shortlist ${data.items.length} лотов.`);
+      }
+    } else {
+      setStatus(data?.error?.message || "Не удалось обновить ранжирование.");
     }
   }
 
@@ -209,6 +263,7 @@
         document.querySelectorAll(".auction-item").forEach((x) => x.classList.remove("active"));
         el.classList.add("active");
         $("currentLotId").value = el.dataset.lotId;
+        syncCurrentBid(el.dataset.lotId);
         persistState();
       });
       el.dataset.hotkey = String(idx + 1);
@@ -223,8 +278,20 @@
 
     $("currentLotId")?.addEventListener("input", persistState);
     $("currentBid")?.addEventListener("input", persistState);
-    $("qaSort")?.addEventListener("change", () => renderRanking(state.ranking));
-    $("qaShortlistOnly")?.addEventListener("change", () => renderRanking(state.ranking));
+    $("qaSort")?.addEventListener("change", () => {
+      renderRanking(state.ranking);
+      persistState();
+    });
+    $("qaShortlistOnly")?.addEventListener("change", () => {
+      renderRanking(state.ranking);
+      persistState();
+    });
+
+    const initialLotId = $("currentLotId")?.value;
+    if (initialLotId) syncCurrentBid(initialLotId);
+    if (!initialLotId && document.querySelector(".auction-item")) {
+      document.querySelector(".auction-item").click();
+    }
 
     document.addEventListener("keydown", async (e) => {
       if (/^[1-9]$/.test(e.key)) {

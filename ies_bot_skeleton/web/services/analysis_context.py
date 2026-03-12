@@ -124,12 +124,16 @@ def resolve_analysis_context(
     if mode == "forecast":
         if selected_forecast is not None:
             forecast_summary = summarize_forecast(selected_forecast)
-        elif session.forecasts:
-            forecast_summary = summarize_forecasts(session.forecasts)
+            source = "selected_forecast"
+            source_label = "Выбранный прогноз сессии"
         else:
             forecast_summary = bundled_forecast_summary()
+            source = "bundled_forecast"
+            source_label = "Встроенный базовый прогноз"
     else:
         forecast_summary = summarize_forecasts([])
+        source = "manual_corridor"
+        source_label = "Ручной коридор неопределенности"
 
     return {
         "mode": mode,
@@ -138,8 +142,8 @@ def resolve_analysis_context(
         "forecast_summary": forecast_summary,
         "corridor_settings": corridor_settings,
         "corridor_summary": build_corridor_summary(corridor_settings),
-        "has_forecast_context": bool(
-            selected_forecast is not None or session.forecasts or mode == "forecast"
-        ),
+        "source": source,
+        "source_label": source_label,
+        "has_forecast_context": bool(selected_forecast is not None or mode == "forecast"),
         "uses_manual_corridor": mode == "no_forecast",
     }

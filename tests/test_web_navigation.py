@@ -51,3 +51,39 @@ def test_login_next_allows_internal_redirect(client):
     )
     assert resp.status_code in (302, 303)
     assert resp.headers.get("Location", "").endswith("/catalog")
+
+
+def test_missing_session_redirects_with_flash_message(client):
+    login(client, "admin", "admin123")
+
+    resp = client.get("/sessions/999999", follow_redirects=True)
+
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "Сессия не найдена." in html
+
+
+def test_missing_lot_redirects_with_flash_message(client):
+    login(client, "admin", "admin123")
+
+    resp = client.get("/lots/item/999999", follow_redirects=True)
+
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "Лот 999999 не найден." in html
+
+
+def test_missing_admin_entities_redirect_with_flash_message(client):
+    login(client, "admin", "admin123")
+
+    ruleset_resp = client.get("/admin/rulesets/999999/edit", follow_redirects=True)
+    assert ruleset_resp.status_code == 200
+    assert "Набор правил не найден." in ruleset_resp.get_data(as_text=True)
+
+    pack_resp = client.get("/admin/start-packs/999999/edit", follow_redirects=True)
+    assert pack_resp.status_code == 200
+    assert "Шаблон стартового пакета не найден." in pack_resp.get_data(as_text=True)
+
+    type_resp = client.get("/admin/object-types/999999/edit", follow_redirects=True)
+    assert type_resp.status_code == 200
+    assert "Тип объекта не найден." in type_resp.get_data(as_text=True)

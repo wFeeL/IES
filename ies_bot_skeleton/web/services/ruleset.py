@@ -69,7 +69,7 @@ def _deep_merge(base: Dict[str, Any], addon: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def build_default_ruleset_config() -> Dict[str, Any]:
-    game_cfg = _load_json(ROOT / "lot_tool" / "config" / "config_game.json")
+    game_cfg = _load_json(ROOT / "resources" / "lot_analysis" / "config_game.json")
     scoring_cfg = _load_yaml_or_json(ROOT / "config" / "scoring.yaml")
     merged = _deep_merge(game_cfg, scoring_cfg)
     merged.setdefault("lot_score_weights", dict(DEFAULT_WEIGHTS))

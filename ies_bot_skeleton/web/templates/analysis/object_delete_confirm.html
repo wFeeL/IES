@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Удаление объекта | IES{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+
+<section class="card danger-zone mt-4 max-w-lg">
+  <p class="section-kicker">Подтверждение действия</p>
+  <h1 class="h1">Удаление объекта «{{ object_instance.custom_name or (object_instance.object_type.code if object_instance.object_type else object_instance.id) }}»</h1>
+  <p class="muted mt-2">Объект будет удалён из состава сессии. Дочерние объекты останутся в системе, но потеряют связь с этим родителем.</p>
+  <div class="stack gap-2 mt-4">
+    <div class="key-value"><span>Тип</span><strong>{{ object_instance.object_type.name if object_instance.object_type else '—' }}</strong></div>
+    <div class="key-value"><span>Район</span><strong>{{ object_instance.district }}</strong></div>
+    <div class="key-value"><span>Из стартового пакета</span><strong>{{ 'да' if summary.is_from_start_pack else 'нет' }}</strong></div>
+    <div class="key-value"><span>Дочерние объекты</span><strong>{{ summary.children_count }}</strong></div>
+    <div class="key-value"><span>Лот-источник</span><strong>{{ summary.source_lot_id or '—' }}</strong></div>
+  </div>
+  <form method="post" class="actions mt-4">
+    {{ form.hidden_tag() }}
+    <button class="btn btn-danger" type="submit">Удалить объект</button>
+    {% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>{% endif %}
+  </form>
+</section>
+{% endblock %}

@@ -1,79 +1,65 @@
 # Data Schemas
 
-## Online `state.json`
+## Session export / import JSON
 
-Файл сохраняется в корне запуска online-режима.
+Экспорт сессии из web-приложения возвращает JSON-структуру, пригодную для повторного импорта.
 
 ```json
 {
-  "wind_k": { "M12": 0.041 },
-  "solar": {
-    "best_angle": { "S1": { "13": 80 } },
-    "best_power": { "S1": { "13": 12.4 } }
-  },
-  "last_solar_angle": { "S1": 75 },
-  "printed_once": true,
   "schema_version": 2,
-  "season": "2026",
-  "created_at": "2026-03-03T10:00:00+00:00",
-  "updated_at": "2026-03-03T10:00:03+00:00"
+  "session": {
+    "title": "Demo",
+    "selected_strategy": "balanced",
+    "analysis_mode": "forecast",
+    "selected_forecast_id": 3,
+    "corridor_settings": {
+      "consumer_load_pct": 10.0,
+      "producer_generation_pct": 10.0,
+      "solar_output_pct": null,
+      "wind_output_pct": null
+    }
+  },
+  "objects": [],
+  "lots": [],
+  "forecasts": [],
+  "evaluations": []
 }
 ```
 
-Поля:
-- `schema_version` — версия схемы (`2`).
-- `season` — зафиксированный compat сезон состояния.
-- `created_at`, `updated_at` — UTC ISO timestamps.
+Ключевые поля:
+- `schema_version` — версия схемы импорта/экспорта;
+- `session.analysis_mode` — `forecast` или `no_forecast`;
+- `session.selected_forecast_id` — активный прогноз сессии, если выбран;
+- `session.corridor_settings` — ручной коридор для режима без прогноза.
 
-Миграции:
-- v1 -> v2: добавляются `schema_version`, `season`, `created_at`, `updated_at`.
-- при загрузке старая версия мигрируется автоматически.
+## Lot payload
 
-## Offline `lot_tool/data/state.json`
-
-```json
-{
-  "schema_version": 1,
-  "game": { "ticks_per_day": 48, "horizon_ticks": 48 },
-  "budget": { "cash": 9999, "allpay_spent": 0 },
-  "owned_lots": [],
-  "owned_objects_override": [],
-  "network_plan": { "mode": "branches", "branches": [] },
-  "assumptions": {
-    "pwin_default": 0.35,
-    "risk_mode": "conservative",
-    "storage_soc_init_fraction": 0.5,
-    "corridor": { "wind_mul": 0.1, "solar_mul": 0.1, "load_mul": 0.1 }
-  }
-}
-```
-
-Поля:
-- `schema_version` — версия схемы offline-state (текущая `1`).
-- `assumptions.storage_soc_init_fraction` — стартовый SOC для всех накопителей (0..1).
-- `assumptions.storage_soc_init` — альтернатива в абсолютных единицах (MW*tick).
-
-## Lot JSON (`lot_tool/data/lots/*.json`)
+Лот хранится как SQLAlchemy-модель и сериализуется через web API:
 
 ```json
 {
-  "lot_id": "L12",
-  "title": "Lot L12",
+  "id": 12,
+  "session_id": 5,
+  "name": "Wind + Storage",
+  "scope": "normal",
+  "status": "available",
+  "base_bid": 120.0,
+  "current_bid": 130.0,
   "note": "",
+  "available_round": 1,
   "items": [
     {
-      "kind": "wind",
-      "id": "W1",
-      "qty": 1,
-      "contract_rub_per_tick": 0.0,
-      "tariff_rub_per_mw_tick": 0.0,
-      "meta": {}
+      "object_type_id": 4,
+      "object_type_code": "wind",
+      "quantity": 1,
+      "overrides": {}
     }
-  ],
-  "suggested_bid": 120.0
+  ]
 }
 ```
 
-Нормализация `offline fill-lots`:
-- добавляет `lot_id` и `title`, если отсутствуют;
-- для каждого `item` гарантирует `kind`, `id`, `qty >= 1`, `contract_rub_per_tick`, `tariff_rub_per_mw_tick`, `meta`.
+Состав лота валидируется на сервере:
+- `object_type_id` должен существовать и быть активным;
+- `quantity >= 1`;
+- `overrides` должен быть объектом;
+- пустой лот не допускается.

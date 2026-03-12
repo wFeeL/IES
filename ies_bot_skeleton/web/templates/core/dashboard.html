@@ -31,6 +31,20 @@
         {% endfor %}
       </div>
     </article>
+
+    <article class="card">
+      <p class="section-kicker">Импорт данных</p>
+      <h2 class="h2">Импортировать сессию из JSON</h2>
+      <p class="muted mt-2">Вставьте JSON, полученный из экспорта сессии. Импорт нужен для переноса подготовленных данных между средами без CLI.</p>
+      <form method="post" action="{{ url_for('pages.import_session_action') }}" class="stack gap-3 mt-4">
+        {{ import_form.hidden_tag() }}
+        <label class="label">
+          {{ import_form.payload_json.label }}
+          {{ import_form.payload_json(class_='input h-48', placeholder='{\"session\": {...}, \"lots\": [...]}') }}
+        </label>
+        <button class="btn btn-secondary" type="submit">Импортировать сессию</button>
+      </form>
+    </article>
   </div>
 
   <div class="stack gap-6">

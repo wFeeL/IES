@@ -6,7 +6,10 @@ from typing import Any, Dict, Iterable, List, Tuple
 from flask import url_for
 
 from ..models import GameSession
-from ..services.analysis_context import session_analysis_settings, summarize_forecasts
+from ...application.context import (
+    resolve_session_analysis_context,
+    session_analysis_settings_for_session,
+)
 from ..services.navigation import build_breadcrumbs, safe_back_url
 from ..services.stale import stale_summary_for_session
 from ..services.ui_text import analysis_mode_label
@@ -50,17 +53,15 @@ def nav(
 
 
 def session_analysis_view(session: GameSession) -> Dict[str, Any]:
-    settings = session_analysis_settings(session)
-    selected_forecast = session.selected_forecast
+    settings = session_analysis_settings_for_session(session)
+    analysis_ctx = resolve_session_analysis_context(session)
     return {
         "analysis_settings": settings,
         "analysis_mode_label": analysis_mode_label(settings["analysis_mode"]),
-        "forecast_summary": (
-            summarize_forecasts([selected_forecast])
-            if selected_forecast is not None
-            else summarize_forecasts(session.forecasts)
-        ),
+        "forecast_summary": analysis_ctx["forecast_summary"],
         "corridor_summary": settings["corridor_summary"],
+        "analysis_source": analysis_ctx["source"],
+        "analysis_source_label": analysis_ctx["source_label"],
     }
 
 

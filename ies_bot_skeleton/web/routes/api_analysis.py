@@ -1,24 +1,37 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
 
 from flask import Response, jsonify, request
 from flask_login import current_user, login_required
+from werkzeug.exceptions import HTTPException
 
+from ...application.admin import apply_start_pack_to_session
+from ...application.context import (
+    session_analysis_settings_for_session,
+    update_analysis_settings_for_session,
+)
+from ...application.analysis import compare_session_lots, evaluate_session_lot
+from ...application.forecasts import parse_uploaded_forecast, summarize_stored_forecast
+from ...application.lots import delete_lot as delete_lot_use_case
+from ...application.objects import (
+    create_session_object,
+    delete_session_object,
+    get_session_object_or_error,
+    list_session_objects,
+    update_session_object,
+)
+from ...application.recommendations import recommend_for_session, strategy_fit_for_lot
+from ...application.sessions import create_session_record
 from ..extensions import db
-from ..models import Forecast, GameSession, Lot, ObjectInstance, ObjectType, Ruleset
-from ..services.analysis_context import session_analysis_settings, update_session_analysis_settings
-from ..services.corridor import ruleset_default_corridor_settings
-from ..services.evaluation import compare_lots, evaluate_lot, recommend_best_lot, strategy_fit
-from ..services.forecast_service import parse_and_store_forecast, summarize_forecast
+from ..models import Forecast, GameSession, Lot, ObjectType
 from ..services.session_io import (
     export_evaluations_csv,
     export_session_payload,
     import_session_payload,
 )
-from ..services.start_pack import apply_start_pack_template_to_session
 from .api_support import (
+    ApiError,
     get_lot_or_404,
     get_session_or_404,
     json_payload,
@@ -33,6 +46,28 @@ def _value_error(exc: ValueError):
     return value_error_response(exc)
 
 
+@api_bp.errorhandler(HTTPException)
+def _http_error(exc: HTTPException):
+    return (
+        jsonify(
+            {
+                "ok": False,
+                "error": {
+                    "code": {
+                        400: "bad_request",
+                        401: "forbidden",
+                        403: "forbidden",
+                        404: "not_found",
+                    }.get(exc.code or 500, "bad_request"),
+                    "message": exc.description,
+                    "details": {},
+                },
+            }
+        ),
+        exc.code or 500,
+    )
+
+
 @api_bp.get("/sessions")
 @login_required
 def list_sessions():
@@ -44,38 +79,7 @@ def list_sessions():
 @login_required
 def create_session():
     payload = json_payload()
-    title = str(payload.get("title", "Новая сессия")).strip() or "Новая сессия"
-    ruleset_id = payload.get("ruleset_id")
-    ruleset: Ruleset | None = None
-    if ruleset_id is None:
-        ruleset = db.session.query(Ruleset).filter_by(is_active=True).first()
-        if ruleset is None:
-            raise ValueError("Нет активного набора правил")
-        ruleset_id = ruleset.id
-    else:
-        ruleset = db.session.get(Ruleset, int(ruleset_id))
-        if ruleset is None:
-            raise ValueError(f"Ruleset {ruleset_id} not found")
-
-    cfg = dict((ruleset.config_json or {}) if ruleset is not None else {})
-    auction_cfg = dict(cfg.get("auction", {}) or {})
-    default_budget = float(auction_cfg.get("starting_budget", 200.0) or 200.0)
-    budget_raw = payload.get("budget_total", None)
-    budget_value = float(default_budget if budget_raw is None else budget_raw)
-
-    row = GameSession(
-        title=title,
-        ruleset_id=int(ruleset_id),
-        selected_strategy=str(payload.get("selected_strategy", "balanced")),
-        analysis_mode=str(payload.get("analysis_mode", "no_forecast") or "no_forecast"),
-        corridor_settings_json=dict(
-            payload.get("corridor_settings") or ruleset_default_corridor_settings(cfg)
-        ),
-        budget_total=budget_value,
-        allpay_spent=float(payload.get("allpay_spent", 0.0) or 0.0),
-    )
-    db.session.add(row)
-    db.session.commit()
+    row = create_session_record(payload)
     return jsonify({"ok": True, "item": row.to_dict()})
 
 
@@ -90,7 +94,7 @@ def get_session(session_id: int):
 @login_required
 def get_analysis_settings(session_id: int):
     row = get_session_or_404(session_id)
-    return jsonify({"ok": True, "item": session_analysis_settings(row)})
+    return jsonify({"ok": True, "item": session_analysis_settings_for_session(row)})
 
 
 @api_bp.put("/sessions/<int:session_id>/analysis-settings")
@@ -98,7 +102,7 @@ def get_analysis_settings(session_id: int):
 def update_analysis_settings_endpoint(session_id: int):
     row = get_session_or_404(session_id)
     payload = json_payload()
-    updated = update_session_analysis_settings(row, payload)
+    updated = update_analysis_settings_for_session(row, payload)
     db.session.add(row)
     db.session.commit()
     return jsonify({"ok": True, "item": updated})
@@ -119,7 +123,7 @@ def add_start_pack(session_id: int):
     payload = json_payload()
     session = get_session_or_404(session_id)
     template_id = payload.get("template_id")
-    created = apply_start_pack_template_to_session(
+    created = apply_start_pack_to_session(
         session=session,
         template_id=int(template_id) if template_id is not None else None,
     )
@@ -180,12 +184,8 @@ def list_objects():
     session_id = request.args.get("session_id", type=int)
     if not session_id:
         raise ValueError("session_id обязателен")
-    rows = (
-        db.session.query(ObjectInstance)
-        .filter_by(session_id=session_id)
-        .order_by(ObjectInstance.id)
-        .all()
-    )
+    get_session_or_404(session_id)
+    rows = list_session_objects(session_id)
     return jsonify({"ok": True, "items": [row.to_dict() for row in rows]})
 
 
@@ -193,57 +193,31 @@ def list_objects():
 @login_required
 def create_object():
     payload = json_payload()
-    session_id = int(payload.get("session_id", 0) or 0)
-    object_type_id = int(payload.get("object_type_id", 0) or 0)
-    if session_id <= 0 or object_type_id <= 0:
-        raise ValueError("session_id и object_type_id обязательны")
-
-    row = ObjectInstance(
-        session_id=session_id,
-        object_type_id=object_type_id,
-        custom_name=str(payload.get("custom_name", "")),
-        current_parameters_json=dict(payload.get("current_parameters", {})),
-        source_lot_id=payload.get("source_lot_id"),
-        is_from_start_pack=bool(payload.get("is_from_start_pack", False)),
-        parent_instance_id=payload.get("parent_instance_id"),
-        district=str(payload.get("district", "default")),
-        is_active=bool(payload.get("is_active", True)),
-    )
-    db.session.add(row)
-    db.session.commit()
+    row = create_session_object(payload)
     return jsonify({"ok": True, "item": row.to_dict()})
 
 
 @api_bp.put("/objects/<int:object_id>")
 @login_required
 def update_object(object_id: int):
-    row = db.session.get(ObjectInstance, object_id)
-    if row is None:
-        raise ValueError(f"Object {object_id} not found")
+    try:
+        row = get_session_object_or_error(object_id)
+    except ValueError as exc:
+        raise ApiError(code="not_found", message=str(exc), status_code=404) from exc
     payload = json_payload()
-    for key in ("custom_name", "district"):
-        if key in payload:
-            setattr(row, key, str(payload[key]))
-    if "parent_instance_id" in payload:
-        row.parent_instance_id = payload["parent_instance_id"]
-    if "current_parameters" in payload:
-        row.current_parameters_json = dict(payload["current_parameters"] or {})
-    if "is_active" in payload:
-        row.is_active = bool(payload["is_active"])
-    db.session.add(row)
-    db.session.commit()
+    row = update_session_object(row, payload)
     return jsonify({"ok": True, "item": row.to_dict()})
 
 
 @api_bp.delete("/objects/<int:object_id>")
 @login_required
 def delete_object(object_id: int):
-    row = db.session.get(ObjectInstance, object_id)
-    if row is None:
-        raise ValueError(f"Object {object_id} not found")
-    db.session.delete(row)
-    db.session.commit()
-    return jsonify({"ok": True})
+    try:
+        row = get_session_object_or_error(object_id)
+    except ValueError as exc:
+        raise ApiError(code="not_found", message=str(exc), status_code=404) from exc
+    summary = delete_session_object(row)
+    return jsonify({"ok": True, "item": summary})
 
 
 @api_bp.get("/lots")
@@ -263,6 +237,7 @@ def create_lot():
     session_id = int(payload.get("session_id", 0) or 0)
     if session_id <= 0:
         raise ValueError("session_id обязателен")
+    get_session_or_404(session_id)
 
     lot = Lot(
         session_id=session_id,
@@ -281,6 +256,13 @@ def create_lot():
 
     db.session.add(lot)
     db.session.commit()
+    return jsonify({"ok": True, "item": lot.to_dict()})
+
+
+@api_bp.get("/lots/<int:lot_id>")
+@login_required
+def get_lot(lot_id: int):
+    lot = get_lot_or_404(lot_id)
     return jsonify({"ok": True, "item": lot.to_dict()})
 
 
@@ -309,9 +291,9 @@ def update_lot(lot_id: int):
 @login_required
 def delete_lot(lot_id: int):
     lot = get_lot_or_404(lot_id)
-    db.session.delete(lot)
+    summary = delete_lot_use_case(lot)
     db.session.commit()
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "item": summary})
 
 
 @api_bp.post("/lots/<int:lot_id>/evaluate")
@@ -327,7 +309,7 @@ def evaluate_one_lot(lot_id: int):
     if payload.get("forecast_id") is not None:
         forecast = db.session.get(Forecast, int(payload["forecast_id"]))
 
-    out = evaluate_lot(
+    out = evaluate_session_lot(
         session=session,
         lot=lot,
         mode=mode,
@@ -362,7 +344,7 @@ def compare_lots_endpoint():
     if payload.get("forecast_id") is not None:
         forecast = db.session.get(Forecast, int(payload["forecast_id"]))
 
-    out = compare_lots(
+    out = compare_session_lots(
         session=session,
         lots=lots,
         mode=mode,
@@ -395,7 +377,7 @@ def upload_forecast():
         except Exception as exc:  # noqa: BLE001
             raise ValueError(f"Некорректный column_map: {exc}") from exc
 
-    forecast, diag = parse_and_store_forecast(
+    forecast, diag = parse_uploaded_forecast(
         session_id=session_id,
         name=name,
         source_file=file.filename or "upload.csv",
@@ -412,7 +394,7 @@ def upload_forecast():
             "ok": True,
             "item": forecast.to_dict(),
             "diagnostics": diag.to_dict(),
-            "summary": summarize_forecast(forecast),
+            "summary": summarize_stored_forecast(forecast),
         }
     )
 
@@ -422,14 +404,18 @@ def upload_forecast():
 def get_forecast(forecast_id: int):
     forecast = db.session.get(Forecast, forecast_id)
     if forecast is None:
-        raise ValueError(f"Forecast {forecast_id} not found")
+        raise ApiError(
+            code="not_found",
+            message=f"Прогноз {forecast_id} не найден",
+            status_code=404,
+        )
     return jsonify(
         {
             "ok": True,
             "item": {
                 **forecast.to_dict(),
                 "periods": [p.to_dict() for p in forecast.periods],
-                "summary": summarize_forecast(forecast),
+                "summary": summarize_stored_forecast(forecast),
             },
         }
     )
@@ -440,8 +426,12 @@ def get_forecast(forecast_id: int):
 def analyze_forecast(forecast_id: int):
     forecast = db.session.get(Forecast, forecast_id)
     if forecast is None:
-        raise ValueError(f"Forecast {forecast_id} not found")
-    return jsonify({"ok": True, "item": summarize_forecast(forecast)})
+        raise ApiError(
+            code="not_found",
+            message=f"Прогноз {forecast_id} не найден",
+            status_code=404,
+        )
+    return jsonify({"ok": True, "item": summarize_stored_forecast(forecast)})
 
 
 @api_bp.post("/recommend/best-lot")
@@ -464,7 +454,7 @@ def recommend_best():
     if payload.get("forecast_id") is not None:
         forecast = db.session.get(Forecast, int(payload["forecast_id"]))
 
-    out = recommend_best_lot(
+    out = recommend_for_session(
         session=session,
         lots=lots,
         mode=mode,
@@ -491,7 +481,7 @@ def recommend_strategy_fit():
     if payload.get("forecast_id") is not None:
         forecast = db.session.get(Forecast, int(payload["forecast_id"]))
 
-    out = strategy_fit(
+    out = strategy_fit_for_lot(
         session=session,
         lot=lot,
         mode=mode,

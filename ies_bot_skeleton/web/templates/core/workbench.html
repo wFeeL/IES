@@ -90,6 +90,8 @@
       {% endfor %}
       <a class="action-card" href="{{ url_for('pages.system_view', session_id=session.id) }}">Проверить энергосистему</a>
       <a class="action-card" href="{{ url_for('pages.forecast_page', session_id=session.id) }}">Открыть центр прогноза</a>
+      <a class="action-card" href="{{ export_json_url }}">Экспортировать сессию в JSON</a>
+      <a class="action-card" href="{{ export_csv_url }}">Скачать оценки в CSV</a>
     </div>
     <div class="danger-zone mt-4">
       <p class="section-kicker">Служебные действия</p>

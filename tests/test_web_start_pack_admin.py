@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.web_helpers import create_session, login
+from tests.web_helpers import login
 
 
 def _start_pack_items():

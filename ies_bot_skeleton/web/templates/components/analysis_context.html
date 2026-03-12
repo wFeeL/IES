@@ -3,6 +3,7 @@
     <div>
       <p class="section-kicker">Режим анализа</p>
       <h2 class="h2">{{ 'С прогнозом' if analysis_settings.analysis_mode == 'forecast' else 'Без прогноза' }}</h2>
+      <p class="muted">{{ analysis_source_label }}</p>
     </div>
     <span class="status-badge {{ 'status-fresh' if analysis_settings.analysis_mode == 'forecast' else 'status-stale' }}">
       {{ 'Прогноз' if analysis_settings.analysis_mode == 'forecast' else 'Коридор' }}

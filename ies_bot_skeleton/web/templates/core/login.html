@@ -4,8 +4,8 @@
 <section class="grid place-items-center min-h-70">
   <div class="card w-full max-w-lg auth-card">
     <p class="section-kicker">Доступ в систему</p>
-    <h1 class="h1">Вход в IES Lot Desk</h1>
-    <p class="muted">Seed-учетки: `admin/admin123` и `analyst/analyst123`.</p>
+    <h1 class="h1">Вход в IES Аналитику лотов</h1>
+    <p class="muted">Seed-учетки: <code>admin/admin123</code> и <code>analyst/analyst123</code>.</p>
     <form method="post" class="stack gap-4 mt-4">
       {{ form.hidden_tag() }}
       <input type="hidden" name="next" value="{{ next_target or '' }}" />

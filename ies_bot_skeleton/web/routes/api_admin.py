@@ -3,41 +3,33 @@ from __future__ import annotations
 from flask import jsonify, request
 from flask_login import login_required
 
+from ...application.admin import (
+    activate_ruleset_for_admin,
+    copy_ruleset_for_admin,
+    create_object_type_for_admin,
+    create_ruleset_for_admin,
+    create_start_pack_template_for_admin,
+    deactivate_object_type_for_admin,
+    deactivate_ruleset_for_admin,
+    deactivate_start_pack_template_for_admin,
+    get_object_type_for_admin,
+    get_ruleset_for_admin,
+    get_start_pack_template_for_admin,
+    list_rulesets_for_admin,
+    list_start_pack_templates_for_admin,
+    update_object_type_for_admin,
+    update_ruleset_for_admin,
+    update_start_pack_template_for_admin,
+)
 from ..services.auth import is_admin, role_required
-from ..services.legacy_import import import_legacy_data
-from ..services.object_type_admin import (
-    create_object_type as create_object_type_service,
-)
-from ..services.object_type_admin import (
-    deactivate_object_type,
-    get_object_type_or_error,
-    list_object_types as list_object_types_service,
-    update_object_type as update_object_type_service,
-)
-from ..services.ruleset_admin import (
-    activate_ruleset,
-    copy_ruleset,
-    create_ruleset,
-    deactivate_ruleset,
-    get_ruleset_or_error,
-    list_rulesets,
-    update_ruleset,
-)
-from ..services.start_pack import (
-    create_start_pack_template,
-    deactivate_start_pack_template,
-    get_start_pack_template_or_error,
-    list_start_pack_templates,
-    update_start_pack_template,
-)
-from .api_support import get_session_or_404, json_payload
+from .api_support import json_payload
 from .shared import api_bp
 
 
 @api_bp.get("/rulesets")
 @login_required
 def rulesets_list_endpoint():
-    rows = list_rulesets()
+    rows = list_rulesets_for_admin()
     return jsonify({"ok": True, "items": [row.to_dict() for row in rows]})
 
 
@@ -46,7 +38,7 @@ def rulesets_list_endpoint():
 @role_required("admin")
 def rulesets_create_endpoint():
     payload = json_payload()
-    row = create_ruleset(payload)
+    row = create_ruleset_for_admin(payload)
     return jsonify({"ok": True, "item": row.to_dict()})
 
 
@@ -54,9 +46,9 @@ def rulesets_create_endpoint():
 @login_required
 @role_required("admin")
 def rulesets_update_endpoint(ruleset_id: int):
-    row = get_ruleset_or_error(ruleset_id)
+    row = get_ruleset_for_admin(ruleset_id)
     payload = json_payload()
-    updated = update_ruleset(row, payload)
+    updated = update_ruleset_for_admin(row, payload)
     return jsonify({"ok": True, "item": updated.to_dict()})
 
 
@@ -64,9 +56,9 @@ def rulesets_update_endpoint(ruleset_id: int):
 @login_required
 @role_required("admin")
 def rulesets_copy_endpoint(ruleset_id: int):
-    row = get_ruleset_or_error(ruleset_id)
+    row = get_ruleset_for_admin(ruleset_id)
     payload = json_payload()
-    copied = copy_ruleset(row, name=payload.get("name"), code=payload.get("code"))
+    copied = copy_ruleset_for_admin(row, name=payload.get("name"), code=payload.get("code"))
     return jsonify({"ok": True, "item": copied.to_dict()})
 
 
@@ -74,8 +66,8 @@ def rulesets_copy_endpoint(ruleset_id: int):
 @login_required
 @role_required("admin")
 def rulesets_activate_endpoint(ruleset_id: int):
-    row = get_ruleset_or_error(ruleset_id)
-    activate_ruleset(row)
+    row = get_ruleset_for_admin(ruleset_id)
+    activate_ruleset_for_admin(row)
     return jsonify({"ok": True, "item": row.to_dict()})
 
 
@@ -83,8 +75,8 @@ def rulesets_activate_endpoint(ruleset_id: int):
 @login_required
 @role_required("admin")
 def rulesets_deactivate_endpoint(ruleset_id: int):
-    row = get_ruleset_or_error(ruleset_id)
-    deactivate_ruleset(row)
+    row = get_ruleset_for_admin(ruleset_id)
+    deactivate_ruleset_for_admin(row)
     return jsonify({"ok": True, "item": row.to_dict()})
 
 
@@ -94,14 +86,14 @@ def start_pack_templates_list_endpoint():
     include_inactive = bool(request.args.get("include_inactive", type=int))
     if include_inactive and not is_admin():
         include_inactive = False
-    rows = list_start_pack_templates(include_inactive=include_inactive)
+    rows = list_start_pack_templates_for_admin(include_inactive=include_inactive)
     return jsonify({"ok": True, "items": [row.to_dict(include_items=True) for row in rows]})
 
 
 @api_bp.get("/start-pack-templates/<int:template_id>")
 @login_required
 def start_pack_templates_get_endpoint(template_id: int):
-    row = get_start_pack_template_or_error(template_id)
+    row = get_start_pack_template_for_admin(template_id)
     return jsonify({"ok": True, "item": row.to_dict(include_items=True)})
 
 
@@ -110,7 +102,7 @@ def start_pack_templates_get_endpoint(template_id: int):
 @role_required("admin")
 def start_pack_templates_create_endpoint():
     payload = json_payload()
-    row = create_start_pack_template(
+    row = create_start_pack_template_for_admin(
         code=str(payload.get("code", "")),
         name=str(payload.get("name", "")),
         description=str(payload.get("description", "")),
@@ -125,9 +117,9 @@ def start_pack_templates_create_endpoint():
 @login_required
 @role_required("admin")
 def start_pack_templates_update_endpoint(template_id: int):
-    row = get_start_pack_template_or_error(template_id)
+    row = get_start_pack_template_for_admin(template_id)
     payload = json_payload()
-    out = update_start_pack_template(row=row, payload=payload)
+    out = update_start_pack_template_for_admin(row=row, payload=payload)
     return jsonify({"ok": True, "item": out.to_dict(include_items=True)})
 
 
@@ -135,8 +127,8 @@ def start_pack_templates_update_endpoint(template_id: int):
 @login_required
 @role_required("admin")
 def start_pack_templates_delete_endpoint(template_id: int):
-    row = get_start_pack_template_or_error(template_id)
-    deactivate_start_pack_template(row)
+    row = get_start_pack_template_for_admin(template_id)
+    deactivate_start_pack_template_for_admin(row)
     return jsonify({"ok": True})
 
 
@@ -145,7 +137,7 @@ def start_pack_templates_delete_endpoint(template_id: int):
 @role_required("admin")
 def create_object_type():
     payload = json_payload()
-    row = create_object_type_service(payload)
+    row = create_object_type_for_admin(payload)
     return jsonify({"ok": True, "item": row.to_dict()})
 
 
@@ -153,9 +145,9 @@ def create_object_type():
 @login_required
 @role_required("admin")
 def update_object_type(object_type_id: int):
-    row = get_object_type_or_error(object_type_id)
+    row = get_object_type_for_admin(object_type_id)
     payload = json_payload()
-    out = update_object_type_service(row, payload)
+    out = update_object_type_for_admin(row, payload)
     return jsonify({"ok": True, "item": out.to_dict()})
 
 
@@ -163,19 +155,6 @@ def update_object_type(object_type_id: int):
 @login_required
 @role_required("admin")
 def delete_object_type(object_type_id: int):
-    row = get_object_type_or_error(object_type_id)
-    deactivate_object_type(row)
+    row = get_object_type_for_admin(object_type_id)
+    deactivate_object_type_for_admin(row)
     return jsonify({"ok": True})
-
-
-@api_bp.post("/legacy/import")
-@login_required
-@role_required("admin")
-def legacy_import_endpoint():
-    payload = json_payload()
-    session_id = int(payload.get("session_id", 0) or 0)
-    if session_id <= 0:
-        raise ValueError("session_id обязателен")
-    get_session_or_404(session_id)
-    report = import_legacy_data(session_id=session_id)
-    return jsonify({"ok": True, "item": report})

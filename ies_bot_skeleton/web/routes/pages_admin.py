@@ -5,6 +5,26 @@ import json
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import login_required
 
+from ...application.admin import (
+    activate_ruleset_for_admin,
+    build_default_ruleset_payload,
+    copy_ruleset_for_admin,
+    create_object_type_for_admin,
+    create_ruleset_for_admin,
+    create_start_pack_template_for_admin,
+    deactivate_object_type_for_admin,
+    deactivate_ruleset_for_admin,
+    deactivate_start_pack_template_for_admin,
+    get_object_type_for_admin,
+    get_ruleset_for_admin,
+    get_start_pack_template_for_admin,
+    list_object_types_for_admin,
+    list_rulesets_for_admin,
+    list_start_pack_templates_for_admin,
+    update_object_type_for_admin,
+    update_ruleset_for_admin,
+    update_start_pack_template_for_admin,
+)
 from ..forms import ObjectTypeForm, RulesetCopyForm, RulesetForm, StartPackTemplateForm
 from ..services.admin_schemas import (
     OBJECT_TYPE_SUBTYPE_CHOICES,
@@ -18,32 +38,13 @@ from ..services.admin_schemas import (
     strategy_profile_matrix,
 )
 from ..services.auth import role_required
-from ..services.object_type_admin import (
-    create_object_type,
-    deactivate_object_type,
-    get_object_type_or_error,
-    list_object_types,
-    update_object_type,
-)
-from ..services.ruleset_admin import (
-    activate_ruleset,
-    copy_ruleset,
-    create_ruleset,
-    deactivate_ruleset,
-    get_ruleset_or_error,
-    list_rulesets,
-    update_ruleset,
-)
-from ..services.ruleset import build_default_ruleset_config
-from ..services.start_pack import (
-    create_start_pack_template,
-    deactivate_start_pack_template,
-    get_start_pack_template_or_error,
-    list_start_pack_templates,
-    update_start_pack_template,
-)
 from .page_support import admin_links, nav, parse_json
 from .shared import pages_bp
+
+
+def _admin_missing_redirect(message: str, endpoint: str):
+    flash(message, "error")
+    return redirect(url_for(endpoint))
 
 
 def _prepare_object_type_form(form: ObjectTypeForm, row=None) -> None:
@@ -140,8 +141,8 @@ def _ruleset_values_for_page(base_config, base_model_settings):
 @login_required
 @role_required("admin")
 def settings_model_page():
-    rulesets = list_rulesets()
-    templates = list_start_pack_templates(include_inactive=True)
+    rulesets = list_rulesets_for_admin()
+    templates = list_start_pack_templates_for_admin(include_inactive=True)
     copy_form = RulesetCopyForm()
     ctx = nav(
         breadcrumb_items=[
@@ -167,7 +168,7 @@ def settings_model_page():
 @role_required("admin")
 def settings_ruleset_new_page():
     form = RulesetForm()
-    templates = list_start_pack_templates(include_inactive=False)
+    templates = list_start_pack_templates_for_admin(include_inactive=False)
     form.active_start_pack_template_id.choices = [(0, "-- Без шаблона --")] + [
         (row.id, f"{row.name} ({row.code})") for row in templates
     ]
@@ -180,14 +181,14 @@ def settings_ruleset_new_page():
                 "name": form.name.data,
                 **ruleset_payload_from_request(
                     request,
-                    base_config=build_default_ruleset_config(),
+                    base_config=build_default_ruleset_payload(),
                     base_model_settings={},
                 ),
                 "active_start_pack_template_id": form.active_start_pack_template_id.data or None,
                 "is_active": bool(form.is_active.data),
                 "is_builtin": bool(form.is_builtin.data),
             }
-            create_ruleset(payload)
+            create_ruleset_for_admin(payload)
             flash("Набор правил создан", "success")
             return redirect(url_for("pages.settings_model_page"))
         except ValueError as exc:
@@ -219,9 +220,12 @@ def settings_ruleset_new_page():
 @login_required
 @role_required("admin")
 def settings_ruleset_edit_page(ruleset_id: int):
-    row = get_ruleset_or_error(ruleset_id)
+    try:
+        row = get_ruleset_for_admin(ruleset_id)
+    except ValueError:
+        return _admin_missing_redirect("Набор правил не найден.", "pages.settings_model_page")
     form = RulesetForm()
-    templates = list_start_pack_templates(include_inactive=True)
+    templates = list_start_pack_templates_for_admin(include_inactive=True)
     form.active_start_pack_template_id.choices = [(0, "-- Без шаблона --")] + [
         (it.id, f"{it.name} ({it.code})") for it in templates
     ]
@@ -236,7 +240,7 @@ def settings_ruleset_edit_page(ruleset_id: int):
 
     if form.validate_on_submit():
         try:
-            update_ruleset(
+            update_ruleset_for_admin(
                 row,
                 {
                     "name": form.name.data,
@@ -281,11 +285,14 @@ def settings_ruleset_edit_page(ruleset_id: int):
 @login_required
 @role_required("admin")
 def settings_ruleset_copy_action(ruleset_id: int):
-    row = get_ruleset_or_error(ruleset_id)
+    try:
+        row = get_ruleset_for_admin(ruleset_id)
+    except ValueError:
+        return _admin_missing_redirect("Набор правил не найден.", "pages.settings_model_page")
     form = RulesetCopyForm()
     if form.validate_on_submit():
         try:
-            copy_ruleset(row, name=form.name.data, code=form.code.data)
+            copy_ruleset_for_admin(row, name=form.name.data, code=form.code.data)
             flash("Набор правил скопирован", "success")
         except ValueError as exc:
             flash(str(exc), "error")
@@ -299,8 +306,11 @@ def settings_ruleset_copy_action(ruleset_id: int):
 @login_required
 @role_required("admin")
 def settings_ruleset_activate_action(ruleset_id: int):
-    row = get_ruleset_or_error(ruleset_id)
-    activate_ruleset(row)
+    try:
+        row = get_ruleset_for_admin(ruleset_id)
+    except ValueError:
+        return _admin_missing_redirect("Набор правил не найден.", "pages.settings_model_page")
+    activate_ruleset_for_admin(row)
     flash("Набор правил активирован", "success")
     return redirect(url_for("pages.settings_model_page"))
 
@@ -310,9 +320,12 @@ def settings_ruleset_activate_action(ruleset_id: int):
 @login_required
 @role_required("admin")
 def settings_ruleset_deactivate_action(ruleset_id: int):
-    row = get_ruleset_or_error(ruleset_id)
     try:
-        deactivate_ruleset(row)
+        row = get_ruleset_for_admin(ruleset_id)
+    except ValueError:
+        return _admin_missing_redirect("Набор правил не найден.", "pages.settings_model_page")
+    try:
+        deactivate_ruleset_for_admin(row)
         flash("Набор правил деактивирован", "success")
     except ValueError as exc:
         flash(str(exc), "error")
@@ -324,7 +337,7 @@ def settings_ruleset_deactivate_action(ruleset_id: int):
 @login_required
 @role_required("admin")
 def settings_start_packs_page():
-    templates = list_start_pack_templates(include_inactive=True)
+    templates = list_start_pack_templates_for_admin(include_inactive=True)
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -355,7 +368,7 @@ def settings_start_pack_new_page():
         source = (form.items_state_json.data or "").strip() or (form.items_json.data or "").strip()
         try:
             items_payload = parse_json(source, field_name="start_pack.items", default=[])
-            create_start_pack_template(
+            create_start_pack_template_for_admin(
                 code=form.code.data,
                 name=form.name.data,
                 description=form.description.data or "",
@@ -368,7 +381,7 @@ def settings_start_pack_new_page():
         except ValueError as exc:
             flash(str(exc), "error")
 
-    object_types = list_object_types(include_inactive=False)
+    object_types = list_object_types_for_admin(include_inactive=False)
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -393,7 +406,13 @@ def settings_start_pack_new_page():
 @login_required
 @role_required("admin")
 def settings_start_pack_edit_page(template_id: int):
-    row = get_start_pack_template_or_error(template_id)
+    try:
+        row = get_start_pack_template_for_admin(template_id)
+    except ValueError:
+        return _admin_missing_redirect(
+            "Шаблон стартового пакета не найден.",
+            "pages.settings_start_packs_page",
+        )
     form = StartPackTemplateForm()
 
     if request.method == "GET":
@@ -414,7 +433,7 @@ def settings_start_pack_edit_page(template_id: int):
         source = (form.items_state_json.data or "").strip() or (form.items_json.data or "").strip()
         try:
             items_payload = parse_json(source, field_name="start_pack.items", default=[])
-            update_start_pack_template(
+            update_start_pack_template_for_admin(
                 row=row,
                 payload={
                     "code": form.code.data,
@@ -430,7 +449,7 @@ def settings_start_pack_edit_page(template_id: int):
         except ValueError as exc:
             flash(str(exc), "error")
 
-    object_types = list_object_types(include_inactive=True)
+    object_types = list_object_types_for_admin(include_inactive=True)
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -456,8 +475,14 @@ def settings_start_pack_edit_page(template_id: int):
 @login_required
 @role_required("admin")
 def settings_start_pack_deactivate_action(template_id: int):
-    row = get_start_pack_template_or_error(template_id)
-    deactivate_start_pack_template(row)
+    try:
+        row = get_start_pack_template_for_admin(template_id)
+    except ValueError:
+        return _admin_missing_redirect(
+            "Шаблон стартового пакета не найден.",
+            "pages.settings_start_packs_page",
+        )
+    deactivate_start_pack_template_for_admin(row)
     flash("Шаблон стартового пакета деактивирован", "success")
     return redirect(url_for("pages.settings_start_packs_page"))
 
@@ -467,7 +492,7 @@ def settings_start_pack_deactivate_action(template_id: int):
 @login_required
 @role_required("admin")
 def settings_object_types_page():
-    rows = list_object_types(include_inactive=True)
+    rows = list_object_types_for_admin(include_inactive=True)
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -499,7 +524,7 @@ def settings_object_type_new_page():
                 category=form.category.data,
                 subtype=form.subtype.data or "",
             )
-            create_object_type(
+            create_object_type_for_admin(
                 {
                     "code": form.code.data,
                     "name": form.name.data,
@@ -539,7 +564,10 @@ def settings_object_type_new_page():
 @login_required
 @role_required("admin")
 def settings_object_type_edit_page(object_type_id: int):
-    row = get_object_type_or_error(object_type_id)
+    try:
+        row = get_object_type_for_admin(object_type_id)
+    except ValueError:
+        return _admin_missing_redirect("Тип объекта не найден.", "pages.settings_object_types_page")
     form = ObjectTypeForm()
     _prepare_object_type_form(form, row=row)
 
@@ -561,7 +589,7 @@ def settings_object_type_edit_page(object_type_id: int):
                 base_defaults=row.default_parameters_json or {},
                 base_rules=row.rules_json or {},
             )
-            update_object_type(
+            update_object_type_for_admin(
                 row,
                 {
                     "name": form.name.data,
@@ -602,7 +630,10 @@ def settings_object_type_edit_page(object_type_id: int):
 @login_required
 @role_required("admin")
 def settings_object_type_deactivate_action(object_type_id: int):
-    row = get_object_type_or_error(object_type_id)
-    deactivate_object_type(row)
+    try:
+        row = get_object_type_for_admin(object_type_id)
+    except ValueError:
+        return _admin_missing_redirect("Тип объекта не найден.", "pages.settings_object_types_page")
+    deactivate_object_type_for_admin(row)
     flash("Тип объекта деактивирован", "success")
     return redirect(url_for("pages.settings_object_types_page"))

@@ -130,6 +130,60 @@ def test_lot_delete_confirm_page_and_post_remove_lot(client):
     assert lots_resp.get_json()["items"] == []
 
 
+def test_lot_detail_and_edit_flow(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Lot detail")
+    type_map = _type_map(client)
+
+    created = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Lot detail source",
+            "scope": "normal",
+            "base_bid": 100,
+            "current_bid": 100,
+            "items": [{"object_type_id": type_map["wind"], "quantity": 1}],
+        },
+    )
+    assert created.status_code == 200
+    lot_id = int(created.get_json()["item"]["id"])
+
+    detail_resp = client.get(f"/lots/item/{lot_id}")
+    assert detail_resp.status_code == 200
+    detail_html = detail_resp.get_data(as_text=True)
+    assert "Lot detail source" in detail_html
+    assert "Текущая оценка" in detail_html
+
+    edit_form = {
+        "session_id": str(session_id),
+        "name": "Lot updated",
+        "scope": "global",
+        "status": "available",
+        "base_bid": "140",
+        "current_bid": "145",
+        "available_round": "2",
+        "note": "Updated note",
+        "items_state_json": json.dumps(
+            [
+                {"object_type_id": type_map["wind"], "quantity": 2},
+                {"object_type_id": type_map["storage"], "quantity": 1},
+            ]
+        ),
+        "items_json": "[]",
+    }
+    update_resp = client.post(f"/lots/item/{lot_id}/edit", data=edit_form, follow_redirects=False)
+    assert update_resp.status_code in (302, 303)
+    assert update_resp.headers["Location"].endswith(f"/lots/item/{lot_id}")
+
+    api_lot = client.get(f"/api/lots/{lot_id}")
+    assert api_lot.status_code == 200
+    payload = api_lot.get_json()["item"]
+    assert payload["name"] == "Lot updated"
+    assert payload["scope"] == "global"
+    assert len(payload["items"]) == 2
+
+
 def test_no_forecast_evaluation_uses_baseline_and_returns_explanation(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Meaningful eval")

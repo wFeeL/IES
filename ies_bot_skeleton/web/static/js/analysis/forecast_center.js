@@ -1,4 +1,8 @@
 (function () {
+  function errorMessage(data) {
+    return data?.error?.message || data?.error || "Неизвестная ошибка";
+  }
+
   function renderSummary(target, title, payload) {
     if (!target) return;
     const wrap = document.createElement("div");
@@ -25,7 +29,13 @@
       const data = await res.json();
       out.innerHTML = "";
       if (!data.ok) {
-        renderSummary(out, "Ошибка загрузки", {count: 0, load_series: [], tick_from: "—", tick_to: "—", avg_wind: data.error});
+        renderSummary(out, "Ошибка загрузки", {
+          count: 0,
+          load_series: [],
+          tick_from: "—",
+          tick_to: "—",
+          avg_wind: errorMessage(data),
+        });
         return;
       }
       renderSummary(out, "Прогноз загружен", data.summary || {});
@@ -43,7 +53,7 @@
         const data = await res.json();
         out.innerHTML = "";
         if (!data.ok) {
-          renderSummary(out, "Ошибка", {avg_wind: data.error, load_series: []});
+          renderSummary(out, "Ошибка", {avg_wind: errorMessage(data), load_series: []});
           return;
         }
         renderSummary(out, `Диагностика прогноза #${btn.dataset.forecastId}`, data.item || {});

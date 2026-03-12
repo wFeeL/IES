@@ -8,8 +8,8 @@ from ..extensions import db
 from ..models import GameSession, Lot, LotItem, ObjectInstance, ObjectType
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_STATE_PATH = ROOT / "lot_tool" / "data" / "state.json"
-DEFAULT_LOTS_DIR = ROOT / "lot_tool" / "data" / "lots"
+DEFAULT_STATE_PATH = ROOT / "resources" / "legacy_import" / "state.json"
+DEFAULT_LOTS_DIR = ROOT / "resources" / "legacy_import" / "lots"
 
 KIND_TO_OBJECT_CODE = {
     "main": "main_substation",

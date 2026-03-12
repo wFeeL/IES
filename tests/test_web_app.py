@@ -128,6 +128,8 @@ def test_admin_end_to_end_flow(client, app):
     assert eval_json["ok"] is True
     assert "summary_score" in eval_json["item"]
     assert "recommended_bid_hard" in eval_json["item"]
+    assert eval_json["item"]["analysis_context"]["mode"] == "forecast"
+    assert eval_json["item"]["analysis_context"]["source"] == "selected_forecast"
 
     compare_resp = client.post(
         "/api/lots/compare",
@@ -142,6 +144,7 @@ def test_admin_end_to_end_flow(client, app):
     compare_json = compare_resp.get_json()
     assert compare_json["ok"] is True
     assert len(compare_json["items"]) == 2
+    assert compare_json["items"][0]["analysis_context"]["mode"] == "forecast"
 
     rec_resp = client.post(
         "/api/recommend/best-lot",
@@ -151,6 +154,7 @@ def test_admin_end_to_end_flow(client, app):
     rec_json = rec_resp.get_json()
     assert rec_json["ok"] is True
     assert rec_json["item"]["best"] is not None
+    assert rec_json["item"]["best"]["analysis_context"]["source"] == "selected_forecast"
 
     export_json_resp = client.get(f"/api/sessions/{session_id}/export.json")
     assert export_json_resp.status_code == 200

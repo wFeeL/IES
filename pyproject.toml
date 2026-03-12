@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ies-bot-skeleton"
 version = "0.2.0"
-description = "IES online/offline toolkit with compat layer and lot scoring."
+description = "Flask web application for IES lot analysis, forecasts, recommendations, and admin workflows."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -31,44 +31,36 @@ dev = [
   "PyYAML>=6.0.0",
 ]
 
-[project.scripts]
-ies-online = "ies_bot_skeleton.entrypoints:ies_online"
-ies-lottool = "ies_bot_skeleton.entrypoints:ies_lottool"
-ies-fill-lots = "ies_bot_skeleton.entrypoints:ies_fill_lots"
-ies-web = "ies_bot_skeleton.web.app:main"
-
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-where = [".", "ies_bot_skeleton/lot_tool/src"]
-include = ["ies_bot_skeleton*", "lottool*"]
+where = ["."]
+include = ["ies_bot_skeleton*"]
 
 [tool.setuptools.package-data]
 ies_bot_skeleton = [
-  "compat/*.yaml",
   "config/*.yaml",
+  "resources/**/*.json",
+  "resources/**/*.csv",
   "web/templates/**/*.html",
   "web/static/**/*.css",
   "web/static/**/*.js",
-  "lot_tool/config/*.json",
-  "lot_tool/data/*.json",
-  "lot_tool/data/lots/*.json",
 ]
 
 [tool.black]
 line-length = 100
-target-version = ["py310"]
+target-version = ["py311"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["F"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_unused_ignores = true
 disallow_untyped_defs = false
 check_untyped_defs = true

@@ -36,3 +36,40 @@ jobs:
 
       - name: Build package
         run: python -m build
+
+      - name: Verify web-only package
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+
+          forbidden_paths = [
+              Path("ies_bot_skeleton/cli.py"),
+              Path("ies_bot_skeleton/entrypoints.py"),
+              Path("ies.py"),
+              Path("main.py"),
+              Path("ies_bot_skeleton/online"),
+              Path("ies_bot_skeleton/offline"),
+              Path("ies_bot_skeleton/lot_tool"),
+              Path("ies_bot_skeleton/compat"),
+          ]
+          existing = [str(path) for path in forbidden_paths if path.exists()]
+          if existing:
+              raise SystemExit(f"Legacy runtime paths still exist: {existing}")
+
+          wheels = sorted(Path("dist").glob("*.whl"))
+          if not wheels:
+              raise SystemExit("Wheel was not built")
+
+          with zipfile.ZipFile(wheels[-1]) as zf:
+              entry_points = [
+                  name for name in zf.namelist() if name.endswith("entry_points.txt")
+              ]
+              if entry_points:
+                  text = zf.read(entry_points[0]).decode("utf-8")
+                  for script_name in ("ies-online", "ies-lottool", "ies-fill-lots", "ies-web"):
+                      if script_name in text:
+                          raise SystemExit(
+                              f"Legacy console script '{script_name}' still present in wheel metadata"
+                          )
+          PY
