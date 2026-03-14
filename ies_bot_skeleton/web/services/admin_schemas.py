@@ -246,6 +246,14 @@ RULESET_SECTION_FIELDS = [
             ("evaluation_weight_best", "number", "Вес best"),
             ("evaluation_weight_custom", "number", "Вес custom"),
             ("evaluation_risk_lambda", "number", "Коэффициент риска"),
+            ("evaluation_volatility_lambda", "number", "Коэффициент волатильности"),
+            ("evaluation_reserve_margin_abs", "number", "Мин. резерв ставки"),
+            ("evaluation_reserve_margin_share", "number", "Доля резерва ставки"),
+            (
+                "evaluation_storage_operating_cost_per_mwh_throughput",
+                "number",
+                "Опер. расход накопителя за MWh",
+            ),
         ],
     },
     {
@@ -370,14 +378,20 @@ def _get_nested(data: Dict[str, Any], *path: str, default: Any = None) -> Any:
     return current
 
 
-def ruleset_form_values(config_json: Dict[str, Any] | None, model_settings_json: Dict[str, Any] | None) -> Dict[str, Any]:
+def ruleset_form_values(
+    config_json: Dict[str, Any] | None, model_settings_json: Dict[str, Any] | None
+) -> Dict[str, Any]:
     base_config = build_default_ruleset_config()
     config = deepcopy(base_config)
     config.update(dict(config_json or {}))
     model_settings = deepcopy(dict(model_settings_json or {}))
 
-    weighted_expected = dict(_get_nested(config, "evaluation", "weighted_expected", default={}) or {})
-    weighted_expected.update(dict(_get_nested(model_settings, "evaluation", "weighted_expected", default={}) or {}))
+    weighted_expected = dict(
+        _get_nested(config, "evaluation", "weighted_expected", default={}) or {}
+    )
+    weighted_expected.update(
+        dict(_get_nested(model_settings, "evaluation", "weighted_expected", default={}) or {})
+    )
     lot_weights = dict(config.get("lot_score_weights", {}) or {})
     lot_weights.update(dict(model_settings.get("lot_score_weights", {}) or {}))
     strategy_profiles = deepcopy(dict(config.get("strategy_profiles", {}) or {}))
@@ -386,7 +400,9 @@ def ruleset_form_values(config_json: Dict[str, Any] | None, model_settings_json:
         merged.update(dict(profile or {}))
         strategy_profiles[code] = merged
 
-    connection_loss = dict(_get_nested(config, "network", "connection_loss_pct_by_point", default={}) or {})
+    connection_loss = dict(
+        _get_nested(config, "network", "connection_loss_pct_by_point", default={}) or {}
+    )
     values = {
         "scenario_base_wind": _get_nested(config, "scenarios", "base", "wind", default=1.0),
         "scenario_base_solar": _get_nested(config, "scenarios", "base", "solar", default=1.0),
@@ -397,43 +413,115 @@ def ruleset_form_values(config_json: Dict[str, Any] | None, model_settings_json:
         "scenario_best_wind": _get_nested(config, "scenarios", "best", "wind", default=1.0),
         "scenario_best_solar": _get_nested(config, "scenarios", "best", "solar", default=1.5),
         "scenario_best_load": _get_nested(config, "scenarios", "best", "load", default=0.5),
-        "market_external_buy_price": _get_nested(config, "market", "external_buy_price", default=10.0),
-        "market_external_sell_price": _get_nested(config, "market", "external_sell_price", default=2.0),
-        "market_instant_buy_price": _get_nested(config, "market", "instant_buy_price", default=10.0),
-        "market_instant_sell_price": _get_nested(config, "market", "instant_sell_price", default=2.0),
-        "market_market_max_power": _get_nested(config, "market", "market_max_power", default=1000000.0),
-        "market_instant_buy_max_power": _get_nested(config, "market", "instant_buy_max_power", default=0.0),
-        "market_instant_sell_max_power": _get_nested(config, "market", "instant_sell_max_power", default=0.0),
+        "market_external_buy_price": _get_nested(
+            config, "market", "external_buy_price", default=10.0
+        ),
+        "market_external_sell_price": _get_nested(
+            config, "market", "external_sell_price", default=2.0
+        ),
+        "market_instant_buy_price": _get_nested(
+            config, "market", "instant_buy_price", default=10.0
+        ),
+        "market_instant_sell_price": _get_nested(
+            config, "market", "instant_sell_price", default=2.0
+        ),
+        "market_market_max_power": _get_nested(
+            config, "market", "market_max_power", default=1000000.0
+        ),
+        "market_instant_buy_max_power": _get_nested(
+            config, "market", "instant_buy_max_power", default=0.0
+        ),
+        "market_instant_sell_max_power": _get_nested(
+            config, "market", "instant_sell_max_power", default=0.0
+        ),
         "network_mode": _get_nested(config, "network", "mode", default="branches"),
         "network_soft_flow_mw": _get_nested(config, "network", "soft_flow_mw", default=40.0),
-        "network_main_substation_limit_mw": _get_nested(config, "network", "main_substation_limit_mw", default=40.0),
-        "network_line_max_power_mw": _get_nested(config, "network", "line_max_power_mw", default=15.0),
-        "network_default_connection_point": _get_nested(config, "network", "default_connection_point", default="A"),
+        "network_main_substation_limit_mw": _get_nested(
+            config, "network", "main_substation_limit_mw", default=40.0
+        ),
+        "network_line_max_power_mw": _get_nested(
+            config, "network", "line_max_power_mw", default=15.0
+        ),
+        "network_default_connection_point": _get_nested(
+            config, "network", "default_connection_point", default="A"
+        ),
         "network_loss_alpha": _get_nested(config, "network", "loss_alpha", default=0.0),
-        "network_wear_overload_mw": _get_nested(config, "network", "wear_overload_mw", default=9999.0),
-        "network_wear_risk_penalty_rub": _get_nested(config, "network", "wear_risk_penalty_rub", default=0.0),
+        "network_wear_overload_mw": _get_nested(
+            config, "network", "wear_overload_mw", default=9999.0
+        ),
+        "network_wear_risk_penalty_rub": _get_nested(
+            config, "network", "wear_risk_penalty_rub", default=0.0
+        ),
         "network_loss_tax": _get_nested(config, "network", "loss_tax", default=1.0),
-        "eco_wind_points_per_mw_tick": _get_nested(config, "eco", "wind_points_per_mw_tick", default=1.0),
-        "eco_solar_points_per_mw_tick": _get_nested(config, "eco", "solar_points_per_mw_tick", default=1.0),
-        "eco_storage_discharge_points_per_mw_tick": _get_nested(config, "eco", "storage_discharge_points_per_mw_tick", default=0.0),
+        "eco_wind_points_per_mw_tick": _get_nested(
+            config, "eco", "wind_points_per_mw_tick", default=1.0
+        ),
+        "eco_solar_points_per_mw_tick": _get_nested(
+            config, "eco", "solar_points_per_mw_tick", default=1.0
+        ),
+        "eco_storage_discharge_points_per_mw_tick": _get_nested(
+            config, "eco", "storage_discharge_points_per_mw_tick", default=0.0
+        ),
         "eco_eco_point_value_rub": _get_nested(config, "eco", "eco_point_value_rub", default=2.0),
-        "storage_capacity_mw_tick": _get_nested(config, "storage", "capacity_mw_tick", default=20.0),
+        "storage_capacity_mw_tick": _get_nested(
+            config, "storage", "capacity_mw_tick", default=20.0
+        ),
         "storage_charge_rate_mw": _get_nested(config, "storage", "charge_rate_mw", default=5.0),
-        "storage_discharge_rate_mw": _get_nested(config, "storage", "discharge_rate_mw", default=5.0),
-        "storage_leak_fraction_per_tick": _get_nested(config, "storage", "leak_fraction_per_tick", default=0.05),
+        "storage_discharge_rate_mw": _get_nested(
+            config, "storage", "discharge_rate_mw", default=5.0
+        ),
+        "storage_leak_fraction_per_tick": _get_nested(
+            config, "storage", "leak_fraction_per_tick", default=0.05
+        ),
         "tps_fuel_max": _get_nested(config, "tps", "fuel_max", default=15.0),
         "tps_eta_nominal": _get_nested(config, "tps", "eta_nominal", default=1.0),
         "tps_fuel_price": _get_nested(config, "tps", "fuel_price", default=0.5),
         "tps_eco_tax_fuel": _get_nested(config, "tps", "eco_tax_fuel", default=0.0),
         "auction_allpay_limit": _get_nested(config, "auction", "allpay_limit", default=200.0),
         "auction_starting_budget": _get_nested(config, "auction", "starting_budget", default=200.0),
-        "auction_tie_break_threshold": _get_nested(config, "auction", "tie_break_threshold", default=2.0),
+        "auction_tie_break_threshold": _get_nested(
+            config, "auction", "tie_break_threshold", default=2.0
+        ),
         "auction_pwin_default": _get_nested(config, "auction", "pwin_default", default=0.35),
         "evaluation_weight_base": weighted_expected.get("base", 0.50),
         "evaluation_weight_worst": weighted_expected.get("worst", 0.35),
         "evaluation_weight_best": weighted_expected.get("best", 0.15),
         "evaluation_weight_custom": weighted_expected.get("custom", 0.0),
-        "evaluation_risk_lambda": _get_nested(model_settings, "evaluation", "risk_lambda", default=_get_nested(config, "evaluation", "risk_lambda", default=0.25)),
+        "evaluation_risk_lambda": _get_nested(
+            model_settings,
+            "evaluation",
+            "risk_lambda",
+            default=_get_nested(config, "evaluation", "risk_lambda", default=0.25),
+        ),
+        "evaluation_volatility_lambda": _get_nested(
+            model_settings,
+            "evaluation",
+            "volatility_lambda",
+            default=_get_nested(config, "evaluation", "volatility_lambda", default=0.15),
+        ),
+        "evaluation_reserve_margin_abs": _get_nested(
+            model_settings,
+            "evaluation",
+            "reserve_margin_abs",
+            default=_get_nested(config, "evaluation", "reserve_margin_abs", default=5.0),
+        ),
+        "evaluation_reserve_margin_share": _get_nested(
+            model_settings,
+            "evaluation",
+            "reserve_margin_share",
+            default=_get_nested(config, "evaluation", "reserve_margin_share", default=0.10),
+        ),
+        "evaluation_storage_operating_cost_per_mwh_throughput": _get_nested(
+            model_settings,
+            "evaluation",
+            "storage_operating_cost_per_mwh_throughput",
+            default=_get_nested(
+                config,
+                "evaluation",
+                "storage_operating_cost_per_mwh_throughput",
+                default=0.0,
+            ),
+        ),
     }
     for point in "ABCDEFG":
         values[f"connection_loss_{point}"] = connection_loss.get(point, 0.0)
@@ -544,13 +632,23 @@ def ruleset_payload_from_request(
     )
     config["auction"] = auction
 
-    weights = deepcopy(dict(model_settings.get("lot_score_weights", {}) or dict(config.get("lot_score_weights", {}) or {})))
+    weights = deepcopy(
+        dict(
+            model_settings.get("lot_score_weights", {})
+            or dict(config.get("lot_score_weights", {}) or {})
+        )
+    )
     for weight_key, default_value in DEFAULT_WEIGHTS.items():
         weights[weight_key] = num(weight_key, default_value)
     config["lot_score_weights"] = deepcopy(weights)
     model_settings["lot_score_weights"] = weights
 
-    profiles = deepcopy(dict(model_settings.get("strategy_profiles", {}) or dict(config.get("strategy_profiles", {}) or {})))
+    profiles = deepcopy(
+        dict(
+            model_settings.get("strategy_profiles", {})
+            or dict(config.get("strategy_profiles", {}) or {})
+        )
+    )
     for strategy_code, defaults in DEFAULT_STRATEGY_PROFILES.items():
         merged = dict(defaults)
         merged.update(dict(profiles.get(strategy_code, {}) or {}))
@@ -564,7 +662,9 @@ def ruleset_payload_from_request(
     config["strategy_profiles"] = deepcopy(profiles)
     model_settings["strategy_profiles"] = profiles
 
-    evaluation = deepcopy(dict(model_settings.get("evaluation", {}) or dict(config.get("evaluation", {}) or {})))
+    evaluation = deepcopy(
+        dict(model_settings.get("evaluation", {}) or dict(config.get("evaluation", {}) or {}))
+    )
     weighted_expected = deepcopy(dict(evaluation.get("weighted_expected", {}) or {}))
     weighted_expected.update(
         {
@@ -576,6 +676,13 @@ def ruleset_payload_from_request(
     )
     evaluation["weighted_expected"] = weighted_expected
     evaluation["risk_lambda"] = num("evaluation_risk_lambda", 0.25)
+    evaluation["volatility_lambda"] = num("evaluation_volatility_lambda", 0.15)
+    evaluation["reserve_margin_abs"] = num("evaluation_reserve_margin_abs", 5.0)
+    evaluation["reserve_margin_share"] = num("evaluation_reserve_margin_share", 0.10)
+    evaluation["storage_operating_cost_per_mwh_throughput"] = num(
+        "evaluation_storage_operating_cost_per_mwh_throughput",
+        0.0,
+    )
     config["evaluation"] = deepcopy(evaluation)
     model_settings["evaluation"] = evaluation
     model_settings["auction"] = {"pwin_default": num("auction_pwin_default", 0.35)}
@@ -590,8 +697,7 @@ def strategy_profile_matrix() -> List[Dict[str, Any]]:
             {
                 "code": strategy_code,
                 "weights": [
-                    {"key": weight_key, "label": weight_key}
-                    for weight_key in DEFAULT_WEIGHTS
+                    {"key": weight_key, "label": weight_key} for weight_key in DEFAULT_WEIGHTS
                 ],
             }
         )

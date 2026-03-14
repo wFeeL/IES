@@ -53,7 +53,6 @@ def test_lot_editor_renders_single_hidden_state_fields(client):
     assert html.count('name="session_id"') == 1
 
 
-
 def test_lot_editor_rejects_invalid_lot_payload(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Invalid lot")
@@ -74,7 +73,6 @@ def test_lot_editor_rejects_invalid_lot_payload(client):
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
     assert "quantity" in html
-
 
 
 def test_api_lot_validation_guards_invalid_items(client):

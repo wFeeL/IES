@@ -52,13 +52,6 @@ def _next_version_for_code(code: str) -> str:
     return str(len(rows) + 1)
 
 
-def _deactivate_other_rulesets(active_id: int) -> None:
-    rows = db.session.query(Ruleset).filter(Ruleset.id != int(active_id), Ruleset.is_active.is_(True)).all()
-    for row in rows:
-        row.is_active = False
-        db.session.add(row)
-
-
 def create_ruleset(payload: Dict[str, Any]) -> Ruleset:
     code = str(payload.get("code", "")).strip()
     name = str(payload.get("name", "")).strip()
@@ -86,12 +79,6 @@ def create_ruleset(payload: Dict[str, Any]) -> Ruleset:
         is_builtin=bool(payload.get("is_builtin", False)),
         is_active=is_active,
     )
-    db.session.add(row)
-    db.session.flush()
-
-    if is_active:
-        _deactivate_other_rulesets(row.id)
-
     db.session.add(row)
     db.session.commit()
     return row
@@ -150,11 +137,6 @@ def update_ruleset(row: Ruleset, payload: Dict[str, Any]) -> Ruleset:
         row.is_active = bool(payload.get("is_active"))
 
     db.session.add(row)
-    db.session.flush()
-
-    if row.is_active:
-        _deactivate_other_rulesets(row.id)
-
     db.session.commit()
 
     if stale_reasons:
@@ -165,7 +147,6 @@ def update_ruleset(row: Ruleset, payload: Dict[str, Any]) -> Ruleset:
 
 def activate_ruleset(row: Ruleset) -> Ruleset:
     row.is_active = True
-    _deactivate_other_rulesets(row.id)
     db.session.add(row)
     db.session.commit()
     return row

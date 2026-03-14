@@ -3,6 +3,30 @@
 {% block content %}
 {% include "components/session_hero.html" %}
 {% include "components/analysis_context.html" %}
+{% if forecast_blocked %}
+<section class="card mt-4">
+  <div class="risk-block">
+    <strong>Оценка лота недоступна: активный прогноз несовместим с составом лота.</strong>
+    <ul class="stack gap-1 mt-2">
+      {% for reason in forecast_compatibility_report.blocking_reasons %}
+      <li>{{ reason }}</li>
+      {% else %}
+      <li>Исправьте прогноз или состав лота.</li>
+      {% endfor %}
+    </ul>
+    <div class="mt-3"><strong>{{ compatibility_guidance.primary_message }}</strong></div>
+    <ul class="stack gap-1 mt-2">
+      {% for item in compatibility_guidance.actions %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    <div class="actions mt-3">
+      {% if compatibility_guidance.forecast_url %}<a class="btn btn-primary" href="{{ compatibility_guidance.forecast_url }}">Добавить в прогноз</a>{% endif %}
+      {% if compatibility_guidance.lot_edit_url %}<a class="btn btn-secondary" href="{{ compatibility_guidance.lot_edit_url }}">Изменить состав лота</a>{% endif %}
+    </div>
+  </div>
+</section>
+{% endif %}
 
 <section class="page-grid mt-4">
   <article class="card">
@@ -14,11 +38,15 @@
           <tr><th>Лот</th><td>{{ lot.name }}</td></tr>
           <tr><th>Текущая ставка</th><td>{{ '%.1f'|format(lot.current_bid or 0.0) }}</td></tr>
           <tr><th>Остаток бюджета до покупки</th><td>{{ '%.1f'|format(portfolio.remaining_budget) }}</td></tr>
-          <tr><th>Рабочий максимум</th><td>{{ '%.1f'|format(evaluation.decision_summary.hard_bid) }}</td></tr>
+          <tr><th>Рабочая ставка</th><td>{{ '%.1f'|format(evaluation.decision_summary.target_bid or evaluation.decision_summary.hard_bid) }}</td></tr>
+          <tr><th>Ставка с учетом бюджета</th><td>{{ '%.1f'|format(evaluation.decision_summary.budget_limited_bid or 0.0) }}</td></tr>
           <tr><th>Ожидаемая чистая прибыль</th><td>{{ '%.2f'|format(evaluation.financial_breakdown.result.net_profit) }}</td></tr>
         </tbody>
       </table>
     </div>
+    {% if (evaluation.decision_summary.target_bid or 0.0) > portfolio.remaining_budget %}
+    <div class="flash flash-warning mt-3">Справедливая цена выше доступного остатка бюджета.</div>
+    {% endif %}
     <form method="post" class="stack gap-3 mt-4">
       {{ form.hidden_tag() }}
       <label class="label">{{ form.purchase_price.label }} {{ form.purchase_price(class_='input') }}</label>
@@ -26,7 +54,7 @@
       <div class="flash flash-warning">Цена покупки превышает остаток бюджета.</div>
       {% endif %}
       <div class="actions">
-        <button class="btn btn-primary" type="submit">Купить лот</button>
+        <button class="btn btn-primary" type="submit" {% if forecast_blocked %}disabled{% endif %}>Купить лот</button>
         {% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>{% endif %}
       </div>
     </form>

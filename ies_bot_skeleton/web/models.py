@@ -209,7 +209,9 @@ class GameSession(db.Model):
         cascade="all, delete-orphan",
         foreign_keys="Forecast.session_id",
     )
-    selected_forecast = db.relationship("Forecast", foreign_keys=[selected_forecast_id], post_update=True)
+    selected_forecast = db.relationship(
+        "Forecast", foreign_keys=[selected_forecast_id], post_update=True
+    )
     evaluations = db.relationship(
         "EvaluationResult",
         back_populates="session",
@@ -242,6 +244,10 @@ class ObjectType(db.Model):
     default_parameters_json = db.Column(db.JSON, nullable=False, default=dict)
     editable_fields_json = db.Column(db.JSON, nullable=False, default=list)
     rules_json = db.Column(db.JSON, nullable=False, default=dict)
+    forecast_profile_key = db.Column(db.String(128), nullable=False, default="")
+    resource_dependencies_json = db.Column(db.JSON, nullable=False, default=list)
+    forecast_model_type = db.Column(db.String(64), nullable=False, default="direct_profile")
+    economic_role = db.Column(db.String(32), nullable=False, default="auto")
     is_active = db.Column(db.Boolean, nullable=False, default=True)
 
     instances = db.relationship("ObjectInstance", back_populates="object_type")
@@ -259,6 +265,10 @@ class ObjectType(db.Model):
             "default_parameters": self.default_parameters_json,
             "editable_fields": self.editable_fields_json,
             "rules": self.rules_json,
+            "forecast_profile_key": self.forecast_profile_key,
+            "resource_dependencies": list(self.resource_dependencies_json or []),
+            "forecast_model_type": self.forecast_model_type,
+            "economic_role": self.economic_role,
             "is_active": self.is_active,
         }
 
@@ -400,7 +410,11 @@ class Forecast(db.Model):
     name = db.Column(db.String(255), nullable=False)
     source_file = db.Column(db.String(255), nullable=False, default="")
     column_map_json = db.Column(db.JSON, nullable=False, default=dict)
+    normalization_map_json = db.Column(db.JSON, nullable=False, default=dict)
     metadata_json = db.Column(db.JSON, nullable=False, default=dict)
+    compatibility_report_json = db.Column(db.JSON, nullable=False, default=dict)
+    is_compatible = db.Column(db.Boolean, nullable=False, default=True)
+    incompatibility_reason = db.Column(db.Text, nullable=False, default="")
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
 
     session = db.relationship("GameSession", back_populates="forecasts", foreign_keys=[session_id])
@@ -418,7 +432,11 @@ class Forecast(db.Model):
             "name": self.name,
             "source_file": self.source_file,
             "column_map": self.column_map_json,
+            "normalization_map": self.normalization_map_json,
             "metadata": self.metadata_json,
+            "compatibility_report": self.compatibility_report_json,
+            "is_compatible": self.is_compatible,
+            "incompatibility_reason": self.incompatibility_reason,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "periods_count": len(self.periods),
         }
@@ -434,6 +452,8 @@ class ForecastPeriod(db.Model):
     wind = db.Column(db.Float, nullable=True)
     market_price = db.Column(db.Float, nullable=True)
     consumption_json = db.Column(db.JSON, nullable=False, default=dict)
+    factors_json = db.Column(db.JSON, nullable=False, default=dict)
+    profiles_json = db.Column(db.JSON, nullable=False, default=dict)
     extra_json = db.Column(db.JSON, nullable=False, default=dict)
 
     forecast = db.relationship("Forecast", back_populates="periods")
@@ -450,6 +470,8 @@ class ForecastPeriod(db.Model):
             "wind": self.wind,
             "market_price": self.market_price,
             "consumption": self.consumption_json,
+            "factors": self.factors_json,
+            "profiles": self.profiles_json,
             "extra": self.extra_json,
         }
 

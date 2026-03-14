@@ -25,7 +25,7 @@ def export_session_payload(session: GameSession) -> Dict[str, Any]:
     if session.ruleset and session.ruleset.active_start_pack_template is not None:
         start_pack_payload = session.ruleset.active_start_pack_template.to_dict(include_items=True)
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "session": session.to_dict(),
         "ruleset": ruleset_payload,
         "ruleset_start_pack_template": start_pack_payload,
@@ -133,6 +133,9 @@ def _object_type_lookup() -> Tuple[Dict[int, ObjectType], Dict[str, ObjectType]]
 def import_session_payload(payload: Dict[str, Any]) -> GameSession:
     if not isinstance(payload, dict):
         raise ValueError("Ожидается JSON-объект")
+    schema_version = int(payload.get("schema_version", 4) or 4)
+    if schema_version not in {4, 5}:
+        raise ValueError(f"Неподдерживаемая версия schema_version={schema_version}")
 
     session_payload = payload.get("session") or {}
     title = str(session_payload.get("title", "Imported Session")).strip() or "Imported Session"
@@ -233,12 +236,20 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
 
     imported_forecasts_by_old_id: Dict[int, int] = {}
     for fc in payload.get("forecasts", []) or []:
+        normalization_map = dict(fc.get("normalization_map") or {})
+        compatibility_report = dict(fc.get("compatibility_report") or {})
+        is_compatible = bool(fc.get("is_compatible", True))
+        incompatibility_reason = str(fc.get("incompatibility_reason", ""))
         forecast = Forecast(
             session_id=out_session.id,
             name=str(fc.get("name", "Imported forecast")),
             source_file=str(fc.get("source_file", "")),
             column_map_json=dict(fc.get("column_map") or {}),
+            normalization_map_json=normalization_map,
             metadata_json=dict(fc.get("metadata") or {}),
+            compatibility_report_json=compatibility_report,
+            is_compatible=is_compatible,
+            incompatibility_reason=incompatibility_reason,
         )
         db.session.add(forecast)
         db.session.flush()
@@ -254,6 +265,8 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
                     wind=period.get("wind"),
                     market_price=period.get("market_price"),
                     consumption_json=dict(period.get("consumption") or {}),
+                    factors_json=dict(period.get("factors") or {}),
+                    profiles_json=dict(period.get("profiles") or {}),
                     extra_json=dict(period.get("extra") or {}),
                 )
             )

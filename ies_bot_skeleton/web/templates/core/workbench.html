@@ -1,8 +1,36 @@
 {% extends "base.html" %}
+{% block head_extra %}
+{{ super() }}
+<script defer src="{{ url_for('static', filename='js/analysis/strategy_snapshot.js') }}"></script>
+{% endblock %}
 {% block title %}Сессия {{ session.id }} | IES{% endblock %}
 {% block page_title %}Сессия #{{ session.id }}{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
+{% if forecast_blocked %}
+<section class="card mt-4">
+  <div class="risk-block">
+    <strong>Оценка лотов заблокирована: прогноз несовместим с объектами сессии.</strong>
+    <ul class="stack gap-1 mt-2">
+      {% for reason in forecast_compatibility_report.blocking_reasons %}
+      <li>{{ reason }}</li>
+      {% else %}
+      <li>Исправьте покрытие профилей и ресурсных рядов в прогнозе.</li>
+      {% endfor %}
+    </ul>
+    <div class="mt-3"><strong>{{ compatibility_guidance.primary_message }}</strong></div>
+    <ul class="stack gap-1 mt-2">
+      {% for item in compatibility_guidance.actions %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    <div class="actions mt-3">
+      {% if compatibility_guidance.forecast_url %}<a class="btn btn-primary" href="{{ compatibility_guidance.forecast_url }}">Исправить прогноз</a>{% endif %}
+      {% if compatibility_guidance.lots_url %}<a class="btn btn-secondary" href="{{ compatibility_guidance.lots_url }}">Открыть проблемные лоты</a>{% endif %}
+    </div>
+  </div>
+</section>
+{% endif %}
 
 <section class="card mt-4">
   <div class="section-head">
@@ -51,8 +79,8 @@
     <div class="section-head">
       <div>
         <p class="section-kicker">Активный прогноз</p>
-        <h2 class="h2 text-ellipsis" title="{{ forecast_card.name or 'Встроенный базовый прогноз' }}">
-          {{ forecast_card.name or 'Встроенный базовый прогноз' }}
+        <h2 class="h2 text-ellipsis" title="{{ forecast_card.name or 'Прогноз тестовой игры' }}">
+          {{ forecast_card.name or 'Прогноз тестовой игры' }}
         </h2>
         <p class="muted">{{ forecast_context.source_label }}</p>
       </div>
@@ -109,6 +137,16 @@
       </div>
     </details>
     <div class="risk-block mt-3">{{ forecast_card.quality.text }}</div>
+    <div class="table-wrap mt-3">
+      <table class="table">
+        <tbody>
+          <tr><th class="col-text">Совместимость</th><td>{{ 'Совместим' if forecast_card.is_compatible else 'Несовместим' }}</td></tr>
+          <tr><th class="col-text">Покрытые типы</th><td>{{ (forecast_card.compatibility_report.covered_types or [])|join(', ') or '—' }}</td></tr>
+          <tr><th class="col-text">Частично покрытые типы</th><td>{{ (forecast_card.compatibility_report.partial_types or [])|join(', ') or '—' }}</td></tr>
+          <tr><th class="col-text">Отсутствующие типы</th><td>{{ (forecast_card.compatibility_report.missing_types or [])|join(', ') or '—' }}</td></tr>
+        </tbody>
+      </table>
+    </div>
   </article>
 
   <div class="stack gap-4">
@@ -135,12 +173,31 @@
         <a class="action-card" href="{{ export_json_url }}"><span class="action-icon">EX</span><strong>Экспорт сессии</strong><span>Сохранить JSON-снимок</span></a>
       </div>
       <div class="actions mt-4">
-        <button class="btn btn-secondary" type="button" id="recalculateLotsBtn" data-url="{{ recalculate_url }}">Пересчитать все лоты</button>
+        <button class="btn btn-secondary" type="button" id="recalculateLotsBtn" data-url="{{ recalculate_url }}" {% if forecast_blocked %}disabled{% endif %}>Пересчитать все лоты</button>
         <a class="btn btn-secondary" href="{{ export_csv_url }}">Скачать оценки CSV</a>
       </div>
       <div id="dashboardStatus" class="muted mt-2"></div>
     </article>
   </div>
+</section>
+
+<section
+  class="card mt-4"
+  id="strategySnapshotCard"
+  {% if not forecast_blocked %}data-strategy-url="{{ strategy_api_url }}" data-remaining-budget="{{ portfolio.remaining_budget }}"{% endif %}
+>
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Стратегия</p>
+      <h2 class="h2">Лучшие одиночные лоты, пары и группы</h2>
+    </div>
+  </div>
+  {% if forecast_blocked %}
+  <div class="risk-block mt-3">Стратегия недоступна до исправления совместимости прогноза.</div>
+  {% else %}
+  <div id="strategySnapshotStatus" class="muted mt-3">Загружаю стратегические комбинации...</div>
+  <div id="strategySnapshotContent" hidden></div>
+  {% endif %}
 </section>
 
 <section class="card mt-4">
@@ -167,7 +224,7 @@
         <option value="utility_desc" {{ 'selected' if sort_key == 'utility_desc' else '' }}>Полезность ↓</option>
         <option value="profit_desc" {{ 'selected' if sort_key == 'profit_desc' else '' }}>Чистая прибыль ↓</option>
         <option value="risk_asc" {{ 'selected' if sort_key == 'risk_asc' else '' }}>Риск ↑</option>
-        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Макс. ставка ↓</option>
+        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Рабочая ставка ↓</option>
         <option value="price_asc" {{ 'selected' if sort_key == 'price_asc' else '' }}>Цена ↑</option>
         <option value="price_desc" {{ 'selected' if sort_key == 'price_desc' else '' }}>Цена ↓</option>
       </select>
@@ -189,7 +246,7 @@
           <th class="col-num">Полезность</th>
           <th class="col-num">Чистая прибыль</th>
           <th class="col-num">Риск</th>
-          <th class="col-num">Макс. ставка</th>
+          <th class="col-num">Рабочая ставка</th>
           <th class="col-text">Статус</th>
           <th class="col-actions">Действия</th>
         </tr>
@@ -202,7 +259,7 @@
           <td class="num">{{ '%.2f'|format(row.utility) }}</td>
           <td class="num">{{ '%.2f'|format(row.net_profit) }}</td>
           <td class="num">{{ '%.2f'|format(row.risk) }}</td>
-          <td class="num">{{ '%.2f'|format(row.max_bid) }}</td>
+          <td class="num">{{ '%.2f'|format(row.target_bid) }}</td>
           <td class="col-text">
             <span>{{ lot_status_label(row.status) }}</span>
             {% if row.is_stale %}<div><span class="status-badge status-stale" title="{{ row.stale_reason_label or row.stale_reason }}">Оценка устарела</span></div>{% endif %}
@@ -308,25 +365,28 @@
 <script defer src="{{ url_for('static', filename='js/analysis/row_actions.js') }}"></script>
 <script>
 (() => {
+  const api = window.IESApi || {};
+  const apiFetchJson = api.apiFetchJson;
+  const errorMessage = api.errorMessage || ((data) => data?.error?.message || 'Не удалось пересчитать лоты.');
   const button = document.getElementById('recalculateLotsBtn');
   const status = document.getElementById('dashboardStatus');
   if (!button) return;
+
   button.addEventListener('click', async () => {
     button.disabled = true;
-    status.textContent = 'Пересчитываю лоты...';
-    const res = await fetch(button.dataset.url, {
+    if (status) status.textContent = 'Пересчитываю лоты...';
+    const data = await apiFetchJson(button.dataset.url, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}'},
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({})
     });
-    const data = await res.json();
     if (data.ok) {
-      status.textContent = `Пересчитано лотов: ${data.meta.count}`;
+      if (status) status.textContent = `Пересчитано лотов: ${data?.meta?.count ?? 0}`;
       window.location.reload();
       return;
     }
     button.disabled = false;
-    status.textContent = data?.error?.message || 'Не удалось пересчитать лоты.';
+    if (status) status.textContent = errorMessage(data);
   });
 })();
 </script>

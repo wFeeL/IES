@@ -84,6 +84,10 @@ def build_default_ruleset_config() -> Dict[str, Any]:
                 "custom": 0.0,
             },
             "risk_lambda": 0.25,
+            "volatility_lambda": 0.15,
+            "reserve_margin_abs": 5.0,
+            "reserve_margin_share": 0.10,
+            "storage_operating_cost_per_mwh_throughput": 0.0,
         },
     )
     merged.setdefault("auction", {}).setdefault("pwin_default", 0.35)

@@ -5,8 +5,18 @@ from typing import Any, Dict, List
 from ..extensions import db
 from ..models import ObjectType, Ruleset, StartPackTemplate, StartPackTemplateItem, User
 from .ruleset import build_default_ruleset_config
+from .test_game_preset import (
+    TEST_GAME_RULESET_CODE,
+    TEST_GAME_RULESET_NAME,
+    TEST_GAME_RULESET_VERSION,
+    TEST_GAME_START_PACK_CODE,
+    TEST_GAME_START_PACK_DESCRIPTION,
+    TEST_GAME_START_PACK_NAME,
+)
 
-START_PACK_CODES = ["main_substation", "mini_substation_a", "cyber_solar", "house"]
+GENERIC_RULESET_CODE = "ies_2026"
+GENERIC_RULESET_VERSION = "1"
+GENERIC_RULESET_NAME = "IES Ruleset 2026"
 DEFAULT_START_PACK_TEMPLATE_CODE = "core_default"
 DEFAULT_START_PACK_TEMPLATE_NAME = "Стартовый пакет аукциона"
 DEFAULT_START_PACK_TEMPLATE_DESCRIPTION = (
@@ -61,7 +71,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "name": "Жилой дом",
         "category": "consumer",
         "subtype": "residential",
-        "description": "Базовый потребитель класса house.",
+        "description": "Базовый бытовой потребитель тестовой игры.",
         "default_parameters_json": {
             "tariff_rub_per_mw_tick": 3.0,
             "expected_consumption_mw": 2.0,
@@ -85,13 +95,17 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "requires_substation": True,
             "forbid_mixed_gen_load": False,
         },
+        "forecast_profile_key": "house_load",
+        "resource_dependencies_json": [],
+        "forecast_model_type": "profile_scaled_load",
+        "economic_role": "consumer",
     },
     {
         "code": "office",
         "name": "Офис",
         "category": "consumer",
         "subtype": "office",
-        "description": "Потребитель со средней нагрузкой.",
+        "description": "Коммерческий потребитель со средней нагрузкой.",
         "default_parameters_json": {
             "tariff_rub_per_mw_tick": 5.0,
             "expected_consumption_mw": 1.0,
@@ -113,6 +127,10 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "requires_substation": True,
             "forbid_mixed_gen_load": False,
         },
+        "forecast_profile_key": "office_load",
+        "resource_dependencies_json": [],
+        "forecast_model_type": "profile_scaled_load",
+        "economic_role": "consumer",
     },
     {
         "code": "factory",
@@ -141,13 +159,17 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "requires_substation": True,
             "forbid_mixed_gen_load": False,
         },
+        "forecast_profile_key": "factory_load",
+        "resource_dependencies_json": [],
+        "forecast_model_type": "profile_scaled_load",
+        "economic_role": "consumer",
     },
     {
         "code": "cyber_solar",
-        "name": "Кибер-СЭС",
+        "name": "Солнечная панель",
         "category": "generator",
         "subtype": "solar",
-        "description": "СЭС с зависимостью от освещенности.",
+        "description": "Солнечная генерация тестовой игры с бонусом ВИЭ.",
         "default_parameters_json": {
             "contract_rub_per_tick": 2.0,
             "generation_mw": 10.0,
@@ -168,6 +190,10 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "requires_substation": True,
             "forbid_mixed_gen_load": False,
         },
+        "forecast_profile_key": "solar_profile",
+        "resource_dependencies_json": ["solar_factor"],
+        "forecast_model_type": "solar_factor_output",
+        "economic_role": "generator",
     },
     {
         "code": "solar",
@@ -195,13 +221,17 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "requires_substation": True,
             "forbid_mixed_gen_load": False,
         },
+        "forecast_profile_key": "solar_profile",
+        "resource_dependencies_json": ["solar_factor"],
+        "forecast_model_type": "solar_factor_output",
+        "economic_role": "generator",
     },
     {
         "code": "wind",
-        "name": "ВЭС",
+        "name": "Ветряк",
         "category": "generator",
         "subtype": "wind",
-        "description": "Ветрогенератор с нелинейной зависимостью.",
+        "description": "Ветрогенератор тестовой игры с бонусом ВИЭ.",
         "default_parameters_json": {
             "contract_rub_per_tick": 1.0,
             "generation_mw": 8.0,
@@ -222,13 +252,17 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "requires_substation": True,
             "forbid_mixed_gen_load": False,
         },
+        "forecast_profile_key": "wind_profile",
+        "resource_dependencies_json": ["wind_factor"],
+        "forecast_model_type": "wind_factor_curve",
+        "economic_role": "generator",
     },
     {
         "code": "tps",
         "name": "ТЭС",
         "category": "generator",
         "subtype": "thermal",
-        "description": "Управляемая генерация с топливом и налогами.",
+        "description": "Управляемая тепловая генерация с расходом топлива.",
         "default_parameters_json": {
             "contract_rub_per_tick": 0.0,
             "generation_mw": 15.0,
@@ -251,13 +285,17 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "requires_substation": True,
             "forbid_mixed_gen_load": False,
         },
+        "forecast_profile_key": "",
+        "resource_dependencies_json": [],
+        "forecast_model_type": "dispatchable_thermal",
+        "economic_role": "generator",
     },
     {
         "code": "storage",
         "name": "Накопитель",
         "category": "storage",
         "subtype": "battery",
-        "description": "Аккумулятор с емкостью и скоростью заряда/разряда.",
+        "description": "Аккумулятор с потерями заряда и ограничением по мощности.",
         "default_parameters_json": {
             "contract_rub_per_tick": 3.0,
             "capacity_mw_tick": 20.0,
@@ -280,13 +318,17 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "requires_substation": True,
             "forbid_mixed_gen_load": False,
         },
+        "forecast_profile_key": "storage_default_profile",
+        "resource_dependencies_json": [],
+        "forecast_model_type": "storage_dispatch",
+        "economic_role": "storage",
     },
     {
         "code": "main_substation",
         "name": "Главная подстанция",
         "category": "infrastructure",
         "subtype": "main",
-        "description": "Корневой узел дерева сети.",
+        "description": "Главный узел сети с тремя портами и лимитом по мощности.",
         "default_parameters_json": {
             "ports": 3,
             "contract_rub_per_tick": 1.0,
@@ -307,13 +349,17 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "forbid_mixed_gen_load": False,
             "is_root": True,
         },
+        "forecast_profile_key": "",
+        "resource_dependencies_json": [],
+        "forecast_model_type": "infrastructure_constraint",
+        "economic_role": "infrastructure",
     },
     {
         "code": "mini_substation_a",
-        "name": "Мини-подстанция A",
+        "name": "Мини-подстанция",
         "category": "infrastructure",
         "subtype": "miniA",
-        "description": "Локальный узел сети с ограничением портов.",
+        "description": "Мини-подстанция на три порта для расширения сети.",
         "default_parameters_json": {
             "ports": 3,
             "requires_substation": True,
@@ -325,6 +371,10 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "requires_substation": True,
             "forbid_mixed_gen_load": False,
         },
+        "forecast_profile_key": "",
+        "resource_dependencies_json": [],
+        "forecast_model_type": "infrastructure_constraint",
+        "economic_role": "infrastructure",
     },
     {
         "code": "mini_substation_b",
@@ -343,6 +393,10 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "requires_substation": True,
             "forbid_mixed_gen_load": False,
         },
+        "forecast_profile_key": "",
+        "resource_dependencies_json": [],
+        "forecast_model_type": "infrastructure_constraint",
+        "economic_role": "infrastructure",
     },
 ]
 
@@ -376,25 +430,32 @@ def build_default_model_settings(config_json: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _ensure_default_start_pack_template(type_map: Dict[str, ObjectType]) -> StartPackTemplate:
+def _ensure_start_pack_template(
+    *,
+    type_map: Dict[str, ObjectType],
+    code: str,
+    name: str,
+    description: str,
+    items_seed: List[Dict[str, Any]],
+) -> StartPackTemplate:
     template = (
         db.session.query(StartPackTemplate)
-        .filter_by(code=DEFAULT_START_PACK_TEMPLATE_CODE)
+        .filter_by(code=code)
         .one_or_none()
     )
     if template is None:
         template = StartPackTemplate(
-            code=DEFAULT_START_PACK_TEMPLATE_CODE,
-            name=DEFAULT_START_PACK_TEMPLATE_NAME,
-            description=DEFAULT_START_PACK_TEMPLATE_DESCRIPTION,
+            code=code,
+            name=name,
+            description=description,
             is_builtin=True,
             is_active=True,
         )
         db.session.add(template)
         db.session.flush()
     else:
-        template.name = DEFAULT_START_PACK_TEMPLATE_NAME
-        template.description = DEFAULT_START_PACK_TEMPLATE_DESCRIPTION
+        template.name = name
+        template.description = description
         template.is_builtin = True
         template.is_active = True
         db.session.add(template)
@@ -404,7 +465,7 @@ def _ensure_default_start_pack_template(type_map: Dict[str, ObjectType]) -> Star
     db.session.flush()
 
     key_to_row: Dict[str, StartPackTemplateItem] = {}
-    for item in START_PACK_TEMPLATE_ITEMS_SEED:
+    for item in items_seed:
         code = str(item["object_type_code"])
         type_row = type_map.get(code)
         if type_row is None:
@@ -424,7 +485,7 @@ def _ensure_default_start_pack_template(type_map: Dict[str, ObjectType]) -> Star
         db.session.flush()
         key_to_row[str(item.get("key", ""))] = row
 
-    for item in START_PACK_TEMPLATE_ITEMS_SEED:
+    for item in items_seed:
         key = str(item.get("key", ""))
         parent_key = item.get("parent_key")
         if not parent_key:
@@ -436,6 +497,26 @@ def _ensure_default_start_pack_template(type_map: Dict[str, ObjectType]) -> Star
         row.parent_item_id = parent.id
         db.session.add(row)
     return template
+
+
+def _ensure_default_start_pack_template(type_map: Dict[str, ObjectType]) -> StartPackTemplate:
+    return _ensure_start_pack_template(
+        type_map=type_map,
+        code=DEFAULT_START_PACK_TEMPLATE_CODE,
+        name=DEFAULT_START_PACK_TEMPLATE_NAME,
+        description=DEFAULT_START_PACK_TEMPLATE_DESCRIPTION,
+        items_seed=START_PACK_TEMPLATE_ITEMS_SEED,
+    )
+
+
+def _ensure_test_game_start_pack_template(type_map: Dict[str, ObjectType]) -> StartPackTemplate:
+    return _ensure_start_pack_template(
+        type_map=type_map,
+        code=TEST_GAME_START_PACK_CODE,
+        name=TEST_GAME_START_PACK_NAME,
+        description=TEST_GAME_START_PACK_DESCRIPTION,
+        items_seed=START_PACK_TEMPLATE_ITEMS_SEED,
+    )
 
 
 def ensure_seed_data(
@@ -459,23 +540,57 @@ def ensure_seed_data(
     base_rules_cfg = build_default_ruleset_config()
     default_model_settings = build_default_model_settings(base_rules_cfg)
 
-    ruleset = db.session.query(Ruleset).filter_by(code="ies_2026", version="1").one_or_none()
-    if ruleset is None:
-        ruleset = Ruleset(
-            code="ies_2026",
-            version="1",
-            name="IES Ruleset 2026",
+    generic_ruleset = (
+        db.session.query(Ruleset)
+        .filter_by(code=GENERIC_RULESET_CODE, version=GENERIC_RULESET_VERSION)
+        .one_or_none()
+    )
+    if generic_ruleset is None:
+        generic_ruleset = Ruleset(
+            code=GENERIC_RULESET_CODE,
+            version=GENERIC_RULESET_VERSION,
+            name=GENERIC_RULESET_NAME,
             config_json=base_rules_cfg,
             model_settings_json=default_model_settings,
             is_builtin=True,
             is_active=True,
         )
-        db.session.add(ruleset)
+        db.session.add(generic_ruleset)
         created["rulesets"] += 1
     else:
-        if not isinstance(ruleset.model_settings_json, dict):
-            ruleset.model_settings_json = default_model_settings
-        db.session.add(ruleset)
+        generic_ruleset.name = GENERIC_RULESET_NAME
+        generic_ruleset.config_json = base_rules_cfg
+        if not isinstance(generic_ruleset.model_settings_json, dict):
+            generic_ruleset.model_settings_json = default_model_settings
+        generic_ruleset.is_builtin = True
+        generic_ruleset.is_active = True
+        db.session.add(generic_ruleset)
+
+    test_game_ruleset = (
+        db.session.query(Ruleset)
+        .filter_by(code=TEST_GAME_RULESET_CODE, version=TEST_GAME_RULESET_VERSION)
+        .one_or_none()
+    )
+    if test_game_ruleset is None:
+        test_game_ruleset = Ruleset(
+            code=TEST_GAME_RULESET_CODE,
+            version=TEST_GAME_RULESET_VERSION,
+            name=TEST_GAME_RULESET_NAME,
+            config_json=base_rules_cfg,
+            model_settings_json=default_model_settings,
+            is_builtin=True,
+            is_active=True,
+        )
+        db.session.add(test_game_ruleset)
+        created["rulesets"] += 1
+    else:
+        test_game_ruleset.name = TEST_GAME_RULESET_NAME
+        test_game_ruleset.config_json = base_rules_cfg
+        if not isinstance(test_game_ruleset.model_settings_json, dict):
+            test_game_ruleset.model_settings_json = default_model_settings
+        test_game_ruleset.is_builtin = True
+        test_game_ruleset.is_active = True
+        db.session.add(test_game_ruleset)
 
     for row in OBJECT_TYPE_SEED:
         current = db.session.query(ObjectType).filter_by(code=row["code"]).one_or_none()
@@ -491,18 +606,26 @@ def ensure_seed_data(
         current.default_parameters_json = row["default_parameters_json"]
         current.editable_fields_json = row["editable_fields_json"]
         current.rules_json = row["rules_json"]
+        current.forecast_profile_key = row.get("forecast_profile_key", "")
+        current.resource_dependencies_json = list(row.get("resource_dependencies_json", []) or [])
+        current.forecast_model_type = row.get("forecast_model_type", "direct_profile")
+        current.economic_role = row.get("economic_role", "auto")
         current.is_active = True
         db.session.add(current)
 
     type_map = {row.code: row for row in db.session.query(ObjectType).all()}
     before_templates = db.session.query(StartPackTemplate).count()
     default_template = _ensure_default_start_pack_template(type_map)
+    test_game_template = _ensure_test_game_start_pack_template(type_map)
     after_templates = db.session.query(StartPackTemplate).count()
     created["start_pack_templates"] = max(0, after_templates - before_templates)
 
-    if ruleset.active_start_pack_template_id != default_template.id:
-        ruleset.active_start_pack_template_id = default_template.id
-        db.session.add(ruleset)
+    if generic_ruleset.active_start_pack_template_id != default_template.id:
+        generic_ruleset.active_start_pack_template_id = default_template.id
+        db.session.add(generic_ruleset)
+    if test_game_ruleset.active_start_pack_template_id != test_game_template.id:
+        test_game_ruleset.active_start_pack_template_id = test_game_template.id
+        db.session.add(test_game_ruleset)
 
     db.session.commit()
     return created

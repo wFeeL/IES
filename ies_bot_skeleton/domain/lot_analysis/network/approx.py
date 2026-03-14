@@ -17,11 +17,11 @@ class NetApproxResult:
 def approx_network_cost(
     plan: NetworkPlan, branch_flows: Dict[str, float], cfg_network: Dict[str, float]
 ) -> NetApproxResult:
-    alpha = float(cfg_network.get("loss_alpha", 0.04))
-    default_soft = float(cfg_network.get("soft_flow_mw", 30.0))
-    wear_over = float(cfg_network.get("wear_overload_mw", 40.0))
-    wear_pen = float(cfg_network.get("wear_risk_penalty_rub", 5.0))
-    loss_tax = float(cfg_network.get("loss_tax", 2.0))
+    alpha = float(cfg_network.get("loss_alpha", 0.0))
+    default_soft = float(cfg_network.get("soft_flow_mw", 40.0))
+    wear_over = float(cfg_network.get("wear_overload_mw", 9999.0))
+    wear_pen = float(cfg_network.get("wear_risk_penalty_rub", 0.0))
+    loss_tax = float(cfg_network.get("loss_tax", 1.0))
 
     loss = 0.0
     risk = 0.0

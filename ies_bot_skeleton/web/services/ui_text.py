@@ -53,6 +53,8 @@ def strategy_label(code: str | None) -> str:
     if not code:
         return "Не выбрана"
     return STRATEGY_LABELS.get(code, code)
+
+
 def category_label(code: str | None) -> str:
     if not code:
         return "Без категории"

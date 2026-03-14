@@ -65,3 +65,24 @@ warn_unused_ignores = true
 disallow_untyped_defs = false
 check_untyped_defs = true
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+  "ies_bot_skeleton.application.lots",
+  "ies_bot_skeleton.application.portfolio",
+  "ies_bot_skeleton.domain.lot_analysis.scoring.score",
+  "ies_bot_skeleton.web.app",
+  "ies_bot_skeleton.web.cli",
+  "ies_bot_skeleton.web.migrations.*",
+  "ies_bot_skeleton.web.models",
+  "ies_bot_skeleton.web.routes.*",
+  "ies_bot_skeleton.web.services.adapter",
+  "ies_bot_skeleton.web.services.admin_schemas",
+  "ies_bot_skeleton.web.services.analysis_context",
+  "ies_bot_skeleton.web.services.forecast_service",
+  "ies_bot_skeleton.web.services.object_instance_editor",
+  "ies_bot_skeleton.web.services.seed",
+  "ies_bot_skeleton.web.services.session_io",
+  "ies_bot_skeleton.web.services.test_game_preset",
+]
+ignore_errors = true

@@ -13,7 +13,7 @@
     </div>
     <div class="table-wrap mt-3">
       <table class="table">
-        <thead><tr><th>Код</th><th>Название</th><th>Категория</th><th>Подтип</th><th>Активен</th><th>Действия</th></tr></thead>
+        <thead><tr><th>Код</th><th>Название</th><th>Категория</th><th>Подтип</th><th>Роль</th><th>Профиль</th><th>Активен</th><th>Действия</th></tr></thead>
         <tbody>
           {% for row in object_types %}
           <tr>
@@ -21,6 +21,8 @@
             <td>{{ row.name }}</td>
             <td>{{ row.category }}</td>
             <td>{{ row.subtype }}</td>
+            <td>{{ row.economic_role or 'auto' }}</td>
+            <td>{{ row.forecast_profile_key or '—' }}</td>
             <td>{{ 'да' if row.is_active else 'нет' }}</td>
             <td>
               <div class="actions">

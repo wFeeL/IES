@@ -10,6 +10,8 @@ class ObjectInstanceForm(FlaskForm):
     object_type_id = SelectField("Тип объекта", coerce=int, validators=[DataRequired()], choices=[])
     custom_name = StringField("Имя", validators=[Optional()])
     district = StringField("Энергорайон", validators=[Optional()])
-    parent_instance_id = SelectField("Родитель", coerce=int, validators=[Optional()], choices=[(0, "Без родителя")])
+    parent_instance_id = SelectField(
+        "Родитель", coerce=int, validators=[Optional()], choices=[(0, "Без родителя")]
+    )
     is_active = BooleanField("Активен", default=True)
     submit = SubmitField("Сохранить")

@@ -82,7 +82,11 @@ def stale_summary_for_session(session_id: int) -> Dict[str, Any]:
     rows = (
         db.session.query(EvaluationResult)
         .filter_by(session_id=int(session_id))
-        .order_by(EvaluationResult.lot_id.asc(), EvaluationResult.created_at.desc(), EvaluationResult.id.desc())
+        .order_by(
+            EvaluationResult.lot_id.asc(),
+            EvaluationResult.created_at.desc(),
+            EvaluationResult.id.desc(),
+        )
         .all()
     )
     latest_by_lot: dict[int, EvaluationResult] = {}
@@ -100,5 +104,7 @@ def stale_summary_for_session(session_id: int) -> Dict[str, Any]:
         "stale_count": int(total),
         "has_stale": bool(total > 0),
         "last_reason": last.stale_reason if last is not None else "",
-        "last_marked_at": last.stale_marked_at.isoformat() if last and last.stale_marked_at else None,
+        "last_marked_at": (
+            last.stale_marked_at.isoformat() if last and last.stale_marked_at else None
+        ),
     }

@@ -24,10 +24,12 @@ def _template_payload(code: str, name: str):
     }
 
 
-def test_ruleset_versioning_and_single_active_policy(client):
+def test_ruleset_versioning_allows_multiple_active_rulesets(client):
     login(client, "admin", "admin123")
 
-    template_resp = client.post("/api/start-pack-templates", json=_template_payload("pack_ruleset", "Pack"))
+    template_resp = client.post(
+        "/api/start-pack-templates", json=_template_payload("pack_ruleset", "Pack")
+    )
     assert template_resp.status_code == 200
     template_id = int(template_resp.get_json()["item"]["id"])
 
@@ -52,7 +54,7 @@ def test_ruleset_versioning_and_single_active_policy(client):
     assert list_resp.status_code == 200
     rulesets = list_resp.get_json()["items"]
     active_ids = [int(r["id"]) for r in rulesets if r["is_active"]]
-    assert active_ids == [created_id]
+    assert created_id in active_ids
 
     copy_resp = client.post(f"/api/rulesets/{created_id}/copy", json={"name": "Ruleset Test Copy"})
     assert copy_resp.status_code == 200
@@ -64,14 +66,22 @@ def test_ruleset_versioning_and_single_active_policy(client):
     assert activate_copy.status_code == 200
     rulesets_after = client.get("/api/rulesets").get_json()["items"]
     active_after = [int(r["id"]) for r in rulesets_after if r["is_active"]]
-    assert active_after == [int(copied["id"])]
+    assert created_id in active_after
+    assert int(copied["id"]) in active_after
 
 
 def test_ruleset_cannot_deactivate_last_active(client):
     login(client, "admin", "admin123")
 
     rulesets = client.get("/api/rulesets").get_json()["items"]
-    active = next(r for r in rulesets if r["is_active"])
+    active_rulesets = [row for row in rulesets if row["is_active"]]
+    assert len(active_rulesets) >= 2
+
+    for row in active_rulesets[:-1]:
+        resp = client.post(f"/api/rulesets/{row['id']}/deactivate", json={})
+        assert resp.status_code == 200
+
+    active = active_rulesets[-1]
 
     resp = client.post(f"/api/rulesets/{active['id']}/deactivate", json={})
     assert resp.status_code == 400

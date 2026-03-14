@@ -9,7 +9,6 @@ Create Date: 2026-03-10 22:05:00.000000
 from alembic import op
 import sqlalchemy as sa
 
-
 # revision identifiers, used by Alembic.
 revision = "9f71a6b2d4ef"
 down_revision = "b266c1d655ae"
@@ -95,7 +94,9 @@ def upgrade():
             if "model_settings_json" not in ruleset_cols:
                 batch_op.add_column(sa.Column("model_settings_json", sa.JSON(), nullable=True))
             if "active_start_pack_template_id" not in ruleset_cols:
-                batch_op.add_column(sa.Column("active_start_pack_template_id", sa.Integer(), nullable=True))
+                batch_op.add_column(
+                    sa.Column("active_start_pack_template_id", sa.Integer(), nullable=True)
+                )
 
             # Create FK only when missing and target column exists.
             refreshed_cols = _column_map("rulesets")
@@ -112,7 +113,9 @@ def upgrade():
                 )
 
     if "model_settings_json" in _column_map("rulesets"):
-        op.execute("UPDATE rulesets SET model_settings_json = '{}' WHERE model_settings_json IS NULL")
+        op.execute(
+            "UPDATE rulesets SET model_settings_json = '{}' WHERE model_settings_json IS NULL"
+        )
         if _column_map("rulesets").get("model_settings_json", {}).get("nullable", True):
             with op.batch_alter_table("rulesets", schema=None) as batch_op:
                 batch_op.alter_column("model_settings_json", nullable=False)

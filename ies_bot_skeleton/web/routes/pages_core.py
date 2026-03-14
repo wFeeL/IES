@@ -5,13 +5,28 @@ from typing import Dict, List
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
-from ...application.context import resolve_session_analysis_context, update_analysis_settings_for_session
+from ...application.context import (
+    resolve_session_analysis_context,
+    update_analysis_settings_for_session,
+)
 from ...application.portfolio import portfolio_rows, portfolio_summary
 from ...application.sessions import create_session_record, delete_session_record
 from ..extensions import db
-from ..forms import ConfirmDeleteForm, ForecastSelectionForm, LoginForm, SessionForm, SessionImportForm
+from ..forms import (
+    ConfirmDeleteForm,
+    ForecastSelectionForm,
+    LoginForm,
+    SessionForm,
+    SessionImportForm,
+)
 from ..models import GameSession, ObjectType, Ruleset, User
+from ..services.evaluation import ForecastCompatibilityError
 from ..services.navigation import is_safe_internal_url, safe_next_url
+from ..services.test_game_preset import (
+    TEST_GAME_BUNDLED_FORECAST_NAME,
+    TEST_GAME_DEFAULT_SESSION_TITLE,
+    is_test_game_ruleset,
+)
 from ..services.lots_dashboard import (
     analytics_by_lot_for_session,
     filter_lot_rows,
@@ -22,7 +37,13 @@ from ..services.session_io import import_session_payload
 from ..services.stale import mark_stale_for_session
 from ..services.strategy_catalog import strategy_list, strategy_meta
 from ..services.ui_text import SESSION_TERMS, strategy_label
-from .page_support import nav, parse_json, session_analysis_view, session_stale_ctx
+from .page_support import (
+    forecast_compatibility_guidance,
+    nav,
+    parse_json,
+    session_analysis_view,
+    session_stale_ctx,
+)
 from .shared import pages_bp
 
 
@@ -35,6 +56,14 @@ def _fmt_datetime(value) -> str:
 def _missing_session_redirect():
     flash("Сессия не найдена.", "error")
     return redirect(url_for("pages.dashboard"))
+
+
+def _sorted_active_rulesets() -> List[Ruleset]:
+    rows = db.session.query(Ruleset).filter_by(is_active=True).all()
+    return sorted(
+        rows,
+        key=lambda row: (0 if is_test_game_ruleset(row) else 1, str(row.name or "").lower(), row.id),
+    )
 
 
 def _dashboard_cards(sessions: List[GameSession]) -> List[Dict[str, object]]:
@@ -102,20 +131,24 @@ def logout():
 def dashboard():
     form = SessionForm()
     import_form = SessionImportForm()
-    rulesets = db.session.query(Ruleset).filter_by(is_active=True).all()
+    rulesets = _sorted_active_rulesets()
     default_budget = 200.0
     if rulesets:
         form.ruleset_id.choices = [
             (row.id, f"{row.name} ({row.code}:{row.version})") for row in rulesets
         ]
-        if not form.ruleset_id.data:
+        if request.method == "GET":
             form.ruleset_id.data = rulesets[0].id
         cfg = dict(rulesets[0].config_json or {})
-        default_budget = float((cfg.get("auction", {}) or {}).get("starting_budget", 200.0) or 200.0)
+        default_budget = float(
+            (cfg.get("auction", {}) or {}).get("starting_budget", 200.0) or 200.0
+        )
     else:
         form.ruleset_id.choices = []
     if request.method == "GET" and not form.budget_total.data:
         form.budget_total.data = default_budget
+    if request.method == "GET" and not (form.title.data or "").strip():
+        form.title.data = TEST_GAME_DEFAULT_SESSION_TITLE
 
     if form.validate_on_submit():
         row = create_session_record(
@@ -151,13 +184,28 @@ def session_page(session_id: int):
 
     analysis_ctx = resolve_session_analysis_context(session)
     forecast_form = ForecastSelectionForm()
-    forecast_form.selected_forecast_id.choices = [(0, "Встроенный базовый прогноз")] + [
-        (forecast.id, f"{forecast.name} ({forecast.source_file})")
-        for forecast in session.forecasts
+    forecast_form.selected_forecast_id.choices = [(0, TEST_GAME_BUNDLED_FORECAST_NAME)] + [
+        (forecast.id, f"{forecast.name} ({forecast.source_file})") for forecast in session.forecasts
     ]
     forecast_form.selected_forecast_id.data = int(session.selected_forecast_id or 0)
 
-    analytics_by_lot = analytics_by_lot_for_session(session)
+    forecast_report = dict(
+        (analysis_ctx["forecast_summary"] or {}).get("compatibility_report") or {}
+    )
+    forecast_blocked = not bool((analysis_ctx["forecast_summary"] or {}).get("is_compatible", True))
+    analytics_by_lot: Dict[int, Dict[str, object]] = {}
+    if not forecast_blocked:
+        try:
+            analytics_by_lot = analytics_by_lot_for_session(session)
+        except ForecastCompatibilityError as exc:
+            forecast_blocked = True
+            forecast_report = dict(exc.report)
+            analytics_by_lot = {}
+    compatibility_guidance = forecast_compatibility_guidance(
+        forecast_report,
+        session=session,
+    )
+
     portfolio = portfolio_summary(session, analytics_by_lot=analytics_by_lot)
     purchased_rows = portfolio_rows(session, analytics_by_lot=analytics_by_lot)
     rows = lot_rows_for_session(session, ranking_map=analytics_by_lot)
@@ -198,10 +246,14 @@ def session_page(session_id: int):
     kpis = {
         "lots_total": len(session.lots),
         "bought_total": int(portfolio["bought_lots_count"]),
-        "portfolio_utility": float(sum(float(row.get("utility", 0.0) or 0.0) for row in purchased_rows)),
+        "portfolio_utility": float(
+            sum(float(row.get("utility", 0.0) or 0.0) for row in purchased_rows)
+        ),
         "portfolio_net_profit": float(portfolio["aggregate_net_profit"]),
         "risk_profile": portfolio["risk_profile_label"],
-        "data_status": "Готово" if len(session.lots) > 0 and len(session.objects) > 0 else "Требует внимания",
+        "data_status": (
+            "Готово" if len(session.lots) > 0 and len(session.objects) > 0 else "Требует внимания"
+        ),
     }
     ctx = nav(
         breadcrumb_items=[
@@ -226,6 +278,10 @@ def session_page(session_id: int):
         export_json_url=url_for("api.export_session", session_id=session.id),
         export_csv_url=url_for("api.export_evaluations", session_id=session.id),
         recalculate_url=url_for("api.recalculate_session_lots", session_id=session.id),
+        strategy_api_url=url_for("api.strategy_snapshot", session_id=session.id),
+        forecast_blocked=forecast_blocked,
+        forecast_compatibility_report=forecast_report,
+        compatibility_guidance=compatibility_guidance,
         **session_analysis_view(session),
         **ctx,
         **stale_ctx,
@@ -279,13 +335,14 @@ def session_forecast_selection_action(session_id: int):
     if session is None:
         return _missing_session_redirect()
     form = ForecastSelectionForm()
-    form.selected_forecast_id.choices = [(0, "Встроенный базовый прогноз")] + [
-        (forecast.id, f"{forecast.name} ({forecast.source_file})")
-        for forecast in session.forecasts
+    form.selected_forecast_id.choices = [(0, TEST_GAME_BUNDLED_FORECAST_NAME)] + [
+        (forecast.id, f"{forecast.name} ({forecast.source_file})") for forecast in session.forecasts
     ]
     previous_forecast_id = int(session.selected_forecast_id or 0)
     if form.validate_on_submit():
-        update_analysis_settings_for_session(session, {"selected_forecast_id": form.selected_forecast_id.data or None})
+        update_analysis_settings_for_session(
+            session, {"selected_forecast_id": form.selected_forecast_id.data or None}
+        )
         db.session.add(session)
         db.session.commit()
         if int(session.selected_forecast_id or 0) != previous_forecast_id:

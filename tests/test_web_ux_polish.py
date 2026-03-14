@@ -50,7 +50,7 @@ def test_catalog_renders_glossary_for_russian_users(client):
     assert "generation_mw" in html
     assert "объём генерации" in html
     assert "bundled_forecast" in html
-    assert "встроенный базовый прогноз" in html
+    assert "встроенный прогноз тестовой игры" in html
 
 
 def test_admin_edit_forms_hide_raw_json_and_show_typed_sections(client):
@@ -162,3 +162,26 @@ def test_quick_auction_uses_user_facing_actions_without_debug_block(client):
     assert "Текущая ставка по лоту" in html
     assert f"/lots/item/{lot_a}" in html
     assert "Открыть сравнение" not in html
+
+
+def test_quick_auction_script_keeps_selected_lot_after_refresh(client):
+    js_resp = client.get("/static/js/analysis/quick_auction.js")
+    assert js_resp.status_code == 200
+    js = js_resp.get_data(as_text=True)
+
+    assert "async function refreshRanking(preferredLotId)" in js
+    assert "const selectedLotId = Number(preferredLotId ?? $('currentLotId')?.value || 0);" in js
+    assert "const selected = rankingItemByLotId(selectedLotId) || state.ranking[0] || null;" in js
+    assert "await refreshRanking(Number(button.dataset.lotId || 0));" in js
+
+
+def test_forecast_page_shows_compatibility_block(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Forecast compatibility UX")
+
+    resp = client.get(f"/forecast/{session_id}")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "Совместимость прогноза" in html
+    assert "Покрытые типы объектов" in html
+    assert "Лишние колонки CSV" in html

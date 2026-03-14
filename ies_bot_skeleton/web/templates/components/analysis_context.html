@@ -1,6 +1,6 @@
 {% set context_line = forecast_line if forecast_line is defined else none %}
 {% if not context_line and forecast_context %}
-  {% set context_line = 'Анализ выполнен по прогнозу: ' ~ (forecast_context.forecast_name or 'Встроенный базовый прогноз') ~ ', такты ' ~ (forecast_context.tick_from or '—') ~ '–' ~ (forecast_context.tick_to or '—') ~ '.' %}
+  {% set context_line = 'Анализ выполнен по прогнозу: ' ~ (forecast_context.forecast_name or 'Прогноз тестовой игры') ~ ', такты ' ~ (forecast_context.tick_from or '—') ~ '–' ~ (forecast_context.tick_to or '—') ~ '.' %}
 {% endif %}
 {% if context_line %}
 <p class="page-context-line">{{ context_line }}</p>

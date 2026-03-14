@@ -55,7 +55,6 @@ def test_object_type_update_marks_related_evaluations_stale(client, app):
         assert any(row.is_stale for row in after)
 
 
-
 def test_object_type_soft_delete_and_include_inactive_scope(client):
     login(client, "admin", "admin123")
     wind_id = _type_id_by_code(client, "wind")

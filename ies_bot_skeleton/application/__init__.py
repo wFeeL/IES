@@ -20,7 +20,11 @@ from .admin import (
     update_start_pack_template_for_admin,
 )
 from .analysis import evaluate_session_lot, rank_session_lots
-from .context import resolve_session_analysis_context, session_analysis_settings_for_session, update_analysis_settings_for_session
+from .context import (
+    resolve_session_analysis_context,
+    session_analysis_settings_for_session,
+    update_analysis_settings_for_session,
+)
 from .forecasts import (
     bundled_forecast_summary,
     load_bundled_forecasts,
@@ -29,7 +33,16 @@ from .forecasts import (
 )
 from .legacy_import import run_legacy_import
 from .lots import delete_lot
-from .portfolio import buy_lot, portfolio_rows, portfolio_summary, reject_lot, remaining_budget, restore_lot, spent_total, undo_lot_purchase
+from .portfolio import (
+    buy_lot,
+    portfolio_rows,
+    portfolio_summary,
+    reject_lot,
+    remaining_budget,
+    restore_lot,
+    spent_total,
+    undo_lot_purchase,
+)
 from .recommendations import recommend_for_session, strategy_fit_for_lot
 from .sessions import create_session_record, delete_session_record, load_session_or_none
 

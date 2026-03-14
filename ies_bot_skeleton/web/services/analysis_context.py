@@ -3,12 +3,18 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from ..models import Forecast, GameSession
-from .forecast_service import bundled_forecast_summary, summarize_forecast
+from .forecast_service import (
+    bundled_forecast_summary_for_session,
+    summarize_forecast_for_session,
+)
+from .test_game_preset import TEST_GAME_BUNDLED_FORECAST_NAME, TEST_GAME_FORECAST_SOURCE_LABEL
 
 
 def session_analysis_settings(session: GameSession) -> Dict[str, Any]:
     return {
-        "selected_forecast_id": int(session.selected_forecast_id) if session.selected_forecast_id else None,
+        "selected_forecast_id": (
+            int(session.selected_forecast_id) if session.selected_forecast_id else None
+        ),
     }
 
 
@@ -24,11 +30,15 @@ def resolve_forecast_for_session(
                 return forecast
         raise ValueError("Выбранный прогноз не принадлежит этой сессии")
     if session.selected_forecast is not None:
+        if int(session.selected_forecast.session_id or 0) != int(session.id):
+            return None
         return session.selected_forecast
     return None
 
 
-def update_session_analysis_settings(session: GameSession, payload: Dict[str, Any]) -> Dict[str, Any]:
+def update_session_analysis_settings(
+    session: GameSession, payload: Dict[str, Any]
+) -> Dict[str, Any]:
     selected_forecast_id = payload.get("selected_forecast_id", session.selected_forecast_id)
     if selected_forecast_id not in (None, "", 0, "0"):
         selected = resolve_forecast_for_session(session, forecast_id=selected_forecast_id)
@@ -45,16 +55,16 @@ def resolve_analysis_context(
 ) -> Dict[str, Any]:
     selected_forecast = resolve_forecast_for_session(session, forecast_id=forecast_id)
     if selected_forecast is not None:
-        summary = summarize_forecast(selected_forecast)
+        summary = summarize_forecast_for_session(session=session, forecast=selected_forecast)
         source = "selected_forecast"
         source_label = "Пользовательский прогноз"
         forecast_name = selected_forecast.name
         forecast_pk = int(selected_forecast.id)
     else:
-        summary = bundled_forecast_summary()
+        summary = bundled_forecast_summary_for_session(session)
         source = "bundled_forecast"
-        source_label = "Встроенный базовый прогноз"
-        forecast_name = summary.get("name") or "Встроенный базовый прогноз"
+        source_label = TEST_GAME_FORECAST_SOURCE_LABEL
+        forecast_name = summary.get("name") or TEST_GAME_BUNDLED_FORECAST_NAME
         forecast_pk = None
 
     return {

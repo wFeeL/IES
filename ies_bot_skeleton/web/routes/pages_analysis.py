@@ -33,7 +33,8 @@ from ..forms import (
     ObjectInstanceForm,
 )
 from ..models import Forecast, GameSession, Lot, ObjectInstance, ObjectType
-from ..services.forecast_service import summarize_forecast
+from ..services.evaluation import ForecastCompatibilityError
+from ..services.forecast_service import session_forecast_compatibility, summarize_forecast
 from ..services.lots_dashboard import (
     analytics_by_lot_for_session,
     filter_lot_rows,
@@ -44,8 +45,15 @@ from ..services.lots_dashboard import (
 from ..services.network import validate_session_network
 from ..services.object_instance_editor import parameter_rows, parameters_from_form
 from ..services.stale import mark_stale_for_session
+from ..services.test_game_preset import TEST_GAME_BUNDLED_FORECAST_NAME
 from .api_support import lot_items_from_payload
-from .page_support import nav, parse_json, session_analysis_view, session_stale_ctx
+from .page_support import (
+    forecast_compatibility_guidance,
+    nav,
+    parse_json,
+    session_analysis_view,
+    session_stale_ctx,
+)
 from .shared import pages_bp
 
 
@@ -110,13 +118,120 @@ def _object_type_by_form_value(raw_value: Any) -> ObjectType | None:
 def _forecast_line(session: GameSession) -> str:
     ctx = session_analysis_view(session)
     forecast = ctx["forecast_summary"]
-    name = forecast.get("name") or "Встроенный базовый прогноз"
+    name = forecast.get("name") or TEST_GAME_BUNDLED_FORECAST_NAME
     tick_from = forecast.get("tick_from") or "—"
     tick_to = forecast.get("tick_to") or "—"
     return f"Анализ выполнен по прогнозу: {name}, такты {tick_from}–{tick_to}."
 
 
-def _render_object_editor(*, session: GameSession, form: ObjectInstanceForm, obj: ObjectInstance | None):
+def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict[str, Any]:
+    reason = (
+        "; ".join(list(compatibility_report.get("blocking_reasons") or []))
+        or "Прогноз несовместим."
+    )
+
+    def _scenario(label: str) -> Dict[str, Any]:
+        return {
+            "label": label,
+            "revenue_total": 0.0,
+            "cost_total": 0.0,
+            "penalties_total": 0.0,
+            "losses_total": 0.0,
+            "net_profit": 0.0,
+            "utility_score": 0.0,
+            "bid_ceiling": 0.0,
+            "recommended_bid": 0.0,
+            "explanation": reason,
+            "income_total": 0.0,
+            "expenses_total": 0.0,
+            "utility_total": 0.0,
+            "expected_net_profit_at_current_price": 0.0,
+            "comment": reason,
+        }
+
+    return {
+        "summary_score": 0.0,
+        "scenario_breakdown": {
+            "worst": _scenario("Worst"),
+            "base": _scenario("Base"),
+            "best": _scenario("Best"),
+        },
+        "financial_breakdown": {
+            "income": {"object_income": 0.0, "market_income": 0.0, "eco_value": 0.0, "total": 0.0},
+            "expenses": {
+                "entry_price": 0.0,
+                "contract_costs": 0.0,
+                "fuel_and_taxes": 0.0,
+                "market_purchase": 0.0,
+                "total": 0.0,
+            },
+            "losses_and_risks": {
+                "network_losses": 0.0,
+                "penalties": 0.0,
+                "risk_total": 0.0,
+                "flags": [],
+                "total": 0.0,
+            },
+            "result": {
+                "utility_total": 0.0,
+                "net_profit": 0.0,
+                "roi": 0.0,
+                "payback_ratio": None,
+                "threshold_bid": 0.0,
+            },
+        },
+        "decision_summary": {
+            "cautious_bid": 0.0,
+            "target_bid": 0.0,
+            "hard_ceiling_bid": 0.0,
+            "budget_limited_bid": 0.0,
+            "budget_remaining": 0.0,
+            "soft_bid": 0.0,
+            "hard_bid": 0.0,
+            "stop_bid": 0.0,
+        },
+        "reasons": [reason],
+        "risk_commentary": reason,
+        "strategy_fit_text": "Оценка заблокирована до исправления совместимости прогноза.",
+        "is_stale": False,
+        "stale_reason": "",
+        "score_definition": "Оценка недоступна из-за несовместимого прогноза.",
+        "metrics": {
+            "scenarios": {},
+            "decomposition": {},
+            "bids": {"budget_limited_bid": 0.0, "budget_remaining": 0.0},
+            "portfolio_delta": {"net_profit_base": 0.0, "horizon_ticks": 0},
+            "forecast_compatibility": compatibility_report,
+            "role_breakdown": {},
+            "synergy": {"score": 0.0},
+        },
+    }
+
+
+@pages_bp.errorhandler(ForecastCompatibilityError)
+def _pages_forecast_compatibility_error(exc: ForecastCompatibilityError):
+    view_args = dict(request.view_args or {})
+    lot_id = int(view_args.get("lot_id") or 0)
+    session_id = int(view_args.get("session_id") or 0)
+    lot = db.session.get(Lot, lot_id) if lot_id else None
+    if lot is not None:
+        session_id = int(lot.session_id)
+    session = db.session.get(GameSession, session_id) if session_id else None
+    guidance = forecast_compatibility_guidance(exc.report, session=session, lot=lot)
+    flash(
+        " ".join([guidance["primary_message"], *guidance["actions"]]).strip(),
+        "error",
+    )
+    if lot is not None:
+        return redirect(url_for("pages.lot_detail_page", lot_id=lot.id))
+    if session is not None:
+        return redirect(url_for("pages.forecast_page", session_id=session.id))
+    return redirect(url_for("pages.dashboard"))
+
+
+def _render_object_editor(
+    *, session: GameSession, form: ObjectInstanceForm, obj: ObjectInstance | None
+):
     object_type = _object_type_by_form_value(form.object_type_id.data)
     current_parameters = obj.current_parameters_json if obj is not None else {}
     submitted_values = dict(request.form) if request.method == "POST" else None
@@ -221,7 +336,11 @@ def object_create_page(session_id: int):
     if request.method == "GET" and form.object_type_id.choices:
         requested_type_id = request.args.get("object_type_id", type=int)
         available_type_ids = {row_id for row_id, _ in form.object_type_id.choices}
-        form.object_type_id.data = requested_type_id if requested_type_id in available_type_ids else form.object_type_id.choices[0][0]
+        form.object_type_id.data = (
+            requested_type_id
+            if requested_type_id in available_type_ids
+            else form.object_type_id.choices[0][0]
+        )
         form.is_active.data = True
 
     if form.validate_on_submit():
@@ -270,7 +389,9 @@ def object_edit_page(object_id: int):
     if request.method == "GET":
         requested_type_id = request.args.get("object_type_id", type=int)
         available_type_ids = {row_id for row_id, _ in form.object_type_id.choices}
-        form.object_type_id.data = requested_type_id if requested_type_id in available_type_ids else obj.object_type_id
+        form.object_type_id.data = (
+            requested_type_id if requested_type_id in available_type_ids else obj.object_type_id
+        )
         form.custom_name.data = obj.custom_name
         form.district.data = obj.district
         form.parent_instance_id.data = obj.parent_instance_id or 0
@@ -360,7 +481,24 @@ def lots_page(session_id: int):
     if session is None:
         return _missing_session_redirect()
 
-    ranking_map = analytics_by_lot_for_session(session)
+    analysis_view = session_analysis_view(session)
+    compatibility_report = dict(
+        (analysis_view["forecast_summary"] or {}).get("compatibility_report") or {}
+    )
+    forecast_blocked = not bool(
+        (analysis_view["forecast_summary"] or {}).get("is_compatible", True)
+    )
+    ranking_map: Dict[int, Dict[str, Any]] = {}
+    if not forecast_blocked:
+        try:
+            ranking_map = analytics_by_lot_for_session(session)
+        except ForecastCompatibilityError as exc:
+            compatibility_report = dict(exc.report)
+            forecast_blocked = True
+    compatibility_guidance = forecast_compatibility_guidance(
+        compatibility_report,
+        session=session,
+    )
     rows = lot_rows_for_session(session, ranking_map=ranking_map)
     rows = filter_lot_rows(rows, request.args)
     sort_key = str(request.args.get("sort", "utility_desc") or "utility_desc")
@@ -382,8 +520,11 @@ def lots_page(session_id: int):
         filters=request.args,
         forecast_line=_forecast_line(session),
         recalculate_url=url_for("api.recalculate_session_lots", session_id=session.id),
+        forecast_blocked=forecast_blocked,
+        forecast_compatibility_report=compatibility_report,
+        compatibility_guidance=compatibility_guidance,
         show_analysis_context=False,
-        **session_analysis_view(session),
+        **analysis_view,
         **ctx,
         **session_stale_ctx(session),
     )
@@ -400,7 +541,27 @@ def lot_detail_page(lot_id: int):
     if session is None:
         return _missing_session_redirect()
 
-    evaluation = evaluate_session_lot(session=session, lot=lot, persist=False)
+    analysis_view = session_analysis_view(session)
+    compatibility_report = dict(
+        (analysis_view["forecast_summary"] or {}).get("compatibility_report") or {}
+    )
+    forecast_blocked = not bool(
+        (analysis_view["forecast_summary"] or {}).get("is_compatible", True)
+    )
+    if forecast_blocked:
+        evaluation = _blocked_evaluation_payload(compatibility_report=compatibility_report)
+    else:
+        try:
+            evaluation = evaluate_session_lot(session=session, lot=lot, persist=False)
+        except ForecastCompatibilityError as exc:
+            compatibility_report = dict(exc.report)
+            forecast_blocked = True
+            evaluation = _blocked_evaluation_payload(compatibility_report=compatibility_report)
+    compatibility_guidance = forecast_compatibility_guidance(
+        compatibility_report,
+        session=session,
+        lot=lot,
+    )
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -421,9 +582,13 @@ def lot_detail_page(lot_id: int):
         undo_form=LotUndoPurchaseForm(),
         reject_form=LotRejectForm(),
         restore_form=LotRestoreForm(),
+        strategy_api_url=url_for("api.strategy_snapshot", session_id=session.id, top_n=20),
+        forecast_blocked=forecast_blocked,
+        forecast_compatibility_report=compatibility_report,
+        compatibility_guidance=compatibility_guidance,
         forecast_line=_forecast_line(session),
         show_analysis_context=False,
-        **session_analysis_view(session),
+        **analysis_view,
         **ctx,
         **session_stale_ctx(session),
     )
@@ -490,7 +655,27 @@ def lot_buy_confirm_page(lot_id: int):
     if session is None:
         return _missing_session_redirect()
 
-    evaluation = evaluate_session_lot(session=session, lot=lot, persist=False)
+    analysis_view = session_analysis_view(session)
+    compatibility_report = dict(
+        (analysis_view["forecast_summary"] or {}).get("compatibility_report") or {}
+    )
+    forecast_blocked = not bool(
+        (analysis_view["forecast_summary"] or {}).get("is_compatible", True)
+    )
+    if forecast_blocked:
+        evaluation = _blocked_evaluation_payload(compatibility_report=compatibility_report)
+    else:
+        try:
+            evaluation = evaluate_session_lot(session=session, lot=lot, persist=False)
+        except ForecastCompatibilityError as exc:
+            compatibility_report = dict(exc.report)
+            forecast_blocked = True
+            evaluation = _blocked_evaluation_payload(compatibility_report=compatibility_report)
+    compatibility_guidance = forecast_compatibility_guidance(
+        compatibility_report,
+        session=session,
+        lot=lot,
+    )
     portfolio = portfolio_summary(session)
     form = LotPurchaseForm()
     if request.method == "GET":
@@ -522,9 +707,12 @@ def lot_buy_confirm_page(lot_id: int):
         form=form,
         evaluation=evaluation,
         portfolio=portfolio,
+        forecast_blocked=forecast_blocked,
+        forecast_compatibility_report=compatibility_report,
+        compatibility_guidance=compatibility_guidance,
         show_analysis_context=False,
         forecast_line=_forecast_line(session),
-        **session_analysis_view(session),
+        **analysis_view,
         **ctx,
         **session_stale_ctx(session),
     )
@@ -544,7 +732,10 @@ def lot_undo_buy_action(lot_id: int):
         try:
             summary = undo_lot_purchase(session, lot)
             db.session.commit()
-            flash(f"Покупка лота «{lot.name}» отменена, бюджет восстановлен до {summary['remaining_budget']:.1f}", "success")
+            flash(
+                f"Покупка лота «{lot.name}» отменена, бюджет восстановлен до {summary['remaining_budget']:.1f}",
+                "success",
+            )
         except ValueError as exc:
             db.session.rollback()
             flash(str(exc), "error")
@@ -621,7 +812,9 @@ def lots_edit(session_id: int):
         except ValueError as exc:
             db.session.rollback()
             flash(str(exc), "error")
-            return _render_lot_editor(session=session, form=form, object_types=object_types, lot=None)
+            return _render_lot_editor(
+                session=session, form=form, object_types=object_types, lot=None
+            )
 
         db.session.add(lot)
         db.session.commit()
@@ -636,7 +829,9 @@ def lots_edit(session_id: int):
     if not form.items_state_json.data:
         default_items: List[Dict[str, Any]] = []
         if object_types:
-            default_items = [{"object_type_id": int(object_types[0].id), "quantity": 1, "overrides": {}}]
+            default_items = [
+                {"object_type_id": int(object_types[0].id), "quantity": 1, "overrides": {}}
+            ]
         form.items_state_json.data = json.dumps(default_items, ensure_ascii=False)
         if not form.items_json.data:
             form.items_json.data = json.dumps(default_items, ensure_ascii=False, indent=2)
@@ -685,7 +880,9 @@ def lot_edit_page(lot_id: int):
         except ValueError as exc:
             db.session.rollback()
             flash(str(exc), "error")
-            return _render_lot_editor(session=session, form=form, object_types=object_types, lot=lot)
+            return _render_lot_editor(
+                session=session, form=form, object_types=object_types, lot=lot
+            )
 
         db.session.add(lot)
         db.session.commit()
@@ -706,7 +903,12 @@ def forecast_page(session_id: int):
     session = db.session.get(GameSession, session_id)
     if session is None:
         return _missing_session_redirect()
-    forecasts = db.session.query(Forecast).filter_by(session_id=session_id).order_by(Forecast.id.desc()).all()
+    forecasts = (
+        db.session.query(Forecast)
+        .filter_by(session_id=session_id)
+        .order_by(Forecast.id.desc())
+        .all()
+    )
     analysis_ctx = session_analysis_view(session)
     ctx = nav(
         breadcrumb_items=[
@@ -718,13 +920,30 @@ def forecast_page(session_id: int):
         fallback_values={"session_id": session.id},
         cancel_url=url_for("pages.session_page", session_id=session.id),
     )
+    forecast_summaries = {forecast.id: summarize_forecast(forecast) for forecast in forecasts}
+    compatibility_by_forecast = {
+        forecast.id: session_forecast_compatibility(session=session, forecast=forecast)
+        for forecast in forecasts
+    }
+    active_compatibility = session_forecast_compatibility(
+        session=session,
+        forecast=session.selected_forecast if session.selected_forecast_id else None,
+    )
+    compatibility_guidance = forecast_compatibility_guidance(
+        dict(active_compatibility.get("compatibility_report") or {}),
+        session=session,
+    )
+
     return render_template(
         "analysis/forecast.html",
         session=session,
         forecasts=forecasts,
         active_forecast_id=int(session.selected_forecast_id or 0),
         active_forecast_summary=analysis_ctx["forecast_summary"],
-        forecast_summaries={forecast.id: summarize_forecast(forecast) for forecast in forecasts},
+        forecast_summaries=forecast_summaries,
+        compatibility_by_forecast=compatibility_by_forecast,
+        active_forecast_compatibility=active_compatibility,
+        compatibility_guidance=compatibility_guidance,
         show_analysis_context=False,
         **analysis_ctx,
         **ctx,
@@ -759,10 +978,28 @@ def quick_auction_page(session_id: int):
     if session is None:
         return _missing_session_redirect()
 
-    ranking = rank_session_lots(
+    analysis_view = session_analysis_view(session)
+    compatibility_report = dict(
+        (analysis_view["forecast_summary"] or {}).get("compatibility_report") or {}
+    )
+    forecast_blocked = not bool(
+        (analysis_view["forecast_summary"] or {}).get("is_compatible", True)
+    )
+    ranking: List[Dict[str, Any]] = []
+    if not forecast_blocked:
+        try:
+            ranking = rank_session_lots(
+                session=session,
+                lots=[lot for lot in session.lots if lot.status == "available"],
+                persist=False,
+            )
+        except ForecastCompatibilityError as exc:
+            compatibility_report = dict(exc.report)
+            forecast_blocked = True
+            ranking = []
+    compatibility_guidance = forecast_compatibility_guidance(
+        compatibility_report,
         session=session,
-        lots=[lot for lot in session.lots if lot.status == "available"],
-        persist=False,
     )
     ctx = nav(
         breadcrumb_items=[
@@ -778,10 +1015,13 @@ def quick_auction_page(session_id: int):
         session=session,
         lots=[lot for lot in session.lots if lot.status == "available"],
         ranking=ranking,
+        forecast_blocked=forecast_blocked,
+        forecast_compatibility_report=compatibility_report,
+        compatibility_guidance=compatibility_guidance,
         forecast_line=_forecast_line(session),
         buy_form=LotPurchaseForm(),
         show_analysis_context=False,
-        **session_analysis_view(session),
+        **analysis_view,
         **ctx,
         **session_stale_ctx(session),
     )
@@ -793,5 +1033,7 @@ def strategy_fit_page(lot_id: int):
     lot = db.session.get(Lot, lot_id)
     if lot is None:
         return _missing_lot_redirect(lot_id=lot_id)
-    flash("Страница «Strategy fit» выведена из основного сценария. Открыта карточка лота.", "warning")
+    flash(
+        "Страница «Strategy fit» выведена из основного сценария. Открыта карточка лота.", "warning"
+    )
     return redirect(url_for("pages.lot_detail_page", lot_id=lot.id))

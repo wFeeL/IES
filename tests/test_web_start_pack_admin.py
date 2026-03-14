@@ -5,7 +5,12 @@ from tests.web_helpers import login
 
 def _start_pack_items():
     return [
-        {"row_key": "1", "object_type_code": "main_substation", "quantity": 1, "custom_name": "Main"},
+        {
+            "row_key": "1",
+            "object_type_code": "main_substation",
+            "quantity": 1,
+            "custom_name": "Main",
+        },
         {
             "row_key": "2",
             "parent_key": "1",
@@ -87,7 +92,6 @@ def test_admin_start_pack_crud_and_one_time_apply(client):
     page_resp = client.get("/settings/start-packs")
     assert page_resp.status_code == 200
     assert "Шаблоны стартового пакета" in page_resp.get_data(as_text=True)
-
 
 
 def test_analyst_cannot_open_admin_start_pack_pages(client):

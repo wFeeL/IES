@@ -51,7 +51,9 @@ def parameter_rows(
     defaults = dict(object_type.default_parameters_json or {})
     current = dict(current_parameters or {})
     keys: List[str] = []
-    for key in list(object_type.editable_fields_json or []) + list(defaults.keys()) + list(current.keys()):
+    for key in (
+        list(object_type.editable_fields_json or []) + list(defaults.keys()) + list(current.keys())
+    ):
         if key not in keys:
             keys.append(key)
 

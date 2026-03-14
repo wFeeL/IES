@@ -4,6 +4,29 @@
 {% block content %}
 {% include "components/session_hero.html" %}
 {% include "components/analysis_context.html" %}
+{% if forecast_blocked %}
+<section class="card mt-4">
+  <div class="risk-block">
+    <strong>Оценка лотов заблокирована: активный прогноз не покрывает все типы объектов.</strong>
+    <ul class="stack gap-1 mt-2">
+      {% for reason in forecast_compatibility_report.blocking_reasons %}
+      <li>{{ reason }}</li>
+      {% else %}
+      <li>Исправьте покрытие прогноза.</li>
+      {% endfor %}
+    </ul>
+    <div class="mt-3"><strong>{{ compatibility_guidance.primary_message }}</strong></div>
+    <ul class="stack gap-1 mt-2">
+      {% for item in compatibility_guidance.actions %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    <div class="actions mt-3">
+      {% if compatibility_guidance.forecast_url %}<a class="btn btn-primary" href="{{ compatibility_guidance.forecast_url }}">Исправить прогноз</a>{% endif %}
+    </div>
+  </div>
+</section>
+{% endif %}
 
 <section class="card mt-4">
   <div class="section-head">
@@ -15,7 +38,7 @@
     <div class="actions">
       <a class="btn btn-primary" href="{{ url_for('pages.lots_edit', session_id=session.id) }}">Добавить лот</a>
       <button class="btn btn-secondary" id="addStartPackBtn" type="button">Добавить стартовый пакет</button>
-      <button class="btn btn-secondary" id="recalculateLotsBtn" type="button">Пересчитать все лоты</button>
+      <button class="btn btn-secondary" id="recalculateLotsBtn" type="button" {% if forecast_blocked %}disabled{% endif %}>Пересчитать все лоты</button>
     </div>
   </div>
 
@@ -43,7 +66,7 @@
         <option value="utility_desc" {{ 'selected' if sort_key == 'utility_desc' else '' }}>Полезность ↓</option>
         <option value="profit_desc" {{ 'selected' if sort_key == 'profit_desc' else '' }}>Чистая прибыль ↓</option>
         <option value="risk_asc" {{ 'selected' if sort_key == 'risk_asc' else '' }}>Риск ↑</option>
-        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Макс. ставка ↓</option>
+        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Рабочая ставка ↓</option>
         <option value="price_asc" {{ 'selected' if sort_key == 'price_asc' else '' }}>Цена ↑</option>
         <option value="price_desc" {{ 'selected' if sort_key == 'price_desc' else '' }}>Цена ↓</option>
       </select>
@@ -71,7 +94,7 @@
           <th class="col-num">Полезность</th>
           <th class="col-num">Чистая прибыль</th>
           <th class="col-num">Риск</th>
-          <th class="col-num">Макс. ставка</th>
+          <th class="col-num">Рабочая ставка</th>
           <th class="col-text">Статус</th>
           <th class="col-actions">Действия</th>
         </tr>
@@ -88,7 +111,7 @@
           <td class="num">{{ '%.2f'|format(row.utility) }}</td>
           <td class="num">{{ '%.2f'|format(row.net_profit) }}</td>
           <td class="num">{{ '%.2f'|format(row.risk) }}</td>
-          <td class="num">{{ '%.2f'|format(row.max_bid) }}</td>
+          <td class="num">{{ '%.2f'|format(row.target_bid) }}</td>
           <td class="col-text">
             <span>{{ lot_status_label(row.status) }}</span>
             {% if row.is_stale %}<div><span class="status-badge status-stale" title="{{ row.stale_reason_label or row.stale_reason }}">Оценка устарела</span></div>{% endif %}
@@ -132,24 +155,21 @@
 <script defer src="{{ url_for('static', filename='js/analysis/row_actions.js') }}"></script>
 <script>
 (() => {
+  const api = window.IESApi || {};
+  const apiFetchJson = api.apiFetchJson;
+  const errorMessage = api.errorMessage || ((data) => data?.error?.message || 'Неизвестная ошибка');
   const statusEl = document.getElementById('lotsStatus');
-  const csrfToken = '{{ csrf_token() }}';
   const recalcBtn = document.getElementById('recalculateLotsBtn');
   const startPackBtn = document.getElementById('addStartPackBtn');
-
-  function errorMessage(data) {
-    return data?.error?.message || data?.error || 'Неизвестная ошибка';
-  }
 
   recalcBtn?.addEventListener('click', async () => {
     recalcBtn.disabled = true;
     statusEl.textContent = 'Пересчитываю лоты...';
-    const res = await fetch('{{ recalculate_url }}', {
+    const data = await apiFetchJson('{{ recalculate_url }}', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({})
     });
-    const data = await res.json();
     if (data.ok) {
       statusEl.textContent = `Пересчитано лотов: ${data.meta.count}`;
       window.location.reload();
@@ -162,12 +182,11 @@
   startPackBtn?.addEventListener('click', async () => {
     startPackBtn.disabled = true;
     statusEl.textContent = 'Добавляю стартовый пакет...';
-    const res = await fetch(`/api/sessions/{{ session.id }}/add-start-pack`, {
+    const data = await apiFetchJson(`/api/sessions/{{ session.id }}/add-start-pack`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({})
     });
-    const data = await res.json();
     if (data.ok) {
       statusEl.textContent = `Добавлено объектов: ${data.created.length}`;
       window.location.reload();

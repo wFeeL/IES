@@ -27,7 +27,9 @@ def remaining_budget(session: GameSession) -> float:
 
 
 def _merge_item_parameters(lot_item) -> Dict[str, Any]:
-    params = dict(lot_item.object_type.default_parameters_json or {}) if lot_item.object_type else {}
+    params = (
+        dict(lot_item.object_type.default_parameters_json or {}) if lot_item.object_type else {}
+    )
     params.update(dict(lot_item.overrides_json or {}))
     params.setdefault("qty", max(1, int(lot_item.quantity or 1)))
     return params
@@ -202,7 +204,11 @@ def portfolio_summary(
         "spent_total": spent,
         "remaining_budget": max(0.0, float(session.budget_total or 0.0) - spent),
         "bought_lots_count": len(rows),
-        "owned_objects_count": sum(max(1, int(obj.current_parameters_json.get("qty", 1) or 1)) for obj in session.objects if obj.is_active),
+        "owned_objects_count": sum(
+            max(1, int(obj.current_parameters_json.get("qty", 1) or 1))
+            for obj in session.objects
+            if obj.is_active
+        ),
         "expected_income": float(expected_income),
         "expected_expenses": float(expected_expenses),
         "expected_net_profit": float(expected_net_profit),

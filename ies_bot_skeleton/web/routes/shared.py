@@ -5,7 +5,6 @@ from typing import Any, Callable
 
 from flask import Blueprint
 
-
 ViewFunc = Callable[..., Any]
 
 
@@ -49,9 +48,7 @@ class DeferredBlueprint:
     def delete(self, rule: str, **options: Any) -> Callable[[ViewFunc], ViewFunc]:
         return self.route(rule, methods=["DELETE"], **options)
 
-    def errorhandler(
-        self, exc_class: type[BaseException]
-    ) -> Callable[[ViewFunc], ViewFunc]:
+    def errorhandler(self, exc_class: type[BaseException]) -> Callable[[ViewFunc], ViewFunc]:
         def decorator(fn: ViewFunc) -> ViewFunc:
             self._error_handlers.append(_ErrorHandlerDef(exc_class=exc_class, handler=fn))
             return fn
@@ -71,4 +68,3 @@ class DeferredBlueprint:
 
 pages_bp = DeferredBlueprint("pages", __name__)
 api_bp = DeferredBlueprint("api", __name__, url_prefix="/api")
-

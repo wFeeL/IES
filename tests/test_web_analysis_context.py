@@ -30,6 +30,15 @@ def _create_lot(client, session_id: int) -> int:
     return int(created.get_json()["item"]["id"])
 
 
+def _h48_csv_house_market() -> bytes:
+    rows = ["tick,wind,illumination,houseA,market_price"]
+    for tick in range(48):
+        rows.append(
+            f"{tick},{3 + (tick % 5)},{0.4 + (tick % 6) * 0.1:.2f},{10 + (tick % 4)},{11 + (tick % 3)}"
+        )
+    return ("\n".join(rows) + "\n").encode("utf-8")
+
+
 def test_evaluation_uses_bundled_forecast_when_session_has_no_selected_forecast(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Bundled fallback")
@@ -49,7 +58,7 @@ def test_evaluation_uses_bundled_forecast_when_session_has_no_selected_forecast(
     assert item["forecast_context"]["source"] == "bundled_forecast"
     assert item["forecast_context"]["forecast_id"] is None
     assert item["analysis_context"]["mode"] == "forecast"
-    assert item["forecast_summary"]["name"] == "Встроенный базовый прогноз"
+    assert item["forecast_summary"]["name"] == "Прогноз тестовой игры"
 
 
 def test_evaluation_uses_selected_forecast_from_session(client):
@@ -63,7 +72,7 @@ def test_evaluation_uses_selected_forecast_from_session(client):
         data={
             "session_id": str(session_id),
             "name": "Uploaded forecast",
-            "file": (io.BytesIO(b"tick,wind,illumination,houseA,market_price\n0,3,0.6,10,12\n"), "f.csv"),
+            "file": (io.BytesIO(_h48_csv_house_market()), "f.csv"),
         },
         content_type="multipart/form-data",
     )

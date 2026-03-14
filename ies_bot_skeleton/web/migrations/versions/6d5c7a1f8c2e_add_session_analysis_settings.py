@@ -9,7 +9,6 @@ Create Date: 2026-03-11 12:30:00.000000
 from alembic import op
 import sqlalchemy as sa
 
-
 revision = "6d5c7a1f8c2e"
 down_revision = "9f71a6b2d4ef"
 branch_labels = None
@@ -72,9 +71,13 @@ def upgrade():
 
     session_cols = _column_map("game_sessions")
     if "analysis_mode" in session_cols:
-        op.execute("UPDATE game_sessions SET analysis_mode = 'no_forecast' WHERE analysis_mode IS NULL")
+        op.execute(
+            "UPDATE game_sessions SET analysis_mode = 'no_forecast' WHERE analysis_mode IS NULL"
+        )
     if "corridor_settings_json" in session_cols:
-        op.execute("UPDATE game_sessions SET corridor_settings_json = '{}' WHERE corridor_settings_json IS NULL")
+        op.execute(
+            "UPDATE game_sessions SET corridor_settings_json = '{}' WHERE corridor_settings_json IS NULL"
+        )
 
     session_cols = _column_map("game_sessions")
     if session_cols.get("analysis_mode", {}).get("nullable", True):

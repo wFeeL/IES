@@ -79,7 +79,9 @@ def test_system_page_supports_object_crud_via_ssr(client):
     assert "Удаление объекта" in confirm_html
     assert "Ветер-2" in confirm_html
 
-    delete_resp = client.post(f"/system/objects/{object_id}/delete", data={}, follow_redirects=False)
+    delete_resp = client.post(
+        f"/system/objects/{object_id}/delete", data={}, follow_redirects=False
+    )
     assert delete_resp.status_code in (302, 303)
     assert delete_resp.headers["Location"].endswith(f"/system/{session_id}")
 

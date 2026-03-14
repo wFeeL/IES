@@ -5,7 +5,6 @@ import tomllib
 
 from ies_bot_skeleton.web.app import create_app
 
-
 ROOT = Path(__file__).resolve().parents[1]
 LEGACY_PATHS = [
     ROOT / "ies_bot_skeleton" / "cli.py",

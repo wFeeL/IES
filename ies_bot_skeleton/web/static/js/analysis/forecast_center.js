@@ -1,7 +1,7 @@
 (function () {
-  function errorMessage(data) {
-    return data?.error?.message || data?.error || 'Неизвестная ошибка';
-  }
+  const api = window.IESApi || {};
+  const apiFetchJson = api.apiFetchJson;
+  const errorMessage = api.errorMessage || ((data) => data?.error?.message || 'Неизвестная ошибка');
 
   function formatNum(value, digits) {
     const number = Number(value);
@@ -101,10 +101,9 @@
   }
 
   async function loadForecastDetails(forecastId) {
-    const res = await fetch(`/api/forecast/${forecastId}`, {
-      headers: {'X-CSRFToken': (window.IES_FORECAST_CENTER || {}).csrfToken || ''},
+    return apiFetchJson(`/api/forecast/${forecastId}`, {
+      headers: {'X-CSRFToken': (window.IES_FORECAST_CENTER || {}).csrfToken || window.IES_CSRF_TOKEN || ''},
     });
-    return res.json();
   }
 
   window.addEventListener('DOMContentLoaded', () => {
@@ -116,8 +115,7 @@
       event.preventDefault();
       const formData = new FormData(form);
       out.innerHTML = '<div class="risk-block">Загрузка прогноза...</div>';
-      const res = await fetch('/api/forecast/upload', {method: 'POST', body: formData});
-      const data = await res.json();
+      const data = await apiFetchJson('/api/forecast/upload', {method: 'POST', body: formData});
       if (!data.ok) {
         renderSummary(out, 'Ошибка загрузки', {quality: {text: errorMessage(data)}, series_stats: {}});
         return;
@@ -129,12 +127,14 @@
     document.querySelectorAll('.analyzeBtn').forEach((button) => {
       button.addEventListener('click', async () => {
         out.innerHTML = '<div class="risk-block">Собираю диагностику...</div>';
-        const res = await fetch(`/api/forecast/${button.dataset.forecastId}/analyze`, {
+        const data = await apiFetchJson(`/api/forecast/${button.dataset.forecastId}/analyze`, {
           method: 'POST',
-          headers: {'Content-Type': 'application/json', 'X-CSRFToken': (window.IES_FORECAST_CENTER || {}).csrfToken || ''},
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': (window.IES_FORECAST_CENTER || {}).csrfToken || window.IES_CSRF_TOKEN || '',
+          },
           body: JSON.stringify({}),
         });
-        const data = await res.json();
         if (!data.ok) {
           renderSummary(out, 'Ошибка', {quality: {text: errorMessage(data)}, series_stats: {}});
           return;

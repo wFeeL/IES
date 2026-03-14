@@ -64,7 +64,9 @@ def build_default_ruleset_payload() -> Dict[str, Any]:
     return build_default_ruleset_config()
 
 
-def list_start_pack_templates_for_admin(*, include_inactive: bool = False) -> List[StartPackTemplate]:
+def list_start_pack_templates_for_admin(
+    *, include_inactive: bool = False
+) -> List[StartPackTemplate]:
     return list_start_pack_templates(include_inactive=include_inactive)
 
 

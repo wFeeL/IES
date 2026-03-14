@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}IES Аналитика лотов{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}" />
+    <script>
+      window.IES_CSRF_TOKEN = "{{ csrf_token() }}";
+    </script>
+    <script src="{{ url_for('static', filename='js/api_client.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script defer src="{{ url_for('static', filename='vendor/chart.min.js') }}"></script>
     <script defer src="{{ url_for('static', filename='vendor/plotly.min.js') }}"></script>

@@ -1,4 +1,8 @@
 (function () {
+  const api = window.IESApi || {};
+  const apiFetchJson = api.apiFetchJson;
+  const errorMessage = api.errorMessage || ((data) => data?.error?.message || 'Неизвестная ошибка');
+
   function $(id) {
     return document.getElementById(id);
   }
@@ -57,10 +61,6 @@
     if ($('qaStatus')) $('qaStatus').textContent = text;
   }
 
-  function errorMessage(data) {
-    return data?.error?.message || data?.error || 'Неизвестная ошибка';
-  }
-
   function netProfit(row) {
     return Number((row.financial_breakdown || {}).result?.net_profit || row.net_profit || 0);
   }
@@ -70,7 +70,21 @@
   }
 
   function hardBid(row) {
-    return Number((row.decision_summary || {}).hard_bid || row.recommended_bid_hard || 0);
+    return Number(
+      (row.decision_summary || {}).target_bid ||
+      (row.decision_summary || {}).hard_bid ||
+      row.target_bid ||
+      row.recommended_bid_hard ||
+      0
+    );
+  }
+
+  function budgetLimitedBid(row) {
+    return Number(
+      (row.decision_summary || {}).budget_limited_bid ||
+      row.budget_limited_bid ||
+      0
+    );
   }
 
   function bySort(a, b, key) {
@@ -114,6 +128,20 @@
     if (buyLink) buyLink.href = lotId ? `/lots/item/${lotId}/buy` : '#';
   }
 
+  function setActiveAuctionItem(lotId) {
+    const targetId = Number(lotId || 0);
+    document.querySelectorAll('.auction-item').forEach((item) => {
+      const rowId = Number(item.dataset.lotId || 0);
+      item.classList.toggle('active', targetId > 0 && rowId === targetId);
+    });
+  }
+
+  function rankingItemByLotId(lotId) {
+    const targetId = Number(lotId || 0);
+    if (!targetId) return null;
+    return state.ranking.find((row) => Number(row.lot_id || 0) === targetId) || null;
+  }
+
   function syncCurrentBid(lotId) {
     const row = document.querySelector(`.auction-item[data-lot-id="${lotId}"]`);
     if (!row || !$('currentBid')) return;
@@ -126,10 +154,13 @@
     $('qaScore').textContent = Number(item.summary_score || 0).toFixed(2);
     $('qaRisk').textContent = riskValue(item).toFixed(2);
     $('qaBid').textContent = hardBid(item).toFixed(1);
+    if ($('qaBudgetBid')) $('qaBudgetBid').textContent = budgetLimitedBid(item).toFixed(1);
     const reasons = Array.isArray(item.reasons) ? item.reasons.slice(0, 3).join('; ') : '';
     $('qaCommentary').textContent = reasons || item.risk_commentary || item.explanation || 'Нет комментария.';
-    $('currentLotId').value = String(item.lot_id || '');
-    setCurrentLinks(item.lot_id || 0);
+    const lotId = Number(item.lot_id || 0);
+    $('currentLotId').value = String(lotId || '');
+    setCurrentLinks(lotId);
+    setActiveAuctionItem(lotId);
   }
 
   async function persistCurrentBid(lotId) {
@@ -140,15 +171,14 @@
       setStatus('Текущая ставка должна быть числом не меньше нуля.');
       return false;
     }
-    const res = await fetch(`/api/lots/${lotId}`, {
+    const data = await apiFetchJson(`/api/lots/${lotId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRFToken': cfg().csrfToken || '',
+        'X-CSRFToken': cfg().csrfToken || window.IES_CSRF_TOKEN || '',
       },
       body: JSON.stringify({current_bid: bid}),
     });
-    const data = await res.json();
     if (!data.ok) {
       setStatus(errorMessage(data));
       return false;
@@ -168,22 +198,24 @@
     const bidSaved = await persistCurrentBid(id);
     if (!bidSaved) return;
 
-    const res = await fetch(`/api/lots/${id}/evaluate`, {
+    const data = await apiFetchJson(`/api/lots/${id}/evaluate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRFToken': cfg().csrfToken || '',
+        'X-CSRFToken': cfg().csrfToken || window.IES_CSRF_TOKEN || '',
       },
       body: JSON.stringify({}),
     });
-    const data = await res.json();
     if (!data.ok) {
       setStatus(errorMessage(data));
       return;
     }
 
     updateDecisionPanel(data.item);
-    setStatus(`Лот ${id} пересчитан. Полезность ${Number(data.item.summary_score || 0).toFixed(2)}, рабочая ставка ${hardBid(data.item).toFixed(1)}.`);
+    setStatus(
+      `Лот ${id} пересчитан. Полезность ${Number(data.item.summary_score || 0).toFixed(2)}, ` +
+      `рабочая ставка ${hardBid(data.item).toFixed(1)}.`
+    );
   }
 
   function rowActionsHtml(lotId) {
@@ -230,28 +262,33 @@
         $('currentLotId').value = button.dataset.lotId;
         syncCurrentBid(button.dataset.lotId);
         await evalLot(button.dataset.lotId);
+        await refreshRanking(Number(button.dataset.lotId || 0));
       });
     });
   }
 
-  async function refreshRanking() {
+  async function refreshRanking(preferredLotId) {
     const params = new URLSearchParams();
     params.set('status', 'available');
     params.set('sort', $('qaSort')?.value || 'utility_desc');
     if ($('qaMinUtility')?.value) params.set('utility_min', $('qaMinUtility').value);
     if ($('qaMaxRisk')?.value) params.set('risk_max', $('qaMaxRisk').value);
 
-    const res = await fetch(`/api/sessions/${cfg().sessionId}/lots/analytics?${params.toString()}`, {
-      headers: {'X-CSRFToken': cfg().csrfToken || ''},
+    const data = await apiFetchJson(`/api/sessions/${cfg().sessionId}/lots/analytics?${params.toString()}`, {
+      headers: {'X-CSRFToken': cfg().csrfToken || window.IES_CSRF_TOKEN || ''},
     });
-    const data = await res.json();
     if (!data.ok) {
       setStatus(errorMessage(data));
       return;
     }
     state.ranking = Array.isArray(data.items) ? data.items : [];
     renderRanking(state.ranking);
-    if (state.ranking[0]) updateDecisionPanel(state.ranking[0]);
+    const selectedLotId = Number(preferredLotId ?? $('currentLotId')?.value || 0);
+    const selected = rankingItemByLotId(selectedLotId) || state.ranking[0] || null;
+    if (selected) {
+      updateDecisionPanel(selected);
+      syncCurrentBid(selected.lot_id);
+    }
     setStatus(`Получено лотов: ${state.ranking.length}.`);
   }
 
@@ -259,21 +296,30 @@
     const lotId = Number($('currentLotId')?.value || 0);
     if (!lotId) return;
     await evalLot(lotId);
-    await refreshRanking();
+    await refreshRanking(lotId);
   }
 
   window.addEventListener('DOMContentLoaded', () => {
     restoreState();
     state.ranking = Array.isArray(cfg().initialRanking) ? cfg().initialRanking : [];
     renderRanking(state.ranking);
-    if (state.ranking[0]) updateDecisionPanel(state.ranking[0]);
+    const initialLotId = Number($('currentLotId')?.value || 0);
+    const selected = rankingItemByLotId(initialLotId) || state.ranking[0] || null;
+    if (selected) {
+      updateDecisionPanel(selected);
+      syncCurrentBid(selected.lot_id);
+    }
 
     document.querySelectorAll('.auction-item').forEach((item, index) => {
       item.addEventListener('click', () => {
-        document.querySelectorAll('.auction-item').forEach((row) => row.classList.remove('active'));
-        item.classList.add('active');
-        $('currentLotId').value = item.dataset.lotId;
-        syncCurrentBid(item.dataset.lotId);
+        const lotId = Number(item.dataset.lotId || 0);
+        setActiveAuctionItem(lotId);
+        $('currentLotId').value = String(lotId || '');
+        syncCurrentBid(lotId);
+        const ranked = rankingItemByLotId(lotId);
+        if (ranked) {
+          updateDecisionPanel(ranked);
+        }
         persistState();
       });
       item.dataset.hotkey = String(index + 1);
@@ -281,7 +327,7 @@
 
     $('evalCurrent')?.addEventListener('click', evalCurrent);
     $('refreshRanking')?.addEventListener('click', async () => {
-      await refreshRanking();
+      await refreshRanking(Number($('currentLotId')?.value || 0));
       persistState();
     });
     $('qaApplyFilters')?.addEventListener('click', () => {
@@ -296,9 +342,12 @@
     $('qaMaxRisk')?.addEventListener('input', persistState);
     $('qaShortlistOnly')?.addEventListener('change', persistState);
 
-    const initialLotId = $('currentLotId')?.value;
-    if (initialLotId) syncCurrentBid(initialLotId);
-    if (!initialLotId && document.querySelector('.auction-item')) {
+    const initialRawLotId = $('currentLotId')?.value;
+    if (initialRawLotId) {
+      syncCurrentBid(Number(initialRawLotId || 0));
+      setActiveAuctionItem(Number(initialRawLotId || 0));
+    }
+    if (!initialRawLotId && document.querySelector('.auction-item')) {
       document.querySelector('.auction-item').click();
     }
 

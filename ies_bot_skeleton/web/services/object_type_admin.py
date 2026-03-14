@@ -37,6 +37,14 @@ def _list(value: Any, *, field_name: str) -> List[Any]:
     return list(value)
 
 
+def _str(value: Any, *, field_name: str, default: str = "") -> str:
+    if value is None:
+        return default
+    if isinstance(value, (dict, list)):
+        raise ValueError(f"{field_name} должен быть строкой")
+    return str(value).strip()
+
+
 def create_object_type(payload: Dict[str, Any]) -> ObjectType:
     code = str(payload.get("code", "")).strip()
     name = str(payload.get("name", "")).strip()
@@ -58,6 +66,27 @@ def create_object_type(payload: Dict[str, Any]) -> ObjectType:
         ),
         editable_fields_json=_list(payload.get("editable_fields"), field_name="editable_fields"),
         rules_json=_dict(payload.get("rules"), field_name="rules"),
+        forecast_profile_key=_str(
+            payload.get("forecast_profile_key"),
+            field_name="forecast_profile_key",
+            default="",
+        ),
+        resource_dependencies_json=_list(
+            payload.get("resource_dependencies"),
+            field_name="resource_dependencies",
+        ),
+        forecast_model_type=_str(
+            payload.get("forecast_model_type"),
+            field_name="forecast_model_type",
+            default="direct_profile",
+        )
+        or "direct_profile",
+        economic_role=_str(
+            payload.get("economic_role"),
+            field_name="economic_role",
+            default="auto",
+        )
+        or "auto",
         is_active=bool(payload.get("is_active", True)),
     )
     db.session.add(row)
@@ -82,6 +111,35 @@ def update_object_type(row: ObjectType, payload: Dict[str, Any]) -> ObjectType:
         )
     if "rules" in payload:
         row.rules_json = _dict(payload.get("rules"), field_name="rules")
+    if "forecast_profile_key" in payload:
+        row.forecast_profile_key = _str(
+            payload.get("forecast_profile_key"),
+            field_name="forecast_profile_key",
+            default="",
+        )
+    if "resource_dependencies" in payload:
+        row.resource_dependencies_json = _list(
+            payload.get("resource_dependencies"),
+            field_name="resource_dependencies",
+        )
+    if "forecast_model_type" in payload:
+        row.forecast_model_type = (
+            _str(
+                payload.get("forecast_model_type"),
+                field_name="forecast_model_type",
+                default="direct_profile",
+            )
+            or "direct_profile"
+        )
+    if "economic_role" in payload:
+        row.economic_role = (
+            _str(
+                payload.get("economic_role"),
+                field_name="economic_role",
+                default="auto",
+            )
+            or "auto"
+        )
     if "is_active" in payload:
         row.is_active = bool(payload.get("is_active"))
 

@@ -243,9 +243,7 @@ def session_to_state(
             ticks_per_day=int(time_cfg.get("ticks_per_day", 48) or 48),
             horizon_ticks=int(time_cfg.get("horizon_ticks", 48) or 48),
         ),
-        budget=Budget(
-            cash=float(session.budget_total or 0.0), allpay_spent=float(spent_total)
-        ),
+        budget=Budget(cash=float(session.budget_total or 0.0), allpay_spent=float(spent_total)),
         owned_lots=[],
         owned_objects_override=list(owned_items),
         network_plan=_build_network_plan(session.objects, cfg),

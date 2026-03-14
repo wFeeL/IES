@@ -156,10 +156,12 @@ def score_state(
     obj_def = cfg.get("object_defaults", {})
 
     ext_buy = float(market_cfg.get("external_buy_price", 10.0))
-    ext_sell = float(market_cfg.get("external_sell_price", 1.0))
-    instant_buy = float(market_cfg.get("instant_buy_price", max(ext_buy, 20.0)))
-    instant_sell = float(market_cfg.get("instant_sell_price", min(ext_sell, 0.0)))
-    market_limit = float(market_cfg.get("market_max_power", market_cfg.get("max_power_mw", 60.0)))
+    ext_sell = float(market_cfg.get("external_sell_price", 2.0))
+    instant_buy = float(market_cfg.get("instant_buy_price", ext_buy))
+    instant_sell = float(market_cfg.get("instant_sell_price", ext_sell))
+    market_limit = float(
+        market_cfg.get("market_max_power", market_cfg.get("max_power_mw", 1_000_000.0))
+    )
     instant_buy_limit = float(
         market_cfg.get("instant_buy_max_power", market_cfg.get("instant_max_power_mw", 1e9))
     )
@@ -167,32 +169,34 @@ def score_state(
         market_cfg.get("instant_sell_max_power", market_cfg.get("instant_max_power_mw", 1e9))
     )
 
-    fuel_max = float(tps_cfg.get("fuel_max", 20.0))
-    eta_nom = float(tps_cfg.get("eta_nominal", 0.40))
+    fuel_max = float(tps_cfg.get("fuel_max", 15.0))
+    eta_nom = float(tps_cfg.get("eta_nominal", 1.0))
     fuel_price = float(tps_cfg.get("fuel_price", 0.5))
-    eco_tax_fuel = float(tps_cfg.get("eco_tax_fuel", 1.5))
+    eco_tax_fuel = float(tps_cfg.get("eco_tax_fuel", 0.0))
 
-    storage_cap = float(storage_cfg.get("capacity_mw_tick", 80.0))
-    storage_ch_rate = float(storage_cfg.get("charge_rate_mw", 15.0))
-    storage_dis_rate = float(storage_cfg.get("discharge_rate_mw", 20.0))
-    storage_leak = float(storage_cfg.get("leak_fraction_per_tick", 0.0))
+    storage_cap = float(storage_cfg.get("capacity_mw_tick", 20.0))
+    storage_ch_rate = float(storage_cfg.get("charge_rate_mw", 5.0))
+    storage_dis_rate = float(storage_cfg.get("discharge_rate_mw", 5.0))
+    storage_leak = float(storage_cfg.get("leak_fraction_per_tick", 0.05))
 
-    wind_pts = float(eco.get("wind_points_per_mw_tick", 2.0))
-    solar_pts = float(eco.get("solar_points_per_mw_tick", 3.0))
-    stor_pts = float(eco.get("storage_discharge_points_per_mw_tick", 1.0))
-    eco_point_value = float(eco.get("eco_point_value_rub", 0.0))
+    wind_pts = float(eco.get("wind_points_per_mw_tick", 1.0))
+    solar_pts = float(eco.get("solar_points_per_mw_tick", 1.0))
+    stor_pts = float(eco.get("storage_discharge_points_per_mw_tick", 0.0))
+    eco_point_value = float(eco.get("eco_point_value_rub", 2.0))
 
-    class3_pardon = float(fine_cfg.get("class3_pardon", 5.0))
-    class3_fine = float(fine_cfg.get("class3_rub_per_mw", 36.0))
-    factory_fine = float(fine_cfg.get("factory_rub_per_mw", 57.0))
+    class3_pardon = float(fine_cfg.get("class3_pardon", 0.0))
+    class3_fine = float(fine_cfg.get("class3_rub_per_mw", 10.0))
+    factory_fine = float(fine_cfg.get("factory_rub_per_mw", 10.0))
 
-    wear_threshold = float(net_cfg.get("wear_threshold_mw", net_cfg.get("wear_overload_mw", 40.0)))
-    wear_limit = float(net_cfg.get("wear_limit", 14.0))
-    wear_k = float(net_cfg.get("wear_k", 0.20))
+    wear_threshold = float(
+        net_cfg.get("wear_threshold_mw", net_cfg.get("wear_overload_mw", 9999.0))
+    )
+    wear_limit = float(net_cfg.get("wear_limit", 1_000_000.0))
+    wear_k = float(net_cfg.get("wear_k", 0.0))
     outage_ticks = max(1, int(net_cfg.get("outage_ticks", 1)))
     outage_penalty_rub = float(net_cfg.get("outage_penalty_rub", 0.0))
     outage_loss_scale = _clamp(float(net_cfg.get("outage_loss_scale", 1.0)), 0.0, 1.0)
-    line_loss_tax = float(net_cfg.get("loss_tax", 2.0))
+    line_loss_tax = float(net_cfg.get("loss_tax", 1.0))
     line_max_power = float(net_cfg.get("line_max_power_mw", 0.0))
     main_substation_limit = float(net_cfg.get("main_substation_limit_mw", 0.0))
     default_connection_point = _normalize_point(net_cfg.get("default_connection_point", "A"))
@@ -380,9 +384,7 @@ def score_state(
             main_flow = max(sum(gen_by_id.values()), sum(load_by_id.values()))
             if main_flow > main_substation_limit:
                 substation_tripped = True
-                notes.append(
-                    f"MAIN_OFF:t={t},flow={main_flow:.2f}MW>{main_substation_limit:.2f}MW"
-                )
+                notes.append(f"MAIN_OFF:t={t},flow={main_flow:.2f}MW>{main_substation_limit:.2f}MW")
                 for row in consumer_tick_rows:
                     demand = float(row["demand"])
                     forced_unservable = float(row["forced_unservable"])

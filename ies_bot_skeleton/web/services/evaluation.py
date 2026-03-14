@@ -1,36 +1,98 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-from typing import Any, Dict, Iterable, List, Optional
-
-from ies_bot_skeleton.domain.lot_analysis.auction.ev import recommended_bid_range
-from ies_bot_skeleton.domain.lot_analysis.scoring.marginal import marginal_value
-from ies_bot_skeleton.domain.lot_analysis.scoring.scenarios import summarize_delta
+from dataclasses import asdict, dataclass, field
+from statistics import pstdev
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, cast
 
 from ..extensions import db
-from ..models import EvaluationResult, Forecast, GameSession, Lot
-from .adapter import lot_to_domain_lot, session_to_state
+from ..models import EvaluationResult, Forecast, ForecastPeriod, GameSession, Lot, LotItem, ObjectInstance
 from .analysis_context import resolve_analysis_context
-from .forecast_service import build_forecast_pack, load_bundled_forecast_pack
-from .network import validate_session_network
+from .forecast_service import load_bundled_forecast_pack
 from .ruleset import strategy_weights
 from .ui_text import strategy_label
 
-DEFAULT_WEIGHTED = {"base": 0.50, "worst": 0.35, "best": 0.15, "custom": 0.0}
-_REASON_LABELS = {
-    "income": "сильный доход по профилю потребления",
-    "penalties": "низкие штрафы и дисбаланс",
-    "contracts": "приемлемые контрактные затраты",
-    "fuel+tax": "контролируемые топливные и налоговые расходы",
-    "market": "рынок даёт положительный вклад",
-    "net-loss": "сетевые потери остаются под контролем",
-    "risk": "риск-премия невысокая",
-    "eco": "экологический эффект повышает ценность лота",
-}
+DEFAULT_WEIGHTED = {"base": 0.50, "worst": 0.35, "best": 0.15}
+
+
+class ForecastCompatibilityError(ValueError):
+    def __init__(self, report: Dict[str, Any]) -> None:
+        reasons = report.get("blocking_reasons") or []
+        message = "; ".join(reasons) if reasons else "Прогноз несовместим с объектами сессии."
+        super().__init__(message)
+        self.report = dict(report)
+
+
+@dataclass
+class Asset:
+    role: str
+    code: str
+    quantity: int
+    parameters: Dict[str, Any]
+
+
+@dataclass
+class ScenarioSnapshot:
+    income_total: float
+    generation_income: float
+    cost_total: float
+    contracts: float
+    fuel_and_taxes: float
+    market_net: float
+    penalties_total: float
+    losses_total: float
+    risk_penalty: float
+    flexibility_value: float
+    reserve_value: float
+    eco_value: float
+    net_profit: float
+    utility_score: float
+    served_load_revenue: float = 0.0
+    avoided_market_purchase_value: float = 0.0
+    export_revenue: float = 0.0
+    market_purchase_cost: float = 0.0
+    storage_operating_cost: float = 0.0
+    overload_penalties: float = 0.0
+    deficit_penalties: float = 0.0
+    role_breakdown: Dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class DeltaSnapshot:
+    delta_total: float
+    delta_income: float
+    delta_penalties: float
+    delta_contracts: float
+    delta_fuel_and_taxes: float
+    delta_market_net: float
+    delta_network_losses_cost: float
+    delta_eco_value: float
+    delta_risk_penalty: float
+    delta_eco_points: float
+    delta_served_load_revenue: float = 0.0
+    delta_avoided_market_purchase_value: float = 0.0
+    delta_export_revenue: float = 0.0
+    delta_market_purchase_cost: float = 0.0
+    delta_storage_operating_cost: float = 0.0
+    delta_overload_penalties: float = 0.0
+    delta_deficit_penalties: float = 0.0
+    flags: List[str] = field(default_factory=list)
+    reasons: List[str] = field(default_factory=list)
+    role_breakdown: Dict[str, float] = field(default_factory=dict)
 
 
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
+
+
+def _norm(value: Any) -> str:
+    return "".join(ch.lower() for ch in str(value or "").strip())
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
 
 
 def _weighted_expected(config: Dict[str, Any], base: float, worst: float, best: float) -> float:
@@ -43,39 +105,25 @@ def _weighted_expected(config: Dict[str, Any], base: float, worst: float, best: 
     return wb * base + ww * worst + wbest * best
 
 
-def _lot_component_flexibility(lot: Lot) -> float:
-    score = 0.0
-    for item in lot.items:
-        code = (item.object_type.code if item.object_type else "").lower()
-        qty = max(1, int(item.quantity or 1))
-        if "storage" in code:
-            score += 2.5 * qty
-        if "mini" in code or "substation" in code:
-            score += 1.2 * qty
-    return score
+def _session_lots(session: GameSession) -> Sequence[Lot]:
+    return cast(Sequence[Lot], list(session.lots))
 
 
-def _lot_component_green(lot: Lot) -> float:
-    score = 0.0
-    for item in lot.items:
-        code = (item.object_type.code if item.object_type else "").lower()
-        qty = max(1, int(item.quantity or 1))
-        if "wind" in code:
-            score += 2.0 * qty
-        elif "solar" in code or "ses" in code:
-            score += 2.4 * qty
-        elif "tps" in code or "tes" in code:
-            score -= 1.2 * qty
-    return score
+def _session_objects(session: GameSession) -> Sequence[ObjectInstance]:
+    return cast(Sequence[ObjectInstance], list(session.objects))
 
 
-def _to_dict(delta_obj: Any) -> Dict[str, Any]:
-    return asdict(delta_obj)
+def _lot_items(lot: Lot) -> Sequence[LotItem]:
+    return cast(Sequence[LotItem], list(lot.items))
 
 
 def _spent_total(session: GameSession) -> float:
     return float(
-        sum(float(lot.purchase_price or 0.0) for lot in session.lots if str(lot.status or "") == "bought")
+        sum(
+            float(lot.purchase_price or 0.0)
+            for lot in _session_lots(session)
+            if str(lot.status or "") == "bought"
+        )
     )
 
 
@@ -86,67 +134,565 @@ def _remaining_budget(session: GameSession) -> float:
 def _portfolio_context(session: GameSession) -> Dict[str, Any]:
     spent_total = _spent_total(session)
     return {
-        "bought_lots_count": sum(1 for lot in session.lots if str(lot.status or "") == "bought"),
+        "bought_lots_count": sum(
+            1 for lot in _session_lots(session) if str(lot.status or "") == "bought"
+        ),
         "spent_total": spent_total,
         "remaining_budget": max(0.0, float(session.budget_total or 0.0) - spent_total),
-        "owned_objects_count": sum(1 for obj in session.objects if obj.is_active),
+        "owned_objects_count": sum(1 for obj in _session_objects(session) if obj.is_active),
     }
 
 
-def _risk_commentary(*, delta_risk: float, flags: List[str], confidence: float) -> str:
-    if any(flag.startswith("NETPLAN:") for flag in flags):
-        return "Повышенный риск: у лота есть сетевые ограничения, перед покупкой нужен пересчёт после проверки схемы."
-    if delta_risk >= 60:
-        return "Риск выше среднего: результат чувствителен к изменению прогноза и внешних условий."
-    if delta_risk >= 20:
-        return "Умеренный риск: ставку лучше держать в пределах рабочего максимума."
-    if confidence < 0.45:
-        return "Модель даёт низкую уверенность: данные прогноза или структуры лота требуют дополнительной проверки."
-    return "Риск контролируемый: критических ограничений по текущему прогнозу не найдено."
+def _asset_role(category: str, economic_role: str) -> str:
+    role = _norm(economic_role)
+    if role in {"consumer", "generator", "storage", "infrastructure", "mixed"}:
+        return role
+    category_norm = _norm(category)
+    if category_norm in {"consumer", "generator", "storage", "infrastructure"}:
+        return category_norm
+    return "mixed"
 
 
-def _strategy_fit_text(
+def _period_series(
+    periods: Sequence[ForecastPeriod],
+) -> Tuple[Dict[str, Dict[int, float]], Dict[str, Dict[int, float]], List[int]]:
+    factors: Dict[str, Dict[int, float]] = {}
+    profiles: Dict[str, Dict[int, float]] = {}
+    ticks: List[int] = []
+    profile_alias = {
+        "house": "house_load",
+        "housea": "house_load",
+        "load_housea": "house_load",
+        "office": "office_load",
+        "load_office": "office_load",
+        "factory": "factory_load",
+        "load_factory": "factory_load",
+    }
+    for period in periods:
+        tick = int(period.tick)
+        ticks.append(tick)
+        factor_rows = dict(period.factors_json or {})
+        profile_rows = dict(period.profiles_json or {})
+
+        if not factor_rows:
+            if period.wind is not None:
+                factor_rows["wind_factor"] = float(period.wind)
+            if period.illumination is not None:
+                factor_rows["solar_factor"] = float(period.illumination)
+            if period.market_price is not None:
+                factor_rows["market_price_buy"] = float(period.market_price)
+
+        if not profile_rows:
+            for raw_key, raw_value in (period.consumption_json or {}).items():
+                key = profile_alias.get(_norm(raw_key))
+                if key is None:
+                    continue
+                profile_rows[key] = _as_float(raw_value, 0.0)
+
+        for key, value in factor_rows.items():
+            factors.setdefault(_norm(key), {})[tick] = _as_float(value, 0.0)
+        for key, value in profile_rows.items():
+            profiles.setdefault(_norm(key), {})[tick] = _as_float(value, 0.0)
+    return factors, profiles, sorted(set(ticks))
+
+
+def _bundled_series() -> Tuple[Dict[str, Dict[int, float]], Dict[str, Dict[int, float]], List[int]]:
+    pack = load_bundled_forecast_pack()
+    factors: Dict[str, Dict[int, float]] = {}
+    profiles: Dict[str, Dict[int, float]] = {}
+    wind = (pack.get("wind", {}) or {}).get("wind", {}) or {}
+    solar = (pack.get("solar", {}) or {}).get("solar", {}) or {}
+    market = (pack.get("market", {}) or {}).get("price", {}) or {}
+    if wind:
+        factors["wind_factor"] = {int(k): _as_float(v, 0.0) for k, v in wind.items()}
+    if solar:
+        factors["solar_factor"] = {int(k): _as_float(v, 0.0) for k, v in solar.items()}
+    if market:
+        factors["market_price_buy"] = {int(k): _as_float(v, 0.0) for k, v in market.items()}
+
+    load = pack.get("load", {}) or {}
+    for raw_key, values in load.items():
+        key = _norm(raw_key)
+        if key in {"house", "housea", "load_housea"}:
+            canonical = "house_load"
+        elif key in {"office", "load_office"}:
+            canonical = "office_load"
+        elif key in {"factory", "load_factory"}:
+            canonical = "factory_load"
+        else:
+            continue
+        target = profiles.setdefault(canonical, {})
+        for tick, value in (values or {}).items():
+            target[int(tick)] = _as_float(value, 0.0)
+
+    ticks = sorted(
+        {
+            *{int(tick) for rows in factors.values() for tick in rows.keys()},
+            *{int(tick) for rows in profiles.values() for tick in rows.keys()},
+        }
+    )
+    return factors, profiles, ticks
+
+
+def _scenario_multipliers(cfg: Dict[str, Any], scenario: str) -> Dict[str, float]:
+    scen_cfg = dict(cfg.get("scenarios", {}) or {})
+    item = dict(scen_cfg.get(scenario, {}) or {})
+    if item:
+        return {
+            "wind": _as_float(item.get("wind"), 1.0),
+            "solar": _as_float(item.get("solar"), 1.0),
+            "load": _as_float(item.get("load"), 1.0),
+        }
+    if scenario == "worst":
+        return {"wind": 0.9, "solar": 0.8, "load": 1.1}
+    if scenario == "best":
+        return {"wind": 1.1, "solar": 1.2, "load": 0.9}
+    return {"wind": 1.0, "solar": 1.0, "load": 1.0}
+
+
+def _profile_value(
+    profile_key: str, profiles: Dict[str, Dict[int, float]], tick: int, default: float = 1.0
+) -> float:
+    series = profiles.get(_norm(profile_key)) or {}
+    if tick in series:
+        return _as_float(series[tick], default)
+    return float(default)
+
+
+def _factor_value(
+    factor_key: str, factors: Dict[str, Dict[int, float]], tick: int, default: float = 0.0
+) -> float:
+    series = factors.get(_norm(factor_key)) or {}
+    if tick in series:
+        return _as_float(series[tick], default)
+    return float(default)
+
+
+def _asset_profile_key(asset: Asset) -> str:
+    explicit = _norm(asset.parameters.get("forecast_profile_key", ""))
+    if explicit:
+        return explicit
+    fallback = _norm(asset.parameters.get("profile", ""))
+    if fallback in {"house", "housea", "load_housea"}:
+        return "house_load"
+    if fallback in {"office", "load_office"}:
+        return "office_load"
+    if fallback in {"factory", "load_factory"}:
+        return "factory_load"
+    if fallback:
+        return fallback
+    if asset.role == "consumer":
+        if _norm(asset.code) in {"factory"}:
+            return "factory_load"
+        if _norm(asset.code) in {"office"}:
+            return "office_load"
+        return "house_load"
+    if asset.role == "generator" and _norm(asset.code) in {"wind"}:
+        return "wind_profile"
+    if asset.role == "generator" and _norm(asset.code) in {"solar", "cyber_solar", "solarrobot"}:
+        return "solar_profile"
+    if asset.role == "storage":
+        return "storage_default_profile"
+    return ""
+
+
+def _collect_assets(session: GameSession, extra_lots: Sequence[Lot] | None = None) -> List[Asset]:
+    assets: List[Asset] = []
+    for obj in _session_objects(session):
+        if not obj.is_active or obj.object_type is None:
+            continue
+        params = dict(obj.object_type.default_parameters_json or {})
+        params.update(dict(obj.current_parameters_json or {}))
+        params["forecast_profile_key"] = obj.object_type.forecast_profile_key or params.get(
+            "forecast_profile_key", ""
+        )
+        params["resource_dependencies"] = list(obj.object_type.resource_dependencies_json or [])
+        role = _asset_role(obj.object_type.category, obj.object_type.economic_role)
+        assets.append(
+            Asset(
+                role=role,
+                code=obj.object_type.code,
+                quantity=max(1, int(params.get("qty", 1) or 1)),
+                parameters=params,
+            )
+        )
+    for lot in extra_lots or []:
+        for item in _lot_items(lot):
+            if item.object_type is None:
+                continue
+            params = dict(item.object_type.default_parameters_json or {})
+            params.update(dict(item.overrides_json or {}))
+            params["forecast_profile_key"] = item.object_type.forecast_profile_key or params.get(
+                "forecast_profile_key", ""
+            )
+            params["resource_dependencies"] = list(
+                item.object_type.resource_dependencies_json or []
+            )
+            role = _asset_role(item.object_type.category, item.object_type.economic_role)
+            assets.append(
+                Asset(
+                    role=role,
+                    code=item.object_type.code,
+                    quantity=max(1, int(item.quantity or 1)),
+                    parameters=params,
+                )
+            )
+    return assets
+
+
+def _simulate_scenario(
     *,
-    strategy: str,
-    score: float,
-    hard_bid: float,
-    delta_total: float,
-    weighted_expected: float,
-) -> str:
-    label = strategy_label(strategy)
-    if hard_bid <= 0:
-        if delta_total <= 0:
-            return f"{label}: лот не улучшает портфель и не поддерживает безопасную ставку."
-        return f"{label}: эффект есть, но он недостаточен для рабочей покупки по текущей цене."
-    if score >= 80:
-        return f"{label}: лот хорошо поддерживает текущую стратегию и бюджетный контекст."
-    if score >= 25 or weighted_expected >= 50:
-        return f"{label}: соответствие рабочее, покупка допустима при контроле цены."
-    return f"{label}: соответствие ограниченное, нужна ручная проверка перед входом в сделку."
+    assets: List[Asset],
+    factors: Dict[str, Dict[int, float]],
+    profiles: Dict[str, Dict[int, float]],
+    ticks: List[int],
+    cfg: Dict[str, Any],
+    scenario: str,
+) -> ScenarioSnapshot:
+    scales = _scenario_multipliers(cfg, scenario)
+    market_cfg = dict(cfg.get("market", {}) or {})
+    fine_cfg = dict(cfg.get("fine", {}) or {})
+    net_cfg = dict(cfg.get("network", {}) or {})
+    eco_cfg = dict(cfg.get("eco", {}) or {})
+    storage_cfg = dict(cfg.get("storage", {}) or {})
+    evaluation_cfg = dict(cfg.get("evaluation", {}) or {})
+
+    market_buy_default = _as_float(market_cfg.get("external_buy_price"), 10.0)
+    market_sell_default = _as_float(market_cfg.get("external_sell_price"), 2.0)
+    penalty_rate = _as_float(fine_cfg.get("class3_rub_per_mw"), 10.0)
+    factory_penalty_rate = _as_float(fine_cfg.get("factory_rub_per_mw"), 10.0)
+    loss_tax = _as_float(net_cfg.get("loss_tax"), 1.0)
+    base_loss_rate = 0.05
+    storage_throughput_cost = max(
+        0.0,
+        _as_float(
+            evaluation_cfg.get("storage_operating_cost_per_mwh_throughput"),
+            _as_float(storage_cfg.get("operating_cost_per_mwh_throughput"), 0.0),
+        ),
+    )
+
+    storage_capacity = max(0.0, _as_float(storage_cfg.get("capacity_mw_tick"), 20.0))
+    storage_charge = max(0.0, _as_float(storage_cfg.get("charge_rate_mw"), 5.0))
+    storage_discharge = max(0.0, _as_float(storage_cfg.get("discharge_rate_mw"), 5.0))
+    storage_leak = _clamp(_as_float(storage_cfg.get("leak_fraction_per_tick"), 0.0), 0.0, 0.3)
+
+    market_buy_cap_raw = market_cfg.get("market_max_power")
+    if market_buy_cap_raw in (None, ""):
+        market_buy_cap_raw = market_cfg.get("instant_buy_max_power")
+    market_buy_capacity = (
+        float("inf")
+        if market_buy_cap_raw in (None, "", 0, 0.0)
+        else max(0.0, _as_float(market_buy_cap_raw, 0.0))
+    )
+
+    market_sell_cap_raw = market_cfg.get("instant_sell_max_power")
+    market_sell_capacity = (
+        float("inf")
+        if market_sell_cap_raw in (None, "", 0, 0.0)
+        else max(0.0, _as_float(market_sell_cap_raw, 0.0))
+    )
+
+    network_loss_rate = base_loss_rate
+
+    contracts = sum(
+        _as_float(asset.parameters.get("contract_rub_per_tick"), 0.0) * asset.quantity
+        for asset in assets
+    ) * len(ticks)
+    income_total = 0.0
+    market_net = 0.0
+    fuel_and_taxes = 0.0
+    penalties_total = 0.0
+    losses_total = 0.0
+    eco_value = 0.0
+    risk_penalty = 0.0
+    served_load_revenue = 0.0
+    avoided_market_purchase_value = 0.0
+    export_revenue = 0.0
+    market_purchase_cost = 0.0
+    storage_operating_cost = 0.0
+    overload_penalties = 0.0
+    deficit_penalties = 0.0
+
+    role_breakdown = {
+        "consumer": 0.0,
+        "generator": 0.0,
+        "storage": 0.0,
+        "infrastructure": 0.0,
+        "mixed": 0.0,
+    }
+    storage_state = 0.0
+    storage_max = 0.0
+    for asset in assets:
+        if asset.role != "storage":
+            continue
+        storage_max += (
+            max(0.0, _as_float(asset.parameters.get("capacity_mw_tick"), storage_capacity))
+            * asset.quantity
+        )
+    storage_state = 0.0
+
+    for tick in ticks:
+        wind_factor = _factor_value("wind_factor", factors, tick, 0.0) * scales["wind"]
+        solar_factor = _factor_value("solar_factor", factors, tick, 0.0) * scales["solar"]
+        market_buy = _factor_value("market_price_buy", factors, tick, market_buy_default)
+        market_sell = _factor_value(
+            "market_price_sell",
+            factors,
+            tick,
+            market_sell_default if market_sell_default > 0 else market_buy * 0.5,
+        )
+        fuel_price = _factor_value(
+            "fuel_price", factors, tick, _as_float(cfg.get("tps", {}).get("fuel_price"), 0.5)
+        )
+
+        demand_total = 0.0
+        demand_factory = 0.0
+        renewable_generation = 0.0
+        thermal_units: List[Dict[str, float]] = []
+
+        for asset in assets:
+            qty = max(1, int(asset.quantity))
+            profile_key = _asset_profile_key(asset)
+            profile_value = _profile_value(profile_key, profiles, tick, 1.0)
+            if asset.role == "consumer":
+                base_load = _as_float(asset.parameters.get("expected_consumption_mw"), 1.0)
+                tariff = _as_float(asset.parameters.get("tariff_rub_per_mw_tick"), 0.0)
+                load = max(0.0, base_load * profile_value * scales["load"]) * qty
+                demand_total += load
+                if _norm(asset.code) == "factory":
+                    demand_factory += load
+            elif asset.role == "generator":
+                code = _norm(asset.code)
+                eff = _clamp(_as_float(asset.parameters.get("efficiency"), 1.0), 0.1, 1.2)
+                generation_mw = (
+                    max(0.0, _as_float(asset.parameters.get("generation_mw"), 0.0)) * qty
+                )
+                if code in {"wind"}:
+                    supply = generation_mw * max(0.0, wind_factor) * max(0.0, profile_value) * eff
+                    renewable_generation += supply
+                    eco_value += (
+                        supply
+                        * _as_float(eco_cfg.get("wind_points_per_mw_tick"), 1.0)
+                        * _as_float(eco_cfg.get("eco_point_value_rub"), 1.0)
+                    )
+                elif code in {"solar", "cyber_solar", "solarrobot"}:
+                    supply = generation_mw * max(0.0, solar_factor) * max(0.0, profile_value) * eff
+                    renewable_generation += supply
+                    eco_value += (
+                        supply
+                        * _as_float(eco_cfg.get("solar_points_per_mw_tick"), 1.0)
+                        * _as_float(eco_cfg.get("eco_point_value_rub"), 1.0)
+                    )
+                else:
+                    thermal_units.append(
+                        {
+                            "capacity": generation_mw,
+                            "eta": _clamp(
+                                _as_float(
+                                    asset.parameters.get("efficiency"),
+                                    _as_float(cfg.get("tps", {}).get("eta_nominal"), 0.9),
+                                ),
+                                0.2,
+                                1.0,
+                            ),
+                            "tax": _as_float(
+                                asset.parameters.get("eco_tax_fuel"),
+                                _as_float(cfg.get("tps", {}).get("eco_tax_fuel"), 0.0),
+                            ),
+                        }
+                    )
+
+        if storage_state > 0 and storage_leak > 0:
+            storage_state = max(0.0, storage_state * (1.0 - storage_leak))
+
+        losses_mw = max(0.0, renewable_generation) * network_loss_rate
+        losses_total += losses_mw * loss_tax
+        renewable_available = max(0.0, renewable_generation - losses_mw)
+        renewable_to_load = min(demand_total, renewable_available)
+        renewable_surplus = max(0.0, renewable_available - renewable_to_load)
+        deficit = max(0.0, demand_total - renewable_to_load)
+
+        if renewable_to_load > 0:
+            avoided_market_purchase_value += renewable_to_load * market_buy
+            role_breakdown["generator"] += renewable_to_load * market_buy
+
+        storage_charge_total = 0.0
+        storage_discharge_total = 0.0
+        if deficit > 0 and storage_state > 0 and storage_max > 0:
+            discharge_cap = storage_discharge * max(1.0, storage_max / max(storage_capacity, 1.0))
+            discharge = min(deficit, storage_state, discharge_cap)
+            storage_state -= discharge
+            storage_discharge_total += discharge
+            deficit = max(0.0, deficit - discharge)
+            avoided_market_purchase_value += discharge * market_buy
+            role_breakdown["storage"] += discharge * market_buy
+            eco_value += (
+                discharge
+                * _as_float(eco_cfg.get("storage_discharge_points_per_mw_tick"), 0.0)
+                * _as_float(eco_cfg.get("eco_point_value_rub"), 1.0)
+            )
+
+        for unit in thermal_units:
+            if deficit <= 0:
+                break
+            variable_cost = fuel_price / max(0.2, unit["eta"]) + unit["tax"]
+            if variable_cost > market_buy:
+                continue
+            dispatch = min(deficit, unit["capacity"])
+            if dispatch <= 0:
+                continue
+            deficit -= dispatch
+            fuel_and_taxes += dispatch * variable_cost
+            avoided_market_purchase_value += dispatch * market_buy
+            role_breakdown["generator"] += dispatch * market_buy - dispatch * variable_cost
+
+        market_purchase = 0.0
+        if deficit > 0:
+            market_purchase = min(deficit, market_buy_capacity)
+            market_purchase_cost += market_purchase * market_buy
+            market_net += market_purchase * market_buy
+            deficit = max(0.0, deficit - market_purchase)
+
+        if deficit > 0:
+            deficit_penalties += max(0.0, deficit - 1.0) * penalty_rate
+            if demand_factory > 0 and demand_total > 0:
+                deficit_penalties += (
+                    demand_factory * (deficit / demand_total) * factory_penalty_rate
+                )
+
+        surplus = renewable_surplus
+        if surplus > 0 and storage_max > 0 and storage_state < storage_max:
+            charge_cap = storage_charge * max(1.0, storage_max / max(storage_capacity, 1.0))
+            charge = min(surplus, storage_max - storage_state, charge_cap)
+            storage_state += charge
+            surplus -= charge
+            storage_charge_total += charge
+
+        if surplus > 0:
+            exported = min(surplus, market_sell_capacity)
+            if exported > 0:
+                export_revenue += exported * market_sell
+                market_net -= exported * market_sell
+                role_breakdown["generator"] += exported * market_sell
+
+        served_ratio = 1.0
+        if demand_total > 1e-9:
+            served_ratio = _clamp((demand_total - deficit) / demand_total, 0.0, 1.0)
+        for asset in assets:
+            if asset.role != "consumer":
+                continue
+            qty = max(1, int(asset.quantity))
+            base_load = _as_float(asset.parameters.get("expected_consumption_mw"), 1.0)
+            profile_key = _asset_profile_key(asset)
+            profile_value = _profile_value(profile_key, profiles, tick, 1.0)
+            demand = max(0.0, base_load * profile_value * scales["load"]) * qty
+            served = demand * served_ratio
+            tariff = _as_float(asset.parameters.get("tariff_rub_per_mw_tick"), 0.0)
+            served_load_revenue += served * tariff
+            role_breakdown["consumer"] += served * tariff
+
+        if storage_charge_total > 0 or storage_discharge_total > 0:
+            storage_throughput = storage_charge_total + storage_discharge_total
+            storage_operating_cost += storage_throughput * storage_throughput_cost
+            storage_cycle_value = (
+                role_breakdown["storage"] - storage_throughput * storage_throughput_cost
+            )
+            role_breakdown["storage"] = max(0.0, storage_cycle_value)
+
+    penalties_total = overload_penalties + deficit_penalties
+    income_total = served_load_revenue + export_revenue + max(0.0, eco_value)
+    cost_total = contracts + fuel_and_taxes + storage_operating_cost + max(0.0, market_net)
+    net_profit = income_total - cost_total - penalties_total - losses_total
+    utility_score = net_profit - risk_penalty
+
+    return ScenarioSnapshot(
+        income_total=float(income_total),
+        generation_income=float(export_revenue),
+        cost_total=float(cost_total),
+        contracts=float(contracts),
+        fuel_and_taxes=float(fuel_and_taxes),
+        market_net=float(market_net),
+        penalties_total=float(penalties_total),
+        losses_total=float(losses_total),
+        risk_penalty=float(risk_penalty),
+        flexibility_value=float(max(0.0, role_breakdown.get("storage", 0.0))),
+        reserve_value=float(max(0.0, role_breakdown.get("infrastructure", 0.0))),
+        eco_value=float(eco_value),
+        net_profit=float(net_profit),
+        utility_score=float(utility_score),
+        served_load_revenue=float(served_load_revenue),
+        avoided_market_purchase_value=float(avoided_market_purchase_value),
+        export_revenue=float(export_revenue),
+        market_purchase_cost=float(market_purchase_cost),
+        storage_operating_cost=float(storage_operating_cost),
+        overload_penalties=float(overload_penalties),
+        deficit_penalties=float(deficit_penalties),
+        role_breakdown={key: float(value) for key, value in role_breakdown.items()},
+    )
 
 
-def _human_reasons(delta_obj: Any, *, top_k: int = 5) -> List[str]:
-    reasons, flags = summarize_delta(delta_obj, top_k=top_k)
+def _to_delta(before: ScenarioSnapshot, after: ScenarioSnapshot) -> DeltaSnapshot:
+    role_delta: Dict[str, float] = {}
+    for role in set(before.role_breakdown.keys()) | set(after.role_breakdown.keys()):
+        role_delta[role] = float(
+            after.role_breakdown.get(role, 0.0) - before.role_breakdown.get(role, 0.0)
+        )
+    return DeltaSnapshot(
+        delta_total=float(after.utility_score - before.utility_score),
+        delta_income=float(after.income_total - before.income_total),
+        delta_penalties=float(after.penalties_total - before.penalties_total),
+        delta_contracts=float(after.contracts - before.contracts),
+        delta_fuel_and_taxes=float(after.fuel_and_taxes - before.fuel_and_taxes),
+        delta_market_net=float(after.market_net - before.market_net),
+        delta_network_losses_cost=float(after.losses_total - before.losses_total),
+        delta_eco_value=float(after.eco_value - before.eco_value),
+        delta_risk_penalty=float(after.risk_penalty - before.risk_penalty),
+        delta_eco_points=float((after.eco_value - before.eco_value) / 2.0),
+        delta_served_load_revenue=float(after.served_load_revenue - before.served_load_revenue),
+        delta_avoided_market_purchase_value=float(
+            after.avoided_market_purchase_value - before.avoided_market_purchase_value
+        ),
+        delta_export_revenue=float(after.export_revenue - before.export_revenue),
+        delta_market_purchase_cost=float(after.market_purchase_cost - before.market_purchase_cost),
+        delta_storage_operating_cost=float(
+            after.storage_operating_cost - before.storage_operating_cost
+        ),
+        delta_overload_penalties=float(after.overload_penalties - before.overload_penalties),
+        delta_deficit_penalties=float(after.deficit_penalties - before.deficit_penalties),
+        role_breakdown=role_delta,
+    )
+
+
+def _human_reasons(delta_obj: DeltaSnapshot, top_k: int = 5) -> List[str]:
+    contrib = [
+        ("Доход", delta_obj.delta_income),
+        ("Штрафы", -delta_obj.delta_penalties),
+        ("Контракты", -delta_obj.delta_contracts),
+        ("Топливо и налоги", -delta_obj.delta_fuel_and_taxes),
+        ("Рынок", -delta_obj.delta_market_net),
+        ("Потери", -delta_obj.delta_network_losses_cost),
+        ("Риск", -delta_obj.delta_risk_penalty),
+        ("Эко-эффект", delta_obj.delta_eco_value),
+    ]
+    contrib.sort(key=lambda row: abs(row[1]), reverse=True)
     out: List[str] = []
-    for item in reasons:
-        raw_key, _, raw_value = item.partition(":")
-        key = raw_key.strip()
-        value = raw_value.strip()
-        label = _REASON_LABELS.get(key, key)
-        out.append(f"{label}: {value}")
-    for flag in list(flags)[:2]:
-        out.append(f"Технический флаг: {flag}")
-    return out[:top_k]
+    for key, value in contrib:
+        if abs(value) < 1e-6:
+            continue
+        out.append(f"{key}: {value:+.2f}")
+        if len(out) >= top_k:
+            break
+    return out
 
 
 def _scenario_comment(*, utility_total: float, net_profit: float, recommended_bid: float) -> str:
     if recommended_bid <= 0.0:
         return "Сценарий не поддерживает безопасную ставку по этому лоту."
     if utility_total >= 0 and net_profit >= 0:
-        return "Сценарий выглядит рабочим: полезность и чистая прибыль остаются положительными."
+        return "Сценарий рабочий: полезность и чистая прибыль положительны."
     if utility_total >= 0:
-        return "Полезность положительная, но чистая прибыль чувствительна к цене входа."
-    return "Сценарий слабый: покупка ухудшает общий результат портфеля."
+        return "Полезность положительная, но прибыль чувствительна к цене входа."
+    return "Сценарий слабый: покупка ухудшает результат портфеля."
 
 
 def _scenario_row(
@@ -157,20 +703,61 @@ def _scenario_row(
     pwin: float,
     remaining_budget: float,
 ) -> Dict[str, Any]:
-    income_total = max(0.0, float(delta_obj.delta_income)) + max(0.0, float(delta_obj.delta_market_net)) + max(0.0, float(delta_obj.delta_eco_value))
-    expenses_total = float(current_price) + max(0.0, float(delta_obj.delta_contracts)) + max(0.0, float(delta_obj.delta_fuel_and_taxes)) + max(0.0, -float(delta_obj.delta_market_net))
-    losses_total = max(0.0, float(delta_obj.delta_penalties)) + max(0.0, float(delta_obj.delta_network_losses_cost)) + max(0.0, float(delta_obj.delta_risk_penalty))
+    del pwin, remaining_budget
+    market_delta = float(getattr(delta_obj, "delta_market_net", 0.0) or 0.0)
+    served_load_revenue = float(
+        getattr(delta_obj, "delta_served_load_revenue", getattr(delta_obj, "delta_income", 0.0))
+        or 0.0
+    )
+    export_revenue = float(
+        getattr(delta_obj, "delta_export_revenue", max(0.0, -market_delta)) or 0.0
+    )
+    expenses_total = float(current_price) + max(
+        0.0, float(getattr(delta_obj, "delta_contracts", 0.0) or 0.0)
+    )
+    expenses_total += max(0.0, float(getattr(delta_obj, "delta_fuel_and_taxes", 0.0) or 0.0))
+    expenses_total += max(
+        0.0,
+        float(getattr(delta_obj, "delta_storage_operating_cost", 0.0) or 0.0),
+    )
+    expenses_total += max(
+        0.0,
+        float(getattr(delta_obj, "delta_market_purchase_cost", market_delta) or 0.0),
+    )
+    penalties_total = max(0.0, float(getattr(delta_obj, "delta_penalties", 0.0) or 0.0))
+    losses_total = max(
+        0.0,
+        float(getattr(delta_obj, "delta_network_losses_cost", 0.0) or 0.0),
+    ) + max(0.0, float(getattr(delta_obj, "delta_risk_penalty", 0.0) or 0.0))
+    income_total = (
+        max(0.0, served_load_revenue)
+        + max(0.0, export_revenue)
+        + max(0.0, float(getattr(delta_obj, "delta_eco_value", 0.0) or 0.0))
+    )
     utility_total = float(delta_obj.delta_total)
-    _, scenario_hard_bid = recommended_bid_range(max(0.0, utility_total), pwin, safety=0.80)
-    recommended_bid = _clamp(float(scenario_hard_bid), 0.0, remaining_budget)
-    net_profit = income_total - expenses_total - losses_total
+    net_profit = income_total - expenses_total - penalties_total - losses_total
+    reserve_margin = max(5.0, 0.10 * max(0.0, net_profit))
+    recommended_bid = max(0.0, net_profit - reserve_margin)
+    bid_ceiling = max(recommended_bid, net_profit)
     return {
         "label": label,
+        "revenue_total": float(income_total),
+        "cost_total": float(expenses_total),
+        "penalties_total": float(penalties_total),
+        "losses_total": float(losses_total),
+        "net_profit": float(net_profit),
+        "utility_score": float(utility_total),
+        "bid_ceiling": float(bid_ceiling),
+        "recommended_bid": float(recommended_bid),
+        "explanation": _scenario_comment(
+            utility_total=float(utility_total),
+            net_profit=float(net_profit),
+            recommended_bid=float(recommended_bid),
+        ),
+        # Backward-compatible aliases:
         "income_total": float(income_total),
         "expenses_total": float(expenses_total),
-        "losses_total": float(losses_total),
         "utility_total": float(utility_total),
-        "recommended_bid": float(recommended_bid),
         "expected_net_profit_at_current_price": float(net_profit),
         "comment": _scenario_comment(
             utility_total=float(utility_total),
@@ -180,33 +767,68 @@ def _scenario_row(
     }
 
 
-def _financial_breakdown(*, base_delta: Any, current_price: float, hard_bid: float) -> Dict[str, Any]:
+def _financial_breakdown(
+    *, base_delta: Any, current_price: float, hard_bid: float
+) -> Dict[str, Any]:
+    market_delta = float(getattr(base_delta, "delta_market_net", 0.0) or 0.0)
+    served_load_revenue = float(
+        getattr(base_delta, "delta_served_load_revenue", getattr(base_delta, "delta_income", 0.0))
+        or 0.0
+    )
+    export_revenue = float(
+        getattr(base_delta, "delta_export_revenue", max(0.0, -market_delta)) or 0.0
+    )
+    avoided_market_purchase_value = float(
+        getattr(base_delta, "delta_avoided_market_purchase_value", 0.0) or 0.0
+    )
+    storage_operating_cost = float(getattr(base_delta, "delta_storage_operating_cost", 0.0) or 0.0)
+    overload_penalties = float(getattr(base_delta, "delta_overload_penalties", 0.0) or 0.0)
+    deficit_penalties = float(getattr(base_delta, "delta_deficit_penalties", 0.0) or 0.0)
     income = {
-        "object_income": float(max(0.0, base_delta.delta_income)),
-        "market_income": float(max(0.0, base_delta.delta_market_net)),
-        "eco_value": float(max(0.0, base_delta.delta_eco_value)),
+        "object_income": float(max(0.0, served_load_revenue)),
+        "market_income": float(max(0.0, export_revenue)),
+        "eco_value": float(max(0.0, float(getattr(base_delta, "delta_eco_value", 0.0) or 0.0))),
+        "served_load_revenue": float(max(0.0, served_load_revenue)),
+        "export_revenue": float(max(0.0, export_revenue)),
+        "avoided_market_purchase_value": float(max(0.0, avoided_market_purchase_value)),
     }
-    income["total"] = float(sum(income.values()))
+    income["total"] = float(income["object_income"] + income["market_income"] + income["eco_value"])
 
     expenses = {
         "entry_price": float(current_price),
-        "contract_costs": float(max(0.0, base_delta.delta_contracts)),
-        "fuel_and_taxes": float(max(0.0, base_delta.delta_fuel_and_taxes)),
-        "market_purchase": float(max(0.0, -base_delta.delta_market_net)),
+        "contract_costs": float(
+            max(0.0, float(getattr(base_delta, "delta_contracts", 0.0) or 0.0))
+        ),
+        "fuel_and_taxes": float(
+            max(0.0, float(getattr(base_delta, "delta_fuel_and_taxes", 0.0) or 0.0))
+        ),
+        "storage_operating_cost": float(max(0.0, storage_operating_cost)),
+        "market_purchase": float(
+            max(
+                0.0,
+                float(getattr(base_delta, "delta_market_purchase_cost", market_delta) or 0.0),
+            )
+        ),
     }
     expenses["total"] = float(sum(expenses.values()))
 
-    losses_and_risks = {
-        "network_losses": float(max(0.0, base_delta.delta_network_losses_cost)),
-        "penalties": float(max(0.0, base_delta.delta_penalties)),
-        "risk_total": float(max(0.0, base_delta.delta_risk_penalty)),
-        "flags": list(base_delta.flags),
-    }
-    losses_and_risks["total"] = float(
-        losses_and_risks["network_losses"] + losses_and_risks["penalties"] + losses_and_risks["risk_total"]
+    network_losses_total = float(
+        max(0.0, float(getattr(base_delta, "delta_network_losses_cost", 0.0) or 0.0))
     )
+    penalties_total = float(max(0.0, float(getattr(base_delta, "delta_penalties", 0.0) or 0.0)))
+    risk_total = float(max(0.0, float(getattr(base_delta, "delta_risk_penalty", 0.0) or 0.0)))
+    total_losses_and_risks = float(network_losses_total + penalties_total + risk_total)
+    losses_and_risks = {
+        "network_losses": network_losses_total,
+        "penalties": penalties_total,
+        "overload_penalties": float(max(0.0, overload_penalties)),
+        "deficit_penalties": float(max(0.0, deficit_penalties)),
+        "risk_total": risk_total,
+        "flags": list(getattr(base_delta, "flags", [])),
+        "total": total_losses_and_risks,
+    }
 
-    net_profit = float(income["total"] - expenses["total"] - losses_and_risks["total"])
+    net_profit = float(income["total"] - expenses["total"] - total_losses_and_risks)
     roi = float(net_profit / current_price) if current_price > 0 else 0.0
     payback = float(current_price / net_profit) if net_profit > 0 else None
     result = {
@@ -216,11 +838,22 @@ def _financial_breakdown(*, base_delta: Any, current_price: float, hard_bid: flo
         "payback_ratio": payback,
         "threshold_bid": float(hard_bid),
     }
+    decomposition = {
+        "served_load_revenue": float(max(0.0, served_load_revenue)),
+        "avoided_market_purchase_value": float(max(0.0, avoided_market_purchase_value)),
+        "export_revenue": float(max(0.0, export_revenue)),
+        "fuel_and_taxes": expenses["fuel_and_taxes"],
+        "storage_operating_cost": expenses["storage_operating_cost"],
+        "network_loss_cost": losses_and_risks["network_losses"],
+        "overload_penalties": losses_and_risks["overload_penalties"],
+        "deficit_penalties": losses_and_risks["deficit_penalties"],
+    }
     return {
         "income": income,
         "expenses": expenses,
         "losses_and_risks": losses_and_risks,
         "result": result,
+        "decomposition": decomposition,
     }
 
 
@@ -236,6 +869,278 @@ def _latest_eval_state(session: GameSession, lot: Lot) -> Dict[str, Any]:
     return {"is_stale": bool(latest.is_stale), "stale_reason": latest.stale_reason or ""}
 
 
+def _simulate_portfolio_with_lots(
+    *,
+    session: GameSession,
+    lots: Sequence[Lot],
+    forecast: Optional[Forecast],
+    cfg: Dict[str, Any],
+) -> Tuple[
+    Dict[str, ScenarioSnapshot], List[int], Dict[str, Dict[int, float]], Dict[str, Dict[int, float]]
+]:
+    if forecast is not None:
+        factors, profiles, ticks = _period_series(list(forecast.periods))
+    else:
+        factors, profiles, ticks = _bundled_series()
+    assets = _collect_assets(session, lots)
+    snapshots = {
+        "base": _simulate_scenario(
+            assets=assets, factors=factors, profiles=profiles, ticks=ticks, cfg=cfg, scenario="base"
+        ),
+        "worst": _simulate_scenario(
+            assets=assets,
+            factors=factors,
+            profiles=profiles,
+            ticks=ticks,
+            cfg=cfg,
+            scenario="worst",
+        ),
+        "best": _simulate_scenario(
+            assets=assets, factors=factors, profiles=profiles, ticks=ticks, cfg=cfg, scenario="best"
+        ),
+    }
+    return snapshots, ticks, factors, profiles
+
+
+def _build_delta_pack(
+    base_state: Dict[str, ScenarioSnapshot], with_state: Dict[str, ScenarioSnapshot]
+) -> Dict[str, DeltaSnapshot]:
+    return {
+        "base": _to_delta(base_state["base"], with_state["base"]),
+        "worst": _to_delta(base_state["worst"], with_state["worst"]),
+        "best": _to_delta(base_state["best"], with_state["best"]),
+    }
+
+
+def evaluate_lot_bundle(
+    *,
+    session: GameSession,
+    lots: Sequence[Lot],
+    strategy: Optional[str] = None,
+    forecast: Optional[Forecast] = None,
+) -> Dict[str, Any]:
+    rules_cfg = dict(session.ruleset.config_json or {})
+    selected_strategy = strategy or session.selected_strategy
+    analysis_ctx = resolve_analysis_context(
+        session, forecast_id=forecast.id if forecast is not None else None
+    )
+    forecast = analysis_ctx["forecast"]
+    forecast_summary = dict(analysis_ctx["forecast_summary"])
+    compatibility = dict(forecast_summary.get("compatibility_report") or {})
+    if not bool(forecast_summary.get("is_compatible", True)):
+        raise ForecastCompatibilityError(compatibility)
+
+    base_state, ticks, _, _ = _simulate_portfolio_with_lots(
+        session=session, lots=[], forecast=forecast, cfg=rules_cfg
+    )
+    with_state, _, _, _ = _simulate_portfolio_with_lots(
+        session=session, lots=list(lots), forecast=forecast, cfg=rules_cfg
+    )
+    deltas = _build_delta_pack(base_state, with_state)
+
+    d_base = deltas["base"]
+    d_worst = deltas["worst"]
+    d_best = deltas["best"]
+
+    remaining_budget = _remaining_budget(session)
+    entry_price_total = float(sum(float(lot.current_bid or 0.0) for lot in lots))
+
+    pwin = float(((rules_cfg.get("auction", {}) or {}).get("pwin_default", 0.35)))
+    scenario_breakdown = {
+        "worst": _scenario_row(
+            label="Worst",
+            delta_obj=d_worst,
+            current_price=entry_price_total,
+            pwin=pwin,
+            remaining_budget=remaining_budget,
+        ),
+        "base": _scenario_row(
+            label="Base",
+            delta_obj=d_base,
+            current_price=entry_price_total,
+            pwin=pwin,
+            remaining_budget=remaining_budget,
+        ),
+        "best": _scenario_row(
+            label="Best",
+            delta_obj=d_best,
+            current_price=entry_price_total,
+            pwin=pwin,
+            remaining_budget=remaining_budget,
+        ),
+    }
+
+    net_profit_worst = float(scenario_breakdown["worst"]["net_profit"])
+    net_profit_base = float(scenario_breakdown["base"]["net_profit"])
+    net_profit_best = float(scenario_breakdown["best"]["net_profit"])
+    expected_net_profit = _weighted_expected(
+        rules_cfg,
+        base=net_profit_base,
+        worst=net_profit_worst,
+        best=net_profit_best,
+    )
+    evaluation_cfg = dict(rules_cfg.get("evaluation", {}) or {})
+    risk_lambda = float(evaluation_cfg.get("risk_lambda", 0.25))
+    volatility_lambda = float(evaluation_cfg.get("volatility_lambda", 0.15))
+    reserve_margin_abs = float(evaluation_cfg.get("reserve_margin_abs", 5.0))
+    reserve_margin_share = float(evaluation_cfg.get("reserve_margin_share", 0.10))
+    scenario_volatility = float(
+        pstdev([net_profit_worst, net_profit_base, net_profit_best])
+        if len({net_profit_worst, net_profit_base, net_profit_best}) > 1
+        else 0.0
+    )
+    risk_premium = float(
+        risk_lambda * max(0.0, net_profit_base - net_profit_worst)
+        + volatility_lambda * scenario_volatility
+    )
+    reserve_margin = float(
+        max(reserve_margin_abs, reserve_margin_share * max(0.0, expected_net_profit))
+    )
+    synergy_adjustment = 1.0
+    risk_adjusted_net_profit = float(expected_net_profit - risk_premium - reserve_margin)
+
+    cautious_bid = max(0.0, net_profit_worst - reserve_margin)
+    target_bid = max(cautious_bid, expected_net_profit - risk_premium - reserve_margin)
+    hard_ceiling_bid = max(target_bid, net_profit_base - reserve_margin)
+    if target_bid < cautious_bid:
+        target_bid = cautious_bid
+    if hard_ceiling_bid < target_bid:
+        hard_ceiling_bid = target_bid
+    budget_limited_bid = min(target_bid, remaining_budget)
+
+    weights = strategy_weights(rules_cfg, selected_strategy)
+    delta_profit = (
+        float(d_base.delta_income)
+        - float(d_base.delta_penalties)
+        - float(d_base.delta_contracts)
+        - float(d_base.delta_market_net)
+        - float(d_base.delta_fuel_and_taxes)
+        - float(d_base.delta_storage_operating_cost)
+        - float(d_base.delta_network_losses_cost)
+    )
+    delta_balance = float(-d_base.delta_penalties)
+    delta_network_stability = float(-d_base.delta_risk_penalty - d_base.delta_network_losses_cost)
+    delta_storage_flex = float(
+        d_base.role_breakdown.get("storage", 0.0) + d_base.role_breakdown.get("infrastructure", 0.0)
+    )
+    delta_green = float(d_base.delta_eco_points)
+    delta_risk = float(max(0.0, d_base.delta_total - d_worst.delta_total))
+    score = (
+        float(weights["w1_economy"]) * delta_profit
+        + float(weights["w2_balance"]) * delta_balance
+        + float(weights["w3_stability"]) * delta_network_stability
+        + float(weights["w4_green"]) * delta_green
+        + float(weights["w5_flex"]) * delta_storage_flex
+        - float(weights["w6_risk"]) * delta_risk
+    )
+
+    confidence = _clamp(
+        1.0 - min(0.6, abs(d_best.delta_total - d_worst.delta_total) / 1200.0), 0.0, 1.0
+    )
+    financial_breakdown = _financial_breakdown(
+        base_delta=d_base,
+        current_price=entry_price_total,
+        hard_bid=hard_ceiling_bid,
+    )
+    reasons = _human_reasons(d_base, top_k=5)
+    risk_commentary = (
+        "Риск контролируемый: прогноз совместим, запас по худшему сценарию положительный."
+        if delta_risk < 20
+        else "Риск повышен: чувствительность к сценариям требует более осторожной ставки."
+    )
+    strategy_fit_text = (
+        f"{strategy_label(selected_strategy)}: приоритет риск-скорректированной прибыли соблюдается."
+        if target_bid > 0
+        else f"{strategy_label(selected_strategy)}: лот не поддерживает рабочую ставку в текущих условиях."
+    )
+
+    metrics = {
+        "delta_score": float(d_base.delta_total),
+        "delta_profit": float(delta_profit),
+        "delta_balance": float(delta_balance),
+        "delta_green_score": float(delta_green),
+        "delta_storage_flexibility": float(delta_storage_flex),
+        "delta_network_stability": float(delta_network_stability),
+        "delta_risk": float(delta_risk),
+        "weighted_expected": float(expected_net_profit),
+        "weights": weights,
+        "scenario_delta": {
+            "base": asdict(d_base),
+            "worst": asdict(d_worst),
+            "best": asdict(d_best),
+        },
+        "scenarios": dict(scenario_breakdown),
+        "decomposition": dict(financial_breakdown.get("decomposition") or {}),
+        "bids": {
+            "cautious_bid": float(cautious_bid),
+            "target_bid": float(target_bid),
+            "hard_ceiling_bid": float(hard_ceiling_bid),
+            "budget_limited_bid": float(budget_limited_bid),
+            "budget_remaining": float(remaining_budget),
+            "expected_net_profit": float(expected_net_profit),
+            "risk_premium": float(risk_premium),
+            "reserve_margin": float(reserve_margin),
+            "synergy_adjustment": float(synergy_adjustment),
+            "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
+            "valuation_basis": "fair_value",
+        },
+        "portfolio_delta": {
+            "net_profit_base": float(net_profit_base),
+            "net_profit_worst": float(net_profit_worst),
+            "net_profit_best": float(net_profit_best),
+            "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
+            "utility_base": float(d_base.delta_total),
+            "horizon_ticks": int(len(ticks)),
+        },
+        "forecast_compatibility": compatibility,
+        "role_breakdown": dict(d_base.role_breakdown),
+        "synergy": {"score": 0.0},
+    }
+
+    decision_summary = {
+        "cautious_bid": float(cautious_bid),
+        "target_bid": float(target_bid),
+        "hard_ceiling_bid": float(hard_ceiling_bid),
+        "budget_limited_bid": float(budget_limited_bid),
+        "budget_remaining": float(remaining_budget),
+        # Backward aliases
+        "soft_bid": float(cautious_bid),
+        "hard_bid": float(target_bid),
+        "stop_bid": float(hard_ceiling_bid),
+    }
+
+    return {
+        "summary_score": float(score),
+        "scenario_breakdown": scenario_breakdown,
+        "financial_breakdown": financial_breakdown,
+        "decision_summary": decision_summary,
+        "reasons": reasons,
+        "explanation": " ".join(reasons) if reasons else "Нет подробного объяснения.",
+        "risk_commentary": risk_commentary,
+        "strategy_fit_text": strategy_fit_text,
+        "confidence": float(confidence),
+        "metrics": metrics,
+        "forecast_context": dict(analysis_ctx["forecast_context"]),
+        "forecast_summary": forecast_summary,
+        "analysis_context": {
+            "mode": "forecast",
+            "mode_label": "С прогнозом",
+            "source": analysis_ctx["forecast_context"]["source"],
+            "source_label": analysis_ctx["forecast_context"]["source_label"],
+            "forecast_id": analysis_ctx["forecast_context"]["forecast_id"],
+            "forecast_name": analysis_ctx["forecast_context"]["forecast_name"],
+        },
+        "forecast_compatibility": compatibility,
+        "portfolio_context": _portfolio_context(session),
+        "recommended_bid_soft": float(cautious_bid),
+        "recommended_bid_hard": float(target_bid),
+        "cautious_bid": float(cautious_bid),
+        "target_bid": float(target_bid),
+        "hard_ceiling_bid": float(hard_ceiling_bid),
+        "budget_limited_bid": float(budget_limited_bid),
+    }
+
+
 def evaluate_lot(
     *,
     session: GameSession,
@@ -245,193 +1150,19 @@ def evaluate_lot(
     mode: Optional[str] = None,
     persist: bool = True,
 ) -> Dict[str, Any]:
-    rules_cfg = dict(session.ruleset.config_json or {})
-    selected_strategy = strategy or session.selected_strategy
-    weights = strategy_weights(rules_cfg, selected_strategy)
-    analysis_ctx = resolve_analysis_context(session, forecast_id=forecast.id if forecast is not None else None)
-    forecast = analysis_ctx["forecast"]
-
-    state, owned_items = session_to_state(session, rules_cfg)
-    lot_model = lot_to_domain_lot(lot)
-
-    if forecast is not None:
-        forecasts = build_forecast_pack(forecast)
-    else:
-        forecasts = load_bundled_forecast_pack()
-
-    d_base, d_worst, d_best = marginal_value(state, owned_items, lot_model, forecasts, rules_cfg)
-
-    weighted_expected = _weighted_expected(
-        rules_cfg,
-        base=float(d_base.delta_total),
-        worst=float(d_worst.delta_total),
-        best=float(d_best.delta_total),
-    )
-    delta_profit = (
-        float(d_base.delta_income)
-        - float(d_base.delta_penalties)
-        - float(d_base.delta_contracts)
-        - float(d_base.delta_market_net)
-        - float(d_base.delta_fuel_and_taxes)
-        - float(d_base.delta_network_losses_cost)
-    )
-
-    delta_balance = float(-d_base.delta_penalties)
-    delta_network_stability = float(-d_base.delta_risk_penalty - d_base.delta_network_losses_cost)
-    delta_storage_flex = _lot_component_flexibility(lot)
-    delta_green = float(d_base.delta_eco_points) + _lot_component_green(lot)
-    delta_risk = float(max(0.0, d_base.delta_total - d_worst.delta_total))
-    delta_wear = float(max(0.0, d_base.delta_risk_penalty))
-    violations = float(sum(1.0 for flag in d_base.flags if flag.startswith("NETPLAN:")))
-
-    score = (
-        float(weights["w1_economy"]) * delta_profit
-        + float(weights["w2_balance"]) * delta_balance
-        + float(weights["w3_stability"]) * delta_network_stability
-        + float(weights["w4_green"]) * delta_green
-        + float(weights["w5_flex"]) * delta_storage_flex
-        - float(weights["w6_risk"]) * delta_risk
-        - float(weights["w7_wear"]) * delta_wear
-        - float(weights["w8_violations"]) * violations
-    )
-
-    auction_cfg = rules_cfg.get("auction", {}) or {}
-    pwin = float(auction_cfg.get("pwin_default", state.assumptions.pwin_default))
-    risk_lambda = float(((rules_cfg.get("evaluation", {}) or {}).get("risk_lambda", 0.25)))
-    remaining_budget = _remaining_budget(session)
-
-    intrinsic_value = max(0.0, float(d_base.delta_total))
-    strategic_value = max(0.0, float(weighted_expected))
-    violation_penalty = 15.0 * sum(1.0 for _ in d_base.flags)
-    risk_discount = max(0.0, float(d_base.delta_total - d_worst.delta_total)) * risk_lambda
-    risk_discount += violation_penalty
-
-    risk_adjusted_value = max(0.0, float(weighted_expected) - float(risk_discount))
-    soft_bid_raw, hard_bid_raw = recommended_bid_range(risk_adjusted_value, pwin, safety=0.80)
-    hard_bid = _clamp(hard_bid_raw, 0.0, remaining_budget)
-    soft_bid = _clamp(soft_bid_raw, 0.0, hard_bid)
-
-    spread = abs(float(d_best.delta_total - d_base.delta_total)) + abs(float(d_base.delta_total - d_worst.delta_total))
-    confidence = 1.0 - min(0.5, spread / 800.0) - min(0.2, 0.03 * len(d_base.flags))
-
-    network_issues = validate_session_network(list(session.objects))
-    if any(issue.severity == "error" for issue in network_issues):
-        confidence -= 0.2
-    confidence = _clamp(confidence, 0.0, 1.0)
-
-    risk_commentary = _risk_commentary(
-        delta_risk=float(delta_risk),
-        flags=list(d_base.flags),
-        confidence=float(confidence),
-    )
-    strategy_fit_text = _strategy_fit_text(
-        strategy=selected_strategy,
-        score=float(score),
-        hard_bid=float(hard_bid),
-        delta_total=float(d_base.delta_total),
-        weighted_expected=float(weighted_expected),
-    )
-    current_price = float(lot.purchase_price if lot.status == "bought" and lot.purchase_price is not None else lot.current_bid or 0.0)
-    scenario_breakdown = {
-        "worst": _scenario_row(
-            label="Worst",
-            delta_obj=d_worst,
-            current_price=current_price,
-            pwin=pwin,
-            remaining_budget=remaining_budget,
-        ),
-        "base": _scenario_row(
-            label="Base",
-            delta_obj=d_base,
-            current_price=current_price,
-            pwin=pwin,
-            remaining_budget=remaining_budget,
-        ),
-        "best": _scenario_row(
-            label="Best",
-            delta_obj=d_best,
-            current_price=current_price,
-            pwin=pwin,
-            remaining_budget=remaining_budget,
-        ),
-    }
-    stop_bid = _clamp(pwin * risk_adjusted_value, 0.0, remaining_budget)
-    decision_summary = {
-        "soft_bid": float(soft_bid),
-        "hard_bid": float(hard_bid),
-        "stop_bid": float(stop_bid),
-    }
-    financial_breakdown = _financial_breakdown(
-        base_delta=d_base,
-        current_price=current_price,
-        hard_bid=hard_bid,
-    )
-    forecast_context = dict(analysis_ctx["forecast_context"])
-    analysis_context = {
-        "mode": "forecast",
-        "mode_label": "С прогнозом",
-        "source": forecast_context["source"],
-        "source_label": forecast_context["source_label"],
-        "forecast_id": forecast_context["forecast_id"],
-        "forecast_name": forecast_context["forecast_name"],
-    }
-    portfolio_context = _portfolio_context(session)
+    payload = evaluate_lot_bundle(session=session, lots=[lot], strategy=strategy, forecast=forecast)
     stale_state = _latest_eval_state(session, lot)
-    reasons = _human_reasons(d_base, top_k=5)
-
-    metrics = {
-        "score": float(score),
-        "delta_score": float(d_base.delta_total),
-        "delta_profit": float(delta_profit),
-        "delta_balance": float(delta_balance),
-        "delta_green_score": float(delta_green),
-        "delta_storage_flexibility": float(delta_storage_flex),
-        "delta_network_stability": float(delta_network_stability),
-        "delta_risk": float(delta_risk),
-        "intrinsic_value": float(intrinsic_value),
-        "strategic_value": float(strategic_value),
-        "risk_adjusted_value": float(risk_adjusted_value),
-        "risk_discount": float(risk_discount),
-        "recommended_bid_soft": float(soft_bid),
-        "recommended_bid_hard": float(hard_bid),
-        "confidence": float(confidence),
-        "weights": weights,
-        "weighted_expected": float(weighted_expected),
-        "flags": list(d_base.flags),
-        "network_issues": [x.to_dict() for x in network_issues],
-        "scenario_delta": {
-            "base": _to_dict(d_base),
-            "worst": _to_dict(d_worst),
-            "best": _to_dict(d_best),
-        },
-    }
-
-    payload = {
-        "session_id": session.id,
-        "lot_id": lot.id,
-        "summary_score": float(score),
-        "metrics": metrics,
-        "recommended_bid_soft": float(soft_bid),
-        "recommended_bid_hard": float(hard_bid),
-        "confidence": float(confidence),
-        "risk_commentary": risk_commentary,
-        "strategy_fit_text": strategy_fit_text,
-        "analysis_context": analysis_context,
-        "forecast_context": forecast_context,
-        "forecast_summary": analysis_ctx["forecast_summary"],
-        "portfolio_context": portfolio_context,
-        "scenario_breakdown": scenario_breakdown,
-        "financial_breakdown": financial_breakdown,
-        "decision_summary": decision_summary,
-        "reasons": reasons,
-        "explanation": " ".join(reasons) if reasons else "Нет подробного объяснения.",
-        "score_definition": (
-            "Итоговая полезность: экономика + баланс + устойчивость + экологичность + гибкость "
-            "минус риск, износ и нарушения."
-        ),
-        "is_stale": bool(stale_state["is_stale"]),
-        "stale_reason": stale_state["stale_reason"],
-    }
+    payload.update(
+        {
+            "session_id": session.id,
+            "lot_id": lot.id,
+            "is_stale": bool(stale_state["is_stale"]),
+            "stale_reason": stale_state["stale_reason"],
+            "score_definition": (
+                "Итоговая полезность: риск-скорректированная прибыль, стабильность, гибкость и совместимость прогноза."
+            ),
+        }
+    )
 
     if persist:
         row = EvaluationResult(
@@ -439,24 +1170,24 @@ def evaluate_lot(
             lot_id=lot.id,
             mode="forecast",
             scenario="base",
-            summary_score=float(score),
+            summary_score=float(payload["summary_score"]),
             metrics_json={
-                **metrics,
-                "analysis_context": analysis_context,
-                "forecast_context": forecast_context,
-                "forecast_summary": analysis_ctx["forecast_summary"],
-                "portfolio_context": portfolio_context,
-                "scenario_breakdown": scenario_breakdown,
-                "financial_breakdown": financial_breakdown,
-                "decision_summary": decision_summary,
-                "reasons": reasons,
-                "risk_commentary": risk_commentary,
-                "strategy_fit_text": strategy_fit_text,
+                **payload["metrics"],
+                "analysis_context": payload["analysis_context"],
+                "forecast_context": payload["forecast_context"],
+                "forecast_summary": payload["forecast_summary"],
+                "portfolio_context": payload["portfolio_context"],
+                "scenario_breakdown": payload["scenario_breakdown"],
+                "financial_breakdown": payload["financial_breakdown"],
+                "decision_summary": payload["decision_summary"],
+                "reasons": payload["reasons"],
+                "risk_commentary": payload["risk_commentary"],
+                "strategy_fit_text": payload["strategy_fit_text"],
             },
             explanation=payload["explanation"],
-            recommended_bid_soft=float(soft_bid),
-            recommended_bid_hard=float(hard_bid),
-            confidence=float(confidence),
+            recommended_bid_soft=float(payload["recommended_bid_soft"]),
+            recommended_bid_hard=float(payload["recommended_bid_hard"]),
+            confidence=float(payload["confidence"]),
             is_stale=False,
             stale_reason="",
             stale_marked_at=None,
@@ -466,7 +1197,6 @@ def evaluate_lot(
         payload["evaluation_id"] = row.id
         payload["is_stale"] = False
         payload["stale_reason"] = ""
-
     return payload
 
 
@@ -491,8 +1221,13 @@ def rank_lots(
         )
     results.sort(
         key=lambda item: (
+            float(
+                ((item.get("metrics") or {}).get("portfolio_delta") or {}).get(
+                    "risk_adjusted_net_profit",
+                    0.0,
+                )
+            ),
             float(item.get("summary_score", 0.0)),
-            float((item.get("financial_breakdown") or {}).get("result", {}).get("net_profit", 0.0)),
         ),
         reverse=True,
     )
@@ -508,32 +1243,30 @@ def recommend_best_lot(
 ) -> Dict[str, Any]:
     available_lots = [lot for lot in lots if str(lot.status or "") == "available"]
     ranked = rank_lots(
-        session=session,
-        lots=available_lots,
-        strategy=strategy,
-        forecast=forecast,
-        persist=False,
+        session=session, lots=available_lots, strategy=strategy, forecast=forecast, persist=False
     )
     if not ranked:
+        analysis_ctx = resolve_analysis_context(
+            session, forecast_id=forecast.id if forecast else None
+        )
         return {
             "best": None,
             "alternatives": [],
             "text": "Нет доступных лотов для рекомендации.",
-            "forecast_context": resolve_analysis_context(session, forecast_id=forecast.id if forecast else None)["forecast_context"],
+            "forecast_context": analysis_ctx["forecast_context"],
             "portfolio_context": _portfolio_context(session),
         }
-
     best = ranked[0]
     alternatives = ranked[1:4]
     strategy_name = strategy_label(strategy or session.selected_strategy)
     text = (
-        f"Лучший доступный лот для стратегии «{strategy_name}»: итоговая полезность {best['summary_score']:.1f}, "
-        f"рабочий максимум ставки {best['decision_summary']['hard_bid']:.1f}."
+        f"Лучший доступный лот для стратегии «{strategy_name}»: "
+        f"полезность {best['summary_score']:.1f}, рабочая ставка {best['decision_summary']['target_bid']:.1f}."
     )
     return {
         "best": best,
         "alternatives": alternatives,
-        "recommended_bid": best["decision_summary"]["hard_bid"],
+        "recommended_bid": best["decision_summary"]["target_bid"],
         "decision_summary": best["decision_summary"],
         "strategy": strategy or session.selected_strategy,
         "text": text,
@@ -560,11 +1293,7 @@ def strategy_fit(
     rows: List[Dict[str, Any]] = []
     for strategy in strategies:
         out = evaluate_lot(
-            session=session,
-            lot=lot,
-            strategy=strategy,
-            forecast=forecast,
-            persist=False,
+            session=session, lot=lot, strategy=strategy, forecast=forecast, persist=False
         )
         rows.append(
             {
@@ -577,12 +1306,26 @@ def strategy_fit(
                 "portfolio_context": out["portfolio_context"],
             }
         )
-
     rows.sort(key=lambda item: float(item["summary_score"]), reverse=True)
+    analysis_ctx = resolve_analysis_context(session, forecast_id=forecast.id if forecast else None)
     return {
         "lot_id": lot.id,
         "rows": rows,
         "best_strategy": rows[0]["strategy"] if rows else None,
-        "forecast_context": rows[0]["forecast_context"] if rows else resolve_analysis_context(session)["forecast_context"],
+        "forecast_context": (
+            rows[0]["forecast_context"] if rows else analysis_ctx["forecast_context"]
+        ),
         "portfolio_context": rows[0]["portfolio_context"] if rows else _portfolio_context(session),
     }
+
+
+__all__ = [
+    "ForecastCompatibilityError",
+    "_financial_breakdown",
+    "_scenario_row",
+    "evaluate_lot",
+    "evaluate_lot_bundle",
+    "rank_lots",
+    "recommend_best_lot",
+    "strategy_fit",
+]

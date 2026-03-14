@@ -51,6 +51,11 @@ def _prepare_object_type_form(form: ObjectTypeForm, row=None) -> None:
     if request.method == "GET":
         form.category.data = (row.category if row is not None else form.category.data) or "consumer"
         form.subtype.data = (row.subtype if row is not None else form.subtype.data) or ""
+        form.economic_role.data = (
+            row.economic_role
+            if row is not None and getattr(row, "economic_role", None)
+            else (form.economic_role.data or "auto")
+        )
     current_subtype = (form.subtype.data or (row.subtype if row is not None else "") or "").strip()
     choices = list(OBJECT_TYPE_SUBTYPE_CHOICES)
     if current_subtype and current_subtype not in {value for value, _ in choices}:
@@ -58,8 +63,21 @@ def _prepare_object_type_form(form: ObjectTypeForm, row=None) -> None:
     form.subtype.choices = choices
 
 
+def _csv_list(raw: str | None) -> list[str]:
+    text = str(raw or "")
+    out: list[str] = []
+    for chunk in text.split(","):
+        value = chunk.strip()
+        if not value:
+            continue
+        out.append(value)
+    return out
+
+
 def _object_type_editor_state(form: ObjectTypeForm, row=None):
-    category = (form.category.data or (row.category if row is not None else "consumer") or "consumer").strip()
+    category = (
+        form.category.data or (row.category if row is not None else "consumer") or "consumer"
+    ).strip()
     subtype = (form.subtype.data or (row.subtype if row is not None else "") or "").strip()
     defaults = dict(row.default_parameters_json or {}) if row is not None else {}
     rules = dict(row.rules_json or {}) if row is not None else {}
@@ -249,7 +267,8 @@ def settings_ruleset_edit_page(ruleset_id: int):
                         base_config=row.config_json or {},
                         base_model_settings=row.model_settings_json or {},
                     ),
-                    "active_start_pack_template_id": form.active_start_pack_template_id.data or None,
+                    "active_start_pack_template_id": form.active_start_pack_template_id.data
+                    or None,
                     "is_active": bool(form.is_active.data),
                 },
             )
@@ -273,7 +292,9 @@ def settings_ruleset_edit_page(ruleset_id: int):
         mode="edit",
         ruleset=row,
         ruleset_sections=ruleset_sections(),
-        ruleset_values=_ruleset_values_for_page(row.config_json or {}, row.model_settings_json or {}),
+        ruleset_values=_ruleset_values_for_page(
+            row.config_json or {}, row.model_settings_json or {}
+        ),
         strategy_matrix=strategy_profile_matrix(),
         admin_links=admin_links(),
         **ctx,
@@ -530,6 +551,12 @@ def settings_object_type_new_page():
                     "name": form.name.data,
                     "category": form.category.data,
                     "subtype": form.subtype.data,
+                    "forecast_profile_key": (form.forecast_profile_key.data or "").strip(),
+                    "resource_dependencies": _csv_list(form.resource_dependencies.data),
+                    "forecast_model_type": (
+                        form.forecast_model_type.data or "direct_profile"
+                    ).strip(),
+                    "economic_role": form.economic_role.data or "auto",
                     "description": form.description.data,
                     **payload,
                     "is_active": bool(form.is_active.data),
@@ -576,6 +603,10 @@ def settings_object_type_edit_page(object_type_id: int):
         form.name.data = row.name
         form.category.data = row.category
         form.subtype.data = row.subtype
+        form.forecast_profile_key.data = row.forecast_profile_key or ""
+        form.resource_dependencies.data = ", ".join(list(row.resource_dependencies_json or []))
+        form.forecast_model_type.data = row.forecast_model_type or "direct_profile"
+        form.economic_role.data = row.economic_role or "auto"
         form.description.data = row.description
         form.is_active.data = bool(row.is_active)
         _prepare_object_type_form(form, row=row)
@@ -595,6 +626,12 @@ def settings_object_type_edit_page(object_type_id: int):
                     "name": form.name.data,
                     "category": form.category.data,
                     "subtype": form.subtype.data,
+                    "forecast_profile_key": (form.forecast_profile_key.data or "").strip(),
+                    "resource_dependencies": _csv_list(form.resource_dependencies.data),
+                    "forecast_model_type": (
+                        form.forecast_model_type.data or "direct_profile"
+                    ).strip(),
+                    "economic_role": form.economic_role.data or "auto",
                     "description": form.description.data,
                     **payload,
                     "is_active": bool(form.is_active.data),

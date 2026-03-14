@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from flask import Response, jsonify, request
+from flask import Response, current_app, jsonify, request
 from flask_login import current_user, login_required
 from werkzeug.exceptions import HTTPException
 
@@ -26,12 +26,17 @@ from ...application.recommendations import recommend_for_session, strategy_fit_f
 from ...application.sessions import create_session_record
 from ..extensions import db
 from ..models import Forecast, GameSession, Lot, ObjectType
+from ..services.analysis_context import resolve_analysis_context
+from ..services.evaluation import ForecastCompatibilityError
+from ..services.forecast_service import session_forecast_compatibility
 from ..services.session_io import (
     export_evaluations_csv,
     export_session_payload,
     import_session_payload,
 )
 from ..services.stale import mark_stale_for_session
+from ..services.strategy import build_strategy_snapshot
+from ..services.test_game_preset import TEST_GAME_UPLOAD_FORECAST_DEFAULT_NAME
 from .api_support import (
     ApiError,
     api_error_response,
@@ -73,6 +78,41 @@ def _http_error(exc: HTTPException):
             }
         ),
         exc.code or 500,
+    )
+
+
+@api_bp.errorhandler(ForecastCompatibilityError)
+def _forecast_compatibility_error(exc: ForecastCompatibilityError):
+    return (
+        jsonify(
+            {
+                "ok": False,
+                "error": {
+                    "code": "forecast_incompatible",
+                    "message": str(exc),
+                    "details": {"compatibility_report": dict(exc.report)},
+                },
+            }
+        ),
+        409,
+    )
+
+
+@api_bp.errorhandler(Exception)
+def _unexpected_error(exc: Exception):
+    current_app.logger.exception("Unhandled API exception: %s", exc)
+    return (
+        jsonify(
+            {
+                "ok": False,
+                "error": {
+                    "code": "internal_error",
+                    "message": "Внутренняя ошибка API",
+                    "details": {},
+                },
+            }
+        ),
+        500,
     )
 
 
@@ -354,7 +394,13 @@ def lots_analytics(session_id: int):
             for it in lot.items[:4]
         )
         composition = "all"
-        categories = sorted({(it.object_type.category if it.object_type else "") for it in lot.items if it.object_type})
+        categories = sorted(
+            {
+                (it.object_type.category if it.object_type else "")
+                for it in lot.items
+                if it.object_type
+            }
+        )
         if "consumer" in categories and "generator" in categories:
             composition = "mixed"
         elif "generator" in categories:
@@ -371,9 +417,33 @@ def lots_analytics(session_id: int):
                 "status": lot.status,
                 "structure": structure or "Пустой лот",
                 "composition": composition,
-                "price": float(lot.purchase_price if lot.status == "bought" and lot.purchase_price is not None else lot.current_bid or 0.0),
-                "risk": float((item.get("financial_breakdown") or {}).get("losses_and_risks", {}).get("risk_total", 0.0) or 0.0),
-                "net_profit": float((item.get("financial_breakdown") or {}).get("result", {}).get("net_profit", 0.0) or 0.0),
+                "price": float(
+                    lot.purchase_price
+                    if lot.status == "bought" and lot.purchase_price is not None
+                    else lot.current_bid or 0.0
+                ),
+                "risk": float(
+                    (item.get("financial_breakdown") or {})
+                    .get("losses_and_risks", {})
+                    .get("risk_total", 0.0)
+                    or 0.0
+                ),
+                "net_profit": float(
+                    (item.get("financial_breakdown") or {}).get("result", {}).get("net_profit", 0.0)
+                    or 0.0
+                ),
+                "cautious_bid": float(
+                    (item.get("decision_summary") or {}).get("cautious_bid", 0.0) or 0.0
+                ),
+                "target_bid": float(
+                    (item.get("decision_summary") or {}).get("target_bid", 0.0) or 0.0
+                ),
+                "hard_ceiling_bid": float(
+                    (item.get("decision_summary") or {}).get("hard_ceiling_bid", 0.0) or 0.0
+                ),
+                "budget_limited_bid": float(
+                    (item.get("decision_summary") or {}).get("budget_limited_bid", 0.0) or 0.0
+                ),
             }
         )
 
@@ -397,7 +467,14 @@ def lots_analytics(session_id: int):
     elif sort_key == "risk_asc":
         enriched.sort(key=lambda row: row["risk"])
     elif sort_key == "bid_desc":
-        enriched.sort(key=lambda row: float((row.get("decision_summary") or {}).get("hard_bid", 0.0)), reverse=True)
+        enriched.sort(
+            key=lambda row: float(
+                row.get("target_bid")
+                or (row.get("decision_summary") or {}).get("target_bid", 0.0)
+                or (row.get("decision_summary") or {}).get("hard_bid", 0.0)
+            ),
+            reverse=True,
+        )
     elif sort_key == "price_asc":
         enriched.sort(key=lambda row: row["price"])
     elif sort_key == "price_desc":
@@ -416,6 +493,41 @@ def recalculate_session_lots(session_id: int):
     return jsonify({"ok": True, "items": rows, "meta": {"count": len(rows)}})
 
 
+@api_bp.get("/sessions/<int:session_id>/strategy")
+@login_required
+def strategy_snapshot(session_id: int):
+    session = get_session_or_404(session_id)
+    strategy = (request.args.get("strategy") or "").strip() or None
+    top_n = max(1, min(20, int(request.args.get("top_n", 5) or 5)))
+    beam_width = max(2, min(20, int(request.args.get("beam_width", 7) or 7)))
+    max_group_size = max(3, min(7, int(request.args.get("max_group_size", 5) or 5)))
+    forecast_id_raw = request.args.get("forecast_id", type=int)
+    analysis_ctx = resolve_analysis_context(
+        session, forecast_id=forecast_id_raw if forecast_id_raw else None
+    )
+    out = build_strategy_snapshot(
+        session=session,
+        strategy=strategy,
+        forecast=analysis_ctx["forecast"],
+        top_n=top_n,
+        beam_width=beam_width,
+        max_group_size=max_group_size,
+    )
+    return jsonify({"ok": True, "item": out})
+
+
+@api_bp.get("/sessions/<int:session_id>/forecast-compatibility")
+@login_required
+def session_forecast_compatibility_endpoint(session_id: int):
+    session = get_session_or_404(session_id)
+    forecast_id_raw = request.args.get("forecast_id", type=int)
+    analysis_ctx = resolve_analysis_context(
+        session, forecast_id=forecast_id_raw if forecast_id_raw else None
+    )
+    out = session_forecast_compatibility(session=session, forecast=analysis_ctx["forecast"])
+    return jsonify({"ok": True, "item": out})
+
+
 @api_bp.post("/forecast/upload")
 @login_required
 def upload_forecast():
@@ -423,7 +535,8 @@ def upload_forecast():
     if not session_id:
         raise ValueError("session_id обязателен")
     session = get_session_or_404(session_id)
-    name = (request.form.get("name") or "Forecast").strip() or "Forecast"
+    name = (request.form.get("name") or TEST_GAME_UPLOAD_FORECAST_DEFAULT_NAME).strip()
+    name = name or TEST_GAME_UPLOAD_FORECAST_DEFAULT_NAME
 
     file = request.files.get("file")
     if file is None:

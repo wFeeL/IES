@@ -18,6 +18,14 @@
           <label class="label">{{ form.category.label }} {{ form.category(class_='input', id='objectTypeCategory') }}</label>
           <label class="label">{{ form.subtype.label }} {{ form.subtype(class_='input', id='objectTypeSubtype') }}</label>
         </div>
+        <div class="grid cols-2 gap-4 mt-3">
+          <label class="label">{{ form.forecast_profile_key.label }} {{ form.forecast_profile_key(class_='input') }}</label>
+          <label class="label">{{ form.resource_dependencies.label }} {{ form.resource_dependencies(class_='input') }}</label>
+        </div>
+        <div class="grid cols-2 gap-4 mt-3">
+          <label class="label">{{ form.forecast_model_type.label }} {{ form.forecast_model_type(class_='input') }}</label>
+          <label class="label">{{ form.economic_role.label }} {{ form.economic_role(class_='input') }}</label>
+        </div>
         <label class="label mt-3">{{ form.description.label }} {{ form.description(class_='input h-48') }}</label>
         <label class="inline mt-3">{{ form.is_active() }} <span>{{ form.is_active.label.text }}</span></label>
       </section>

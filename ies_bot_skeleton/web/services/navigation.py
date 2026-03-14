@@ -5,7 +5,6 @@ from urllib.parse import urljoin, urlparse
 
 from flask import Request, request, url_for
 
-
 BreadcrumbItem = Dict[str, Any]
 
 

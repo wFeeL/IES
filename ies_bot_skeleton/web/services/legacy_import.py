@@ -5,25 +5,12 @@ from pathlib import Path
 from typing import Any, Dict
 
 from ..extensions import db
-from ..models import GameSession, Lot, LotItem, ObjectInstance, ObjectType
+from ..models import GameSession, ObjectInstance, ObjectType
+from .test_game_preset import LOT_KIND_TO_OBJECT_CODE, add_lot_payloads_to_session, load_lot_payloads_from_dir
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_STATE_PATH = ROOT / "resources" / "legacy_import" / "state.json"
 DEFAULT_LOTS_DIR = ROOT / "resources" / "legacy_import" / "lots"
-
-KIND_TO_OBJECT_CODE = {
-    "main": "main_substation",
-    "minia": "mini_substation_a",
-    "minib": "mini_substation_b",
-    "housea": "house",
-    "houseb": "house",
-    "office": "office",
-    "factory": "factory",
-    "wind": "wind",
-    "solarrobot": "cyber_solar",
-    "tps": "tps",
-    "storage": "storage",
-}
 
 
 def _norm(value: str) -> str:
@@ -68,7 +55,7 @@ def import_legacy_data(
     state_data = _read_json(state_path)
     for idx, row in enumerate(state_data.get("owned_objects_override", []) or [], start=1):
         kind = _norm(str(row.get("kind", "")))
-        code = KIND_TO_OBJECT_CODE.get(kind)
+        code = LOT_KIND_TO_OBJECT_CODE.get(kind)
         if not code or code not in type_map:
             report["skipped"].append(f"state.owned_objects_override[{idx}] kind={kind}: unknown")
             continue
@@ -103,60 +90,14 @@ def import_legacy_data(
             db.session.add(obj)
             report["objects_created"] += 1
 
-    for lot_path in sorted(lots_dir.glob("*.json")):
-        payload = _read_json(lot_path)
-        lot_name = str(payload.get("title") or payload.get("lot_id") or lot_path.stem)
-        if (
-            db.session.query(Lot).filter_by(session_id=session.id, name=lot_name).first()
-            is not None
-        ):
-            report["skipped"].append(f"lot {lot_name}: already exists")
-            continue
-
-        lot = Lot(
-            session_id=session.id,
-            name=lot_name,
-            scope="normal",
-            status="available",
-            base_bid=float(payload.get("suggested_bid", 0.0) or 0.0),
-            current_bid=float(payload.get("suggested_bid", 0.0) or 0.0),
-            note=str(payload.get("note", "")),
-            available_round=1,
-        )
-        db.session.add(lot)
-        db.session.flush()
-        report["lots_created"] += 1
-
-        for idx, item in enumerate(payload.get("items", []) or [], start=1):
-            kind = _norm(str(item.get("kind", item.get("type", ""))))
-            code = KIND_TO_OBJECT_CODE.get(kind)
-            if not code or code not in type_map:
-                report["skipped"].append(f"lot {lot_name} item {idx}: unknown kind={kind}")
-                continue
-            quantity = max(1, int(item.get("qty", 1) or 1))
-            meta = dict(item.get("meta", {}) or {})
-            connection_point = (
-                meta.get("connection_point")
-                or meta.get("point")
-                or meta.get("cell")
-                or meta.get("slot")
-            )
-            overrides = {
-                "contract_rub_per_tick": float(item.get("contract_rub_per_tick", 0.0) or 0.0),
-                "tariff_rub_per_mw_tick": float(item.get("tariff_rub_per_mw_tick", 0.0) or 0.0),
-                "legacy_id": str(item.get("id", "")),
-                "legacy_kind": str(item.get("kind", item.get("type", ""))),
-            }
-            if connection_point:
-                overrides["connection_point"] = str(connection_point).strip().upper()
-            lot_item = LotItem(
-                lot_id=lot.id,
-                object_type_id=type_map[code].id,
-                quantity=quantity,
-                overrides_json=overrides,
-            )
-            db.session.add(lot_item)
-            report["lot_items_created"] += 1
+    lot_report = add_lot_payloads_to_session(
+        session=session,
+        payloads=load_lot_payloads_from_dir(lots_dir),
+        type_map=type_map,
+    )
+    report["lots_created"] += int(lot_report.get("lots_created", 0) or 0)
+    report["lot_items_created"] += int(lot_report.get("lot_items_created", 0) or 0)
+    report["skipped"].extend(list(lot_report.get("skipped") or []))
 
     db.session.commit()
     return report

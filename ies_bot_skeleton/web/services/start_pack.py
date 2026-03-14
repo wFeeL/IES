@@ -3,7 +3,13 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 from ..extensions import db
-from ..models import GameSession, ObjectInstance, ObjectType, StartPackTemplate, StartPackTemplateItem
+from ..models import (
+    GameSession,
+    ObjectInstance,
+    ObjectType,
+    StartPackTemplate,
+    StartPackTemplateItem,
+)
 
 
 def list_start_pack_templates(*, include_inactive: bool = False) -> List[StartPackTemplate]:
@@ -213,6 +219,7 @@ def apply_start_pack_template_to_session(
     *,
     session: GameSession,
     template_id: int | None = None,
+    commit: bool = True,
 ) -> List[ObjectInstance]:
     existing = (
         db.session.query(ObjectInstance)
@@ -266,5 +273,6 @@ def apply_start_pack_template_to_session(
 
         created_by_item_id[item.id] = instances_for_item
 
-    db.session.commit()
+    if commit:
+        db.session.commit()
     return created
