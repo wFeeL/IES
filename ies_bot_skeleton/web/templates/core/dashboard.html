@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Сессии | IES{% endblock %}
+{% block page_title %}Сессии{% endblock %}
+{% block content %}
+<section class="page-grid">
+  <div class="stack gap-6">
+    <article class="card">
+      <p class="section-kicker">Новая сессия</p>
+      <h1 class="h1">{{ session_terms.create_title }}</h1>
+      <p class="muted">По умолчанию создаётся тестовая игра со стартовым пакетом, пятью лотами и встроенным прогнозом. При необходимости можно выбрать другой ruleset или загрузить свой прогноз.</p>
+      <form method="post" class="stack gap-3 mt-4">
+        {{ form.hidden_tag() }}
+        <label class="label">{{ form.title.label }} {{ form.title(class_='input') }}</label>
+        <label class="label">{{ form.ruleset_id.label }} {{ form.ruleset_id(class_='input') }}</label>
+        <label class="label">{{ form.selected_strategy.label }} {{ form.selected_strategy(class_='input', id='sessionStrategySelect') }}</label>
+        <label class="label">{{ form.budget_total.label }} {{ form.budget_total(class_='input') }}</label>
+        <button class="btn btn-primary btn-block" type="submit">Создать сессию</button>
+      </form>
+      <article class="strategy-card mt-4" id="strategySummaryCard">
+        <p class="section-kicker">Пояснение к стратегии</p>
+        <h2 class="h2" id="strategySummaryLabel">{{ selected_strategy_meta.label }}</h2>
+        <p class="lead mt-2" id="strategySummaryText">{{ selected_strategy_meta.summary }}</p>
+        <p class="muted mt-2" id="strategySummaryHint">{{ selected_strategy_meta.when_to_use }}</p>
+      </article>
+    </article>
+
+    <article class="card">
+      <p class="section-kicker">Импорт данных</p>
+      <h2 class="h2">Импортировать сессию из JSON</h2>
+      <p class="muted mt-2">Переносит подготовленную сессию со всеми лотами, прогнозами и настройками без дополнительных утилит.</p>
+      <form method="post" action="{{ url_for('pages.import_session_action') }}" class="stack gap-3 mt-4">
+        {{ import_form.hidden_tag() }}
+        <label class="label">
+          {{ import_form.payload_json.label }}
+          {{ import_form.payload_json(class_='input h-48', placeholder='{"session": {...}, "lots": [...]}') }}
+        </label>
+        <button class="btn btn-secondary" type="submit">Импортировать сессию</button>
+      </form>
+    </article>
+  </div>
+
+  <div class="stack gap-6">
+    <article class="card">
+      <div class="section-head">
+        <div>
+          <p class="section-kicker">{{ session_terms.collection_title }}</p>
+          <h2 class="h2">Активные сессии</h2>
+        </div>
+      </div>
+      <div class="stack gap-4 mt-4">
+        {% for row in session_cards %}
+        <article class="session-card">
+          <div class="session-card-main">
+            <div>
+              <h3 class="h3">{{ row.title }}</h3>
+              <p class="muted">Стратегия: {{ row.strategy_label }} · Бюджет: {{ '%.1f'|format(row.budget_total) }} · Остаток: {{ '%.1f'|format(row.remaining_budget) }}</p>
+              <p class="muted">Активный прогноз: {{ row.forecast_name }} · {{ row.forecast_source }} · Обновлено: {{ row.updated_at_label }}</p>
+            </div>
+            <span class="status-badge status-fresh">Сессия активна</span>
+          </div>
+          <div class="session-card-stats">
+            <span class="pill">{{ row.lots_count }} лотов</span>
+            <span class="pill">{{ row.objects_count }} объектов</span>
+            <span class="pill">{{ row.bought_lots_count }} куплено</span>
+          </div>
+          <div class="actions mt-4">
+            <a class="btn btn-primary" href="{{ row.url }}">{{ session_terms.open_cta }}</a>
+            <a class="btn btn-danger" href="{{ row.delete_url }}">{{ session_terms.delete_cta }}</a>
+          </div>
+        </article>
+        {% else %}
+        <div class="empty-state">Пока нет сессий. Создайте первую сессию тестовой игры или импортируйте готовый сценарий.</div>
+        {% endfor %}
+      </div>
+    </article>
+  </div>
+</section>
+<script>
+window.IES_SESSION_STRATEGIES = {{ strategy_catalog|tojson }};
+</script>
+<script defer src="{{ url_for('static', filename='js/analysis/session_form.js') }}"></script>
+{% endblock %}

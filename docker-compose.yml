@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  ies-web:
+    build: .
+    image: ies-web:latest
+    container_name: ies-web
+    ports:
+      - "5000:5000"
+    environment:
+      IES_WEB_ENV: production
+      IES_WEB_DATABASE_URL: sqlite:////data/ies_web.db
+      IES_WEB_SECRET_KEY: change-me-in-prod
+    volumes:
+      - ies-web-data:/data
+    restart: unless-stopped
+
+volumes:
+  ies-web-data:

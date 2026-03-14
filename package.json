@@ -1,0 +1,14 @@
+{
+  "name": "ies-web-ui",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build:css": "tailwindcss -i ./ies_bot_skeleton/web/static/src/tailwind.input.css -o ./ies_bot_skeleton/web/static/css/tailwind.css --minify",
+    "watch:css": "tailwindcss -i ./ies_bot_skeleton/web/static/src/tailwind.input.css -o ./ies_bot_skeleton/web/static/css/tailwind.css --watch"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14"
+  }
+}

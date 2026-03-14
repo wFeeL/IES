@@ -1,0 +1,68 @@
+{
+  "time": {
+    "ticks_per_day": 48,
+    "horizon_ticks": 48
+  },
+  "fine": {
+    "class3_pardon": 0,
+    "class3_rub_per_mw": 10,
+    "factory_rub_per_mw": 10
+  },
+  "eco": {
+    "wind_points_per_mw_tick": 1,
+    "solar_points_per_mw_tick": 1,
+    "storage_discharge_points_per_mw_tick": 0,
+    "eco_point_value_rub": 2.0
+  },
+  "storage": {
+    "capacity_mw_tick": 20,
+    "charge_rate_mw": 5,
+    "discharge_rate_mw": 5,
+    "leak_fraction_per_tick": 0.05
+  },
+  "network": {
+    "mode": "branches",
+    "soft_flow_mw": 40,
+    "main_substation_limit_mw": 40,
+    "line_max_power_mw": 15,
+    "default_connection_point": "A",
+    "connection_loss_pct_by_point": {
+      "A": 0.0,
+      "B": 3.0,
+      "C": 6.0,
+      "D": 10.0,
+      "E": 15.0,
+      "F": 20.0,
+      "G": 25.0
+    },
+    "loss_alpha": 0.0,
+    "wear_overload_mw": 9999,
+    "wear_risk_penalty_rub": 0.0,
+    "loss_tax": 1.0
+  },
+  "market": {
+    "external_buy_price": 10,
+    "external_sell_price": 2,
+    "instant_buy_price": 10,
+    "instant_sell_price": 2,
+    "market_max_power": 1000000,
+    "instant_buy_max_power": 0,
+    "instant_sell_max_power": 0
+  },
+  "tps": {
+    "fuel_max": 15,
+    "eta_nominal": 1.0,
+    "fuel_price": 0.5,
+    "eco_tax_fuel": 0.0
+  },
+  "auction": {
+    "allpay_limit": 200,
+    "starting_budget": 200,
+    "tie_break_threshold": 2
+  },
+  "object_defaults": {
+    "wind_k_default": 0.08,
+    "wind_cap_mw": 8,
+    "solar_cap_mw": 10
+  }
+}

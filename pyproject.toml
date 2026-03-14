@@ -5,10 +5,21 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ies-bot-skeleton"
 version = "0.2.0"
-description = "IES online/offline toolkit with compat layer and lot scoring."
+description = "Flask web application for IES lot analysis, forecasts, recommendations, and admin workflows."
 readme = "README.md"
-requires-python = ">=3.10"
-dependencies = []
+requires-python = ">=3.11"
+dependencies = [
+  "Flask>=3.0.0",
+  "Flask-Login>=0.6.3",
+  "Flask-Migrate>=4.0.7",
+  "Flask-SQLAlchemy>=3.1.1",
+  "Flask-WTF>=1.2.1",
+  "PyYAML>=6.0.0",
+  "email-validator>=2.2.0",
+  "gunicorn>=22.0.0",
+  "plotly>=5.24.0",
+  "python-dotenv>=1.0.1",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -20,41 +31,58 @@ dev = [
   "PyYAML>=6.0.0",
 ]
 
-[project.scripts]
-ies-online = "ies_bot_skeleton.entrypoints:ies_online"
-ies-lottool = "ies_bot_skeleton.entrypoints:ies_lottool"
-ies-fill-lots = "ies_bot_skeleton.entrypoints:ies_fill_lots"
-
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-where = [".", "ies_bot_skeleton/lot_tool/src"]
-include = ["ies_bot_skeleton*", "lottool*"]
+where = ["."]
+include = ["ies_bot_skeleton*"]
 
 [tool.setuptools.package-data]
 ies_bot_skeleton = [
-  "compat/*.yaml",
   "config/*.yaml",
-  "lot_tool/config/*.json",
-  "lot_tool/data/*.json",
-  "lot_tool/data/lots/*.json",
+  "resources/**/*.json",
+  "resources/**/*.csv",
+  "web/templates/**/*.html",
+  "web/static/**/*.css",
+  "web/static/**/*.js",
 ]
 
 [tool.black]
 line-length = 100
-target-version = ["py310"]
+target-version = ["py311"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["F"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_unused_ignores = true
 disallow_untyped_defs = false
 check_untyped_defs = true
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+  "ies_bot_skeleton.application.lots",
+  "ies_bot_skeleton.application.portfolio",
+  "ies_bot_skeleton.domain.lot_analysis.scoring.score",
+  "ies_bot_skeleton.web.app",
+  "ies_bot_skeleton.web.cli",
+  "ies_bot_skeleton.web.migrations.*",
+  "ies_bot_skeleton.web.models",
+  "ies_bot_skeleton.web.routes.*",
+  "ies_bot_skeleton.web.services.adapter",
+  "ies_bot_skeleton.web.services.admin_schemas",
+  "ies_bot_skeleton.web.services.analysis_context",
+  "ies_bot_skeleton.web.services.forecast_service",
+  "ies_bot_skeleton.web.services.object_instance_editor",
+  "ies_bot_skeleton.web.services.seed",
+  "ies_bot_skeleton.web.services.session_io",
+  "ies_bot_skeleton.web.services.test_game_preset",
+]
+ignore_errors = true

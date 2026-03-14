@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ru" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}IES Аналитика лотов{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}" />
+    <script>
+      window.IES_CSRF_TOKEN = "{{ csrf_token() }}";
+    </script>
+    <script src="{{ url_for('static', filename='js/api_client.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/theme.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='vendor/chart.min.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='vendor/plotly.min.js') }}"></script>
+    {% block head_extra %}{% endblock %}
+  </head>
+  <body class="app-body">
+    {% set page_content %}
+    {% block content %}{% endblock %}
+    {% endset %}
+
+    {% if current_user.is_authenticated %}
+    {% set endpoint = request.endpoint or '' %}
+    {% set analysis_active = endpoint in [
+      'pages.dashboard',
+      'pages.session_page',
+      'pages.session_delete_confirm_page',
+      'pages.forecast_page',
+      'pages.lots_page',
+      'pages.lots_edit',
+      'pages.lot_detail_page',
+      'pages.lot_edit_page',
+      'pages.lot_delete_confirm_page',
+      'pages.lot_buy_confirm_page',
+      'pages.quick_auction_page',
+      'pages.system_view',
+      'pages.object_create_page',
+      'pages.object_edit_page',
+      'pages.object_delete_confirm_page'
+    ] %}
+    <div class="dashboard-shell">
+      <aside class="dashboard-sidebar">
+        <a class="sidebar-brand" href="{{ url_for('pages.dashboard') }}">
+          <span class="sidebar-brand-mark">◉</span>
+          <span class="sidebar-brand-text">IES Кабинет</span>
+        </a>
+        <p class="sidebar-subtitle">Единый кабинет аналитики и покупки лотов по прогнозу</p>
+
+        <nav class="sidebar-nav">
+          <a class="sidebar-link {{ 'is-active' if analysis_active else '' }}" href="{{ url_for('pages.dashboard') }}">
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v11h-7zM4 13h7v8H4z"></path>
+              </svg>
+            </span>
+            <span>Сессии и аналитика</span>
+          </a>
+          <a class="sidebar-link {{ 'is-active' if endpoint == 'pages.catalog' else '' }}" href="{{ url_for('pages.catalog') }}">
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M5 4h12a2 2 0 0 1 2 2v12H7a2 2 0 0 0-2 2V4zm0 0H4"></path>
+                <path d="M7 8h8M7 11h8M7 14h5"></path>
+              </svg>
+            </span>
+            <span>Справочник</span>
+          </a>
+          {% if current_user.role == 'admin' %}
+          <a class="sidebar-link {{ 'is-active' if endpoint.startswith('pages.settings_') else '' }}" href="{{ url_for('pages.settings_model_page') }}">
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M12 3.5l2 .9 2.2-.3 1.2 1.9 2 .9v2.2l1.2 1.9-1.2 1.9V15l-2 .9-1.2 1.9-2.2-.3-2 .9-2-.9-2.2.3-1.2-1.9-2-.9v-2.2L2.6 13l1.2-1.9V8.9l2-.9 1.2-1.9 2.2.3 2-.9z"></path>
+                <circle cx="12" cy="12" r="3.2"></circle>
+              </svg>
+            </span>
+            <span>Администрирование</span>
+          </a>
+          {% endif %}
+        </nav>
+      </aside>
+
+      <div class="dashboard-main">
+        <header class="dashboard-topbar">
+          <div class="dashboard-heading">
+            <p class="section-kicker">IES Аналитический кабинет</p>
+            <h1 class="dashboard-page-title">{% block page_title %}Рабочая панель{% endblock %}</h1>
+          </div>
+
+          <label class="top-search">
+            <span class="top-search-icon">⌕</span>
+            <input class="input top-search-input" type="search" placeholder="Поиск по сессиям, лотам и объектам..." />
+          </label>
+
+          <div class="dashboard-top-actions">
+            <button type="button" class="btn btn-secondary" id="themeToggle">Тема</button>
+            <span class="pill locale-pill">🇷🇺 Рус</span>
+            <button class="btn btn-ghost icon-btn" type="button" aria-label="Уведомления">◌</button>
+            <span class="user-chip">
+              <span class="user-chip-avatar">{{ current_user.username[0]|upper if current_user.username else 'U' }}</span>
+              <span class="user-chip-text">
+                <strong>{{ current_user.username }}</strong>
+                <small>{{ current_user.role }}</small>
+              </span>
+            </span>
+            <form method="post" action="{{ url_for('pages.logout') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button class="btn btn-ghost btn-danger-outline" type="submit">Выйти</button>
+            </form>
+          </div>
+        </header>
+
+        <main class="dashboard-body">
+          {% if back_url or breadcrumbs %}
+          <section class="page-nav">
+            {% if back_url %}
+            <a class="btn btn-secondary" href="{{ back_url }}">Назад</a>
+            {% endif %}
+            {% if breadcrumbs %}
+            <ol class="breadcrumbs">
+              {% for crumb in breadcrumbs %}
+              <li class="breadcrumb-item {{ 'is-current' if crumb.is_current else '' }}">
+                {% if crumb.url %}
+                <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+                {% else %}
+                <span>{{ crumb.label }}</span>
+                {% endif %}
+              </li>
+              {% endfor %}
+            </ol>
+            {% endif %}
+          </section>
+          {% endif %}
+
+          {% if stale_warning and stale_warning.has_stale %}
+          <section class="flash-stack">
+            <div class="flash flash-warning">
+              Обнаружены устаревшие оценки ({{ stale_warning.stale_count }}). Причина: {{ stale_reason_label(stale_warning.last_reason) or 'изменились исходные данные расчёта' }}.
+            </div>
+          </section>
+          {% endif %}
+
+          {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+          <section class="flash-stack">
+            {% for category, message in messages %}
+            <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+          </section>
+          {% endif %}
+          {% endwith %}
+
+          {{ page_content | safe }}
+        </main>
+      </div>
+    </div>
+    {% else %}
+    <div class="auth-shell">
+      <main class="container app-main">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <section class="flash-stack">
+          {% for category, message in messages %}
+          <div class="flash flash-{{ category }}">{{ message }}</div>
+          {% endfor %}
+        </section>
+        {% endif %}
+        {% endwith %}
+
+        {{ page_content | safe }}
+      </main>
+    </div>
+    {% endif %}
+  </body>
+</html>

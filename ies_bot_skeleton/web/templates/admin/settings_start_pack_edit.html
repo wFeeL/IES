@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Стартовый пакет | IES{% endblock %}
+{% block content %}
+<section class="page-grid admin-layout">
+  {% include "components/admin_sidebar.html" %}
+  <article class="card admin-content">
+    <p class="section-kicker">Администрирование</p>
+    <h1 class="h1">{{ 'Новый шаблон стартового пакета' if mode == 'new' else 'Редактирование шаблона стартового пакета' }}</h1>
+    <form method="post" class="stack gap-3 mt-4">
+      {{ form.csrf_token }}
+      {{ form.items_state_json(id='itemsStateJson') }}
+      {{ form.items_json(id='items_json') }}
+      <label class="label">{{ form.code.label }} {{ form.code(class_='input') }}</label>
+      <label class="label">{{ form.name.label }} {{ form.name(class_='input') }}</label>
+      <label class="label">{{ form.description.label }} {{ form.description(class_='input h-48') }}</label>
+      <label class="inline">{{ form.is_active() }} <span>{{ form.is_active.label.text }}</span></label>
+      <label class="inline">{{ form.is_builtin() }} <span>{{ form.is_builtin.label.text }}</span></label>
+      <div class="card inset-card">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Состав шаблона</p>
+            <h2 class="h2">Элементы стартового пакета</h2>
+          </div>
+          <button type="button" class="btn btn-secondary" id="lotRowAddBtn">Добавить строку</button>
+        </div>
+        <div class="table-wrap mt-3">
+          <table class="table">
+            <thead><tr><th>Тип объекта</th><th>Количество</th><th>Категория</th><th></th></tr></thead>
+            <tbody id="lotEditorRows"></tbody>
+          </table>
+        </div>
+        <div id="lotEditorSummary" class="muted mt-3"></div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" type="submit">Сохранить</button>
+        {% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>{% endif %}
+      </div>
+    </form>
+  </article>
+</section>
+<script>
+window.IES_LOT_EDITOR = {
+  initialItemsRaw: {{ (form.items_state_json.data or form.items_json.data or '[]')|tojson }},
+  objectTypes: [
+    {% for row in object_types %}
+    {id: {{ row.id }}, code: {{ row.code|tojson }}, name: {{ row.name|tojson }}, category: {{ row.category|tojson }}}{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ],
+};
+</script>
+<script defer src="{{ url_for('static', filename='js/analysis/lot_editor.js') }}"></script>
+{% endblock %}

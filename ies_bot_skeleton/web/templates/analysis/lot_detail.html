@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block head_extra %}
+{{ super() }}
+<script defer src="{{ url_for('static', filename='js/analysis/strategy_snapshot.js') }}"></script>
+{% endblock %}
+{% block title %}{{ lot.name }} | Лот {{ lot.id }} | IES{% endblock %}
+{% block page_title %}Лот #{{ lot.id }}{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+{% include "components/analysis_context.html" %}
+{% if forecast_blocked %}
+<section class="card mt-4">
+  <div class="risk-block">
+    <strong>Оценка лота заблокирована: прогноз несовместим с объектами сессии.</strong>
+    <ul class="stack gap-1 mt-2">
+      {% for reason in forecast_compatibility_report.blocking_reasons %}
+      <li>{{ reason }}</li>
+      {% else %}
+      <li>Загрузите прогноз с полным покрытием профилей и факторов.</li>
+      {% endfor %}
+    </ul>
+    <div class="mt-3"><strong>{{ compatibility_guidance.primary_message }}</strong></div>
+    <ul class="stack gap-1 mt-2">
+      {% for item in compatibility_guidance.actions %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    <div class="actions mt-3">
+      {% if compatibility_guidance.forecast_url %}<a class="btn btn-primary" href="{{ compatibility_guidance.forecast_url }}">Добавить в прогноз</a>{% endif %}
+      {% if compatibility_guidance.lot_edit_url %}<a class="btn btn-secondary" href="{{ compatibility_guidance.lot_edit_url }}">Удалить объект из лота</a>{% endif %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Лот #{{ lot.id }}</p>
+      <h1 class="h1 text-ellipsis" title="{{ lot.name }}">{{ lot.name }}</h1>
+      <p class="muted">
+        {{ lot_scope_label(lot.scope) }} · {{ lot_status_label(lot.status) }} ·
+        стартовая цена {{ '%.1f'|format(lot.base_bid or 0.0) }} ·
+        текущая ставка {{ '%.1f'|format(lot.current_bid or 0.0) }}
+      </p>
+      <p class="muted text-ellipsis" title="{{ lot_summary.structure }}">Состав: {{ lot_summary.structure }}</p>
+      {% if evaluation.is_stale %}
+      <p class="muted"><span class="status-badge status-stale">Оценка устарела</span> {{ stale_reason_label(evaluation.stale_reason) or evaluation.stale_reason }}</p>
+      {% endif %}
+    </div>
+    <div class="actions">
+      {% if lot.status == 'available' %}
+      {% if forecast_blocked %}
+      {% if compatibility_guidance.forecast_url %}<a class="btn btn-primary" href="{{ compatibility_guidance.forecast_url }}">Исправить прогноз</a>{% endif %}
+      {% else %}
+      <a class="btn btn-primary" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=lot.id) }}">Купить</a>
+      {% endif %}
+      <form method="post" action="{{ url_for('pages.lot_reject_action', lot_id=lot.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button class="btn btn-secondary" type="submit">Отклонить</button>
+      </form>
+      {% elif lot.status == 'bought' %}
+      <form method="post" action="{{ url_for('pages.lot_undo_buy_action', lot_id=lot.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button class="btn btn-secondary" type="submit">Отменить покупку</button>
+      </form>
+      {% elif lot.status == 'rejected' %}
+      <form method="post" action="{{ url_for('pages.lot_restore_action', lot_id=lot.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button class="btn btn-secondary" type="submit">Вернуть в доступные</button>
+      </form>
+      {% endif %}
+      <a class="btn btn-secondary" href="{{ url_for('pages.lot_edit_page', lot_id=lot.id) }}">Редактировать</a>
+      <button class="btn btn-secondary" id="recalculateLotBtn" type="button" {% if forecast_blocked %}disabled{% endif %}>Пересчитать</button>
+      <a class="btn btn-danger" href="{{ url_for('pages.lot_delete_confirm_page', lot_id=lot.id) }}">Удалить</a>
+    </div>
+  </div>
+  <div id="lotRecalcStatus" class="muted mt-3"></div>
+</section>
+
+<section class="kpi-grid mt-4">
+  <article class="kpi-card"><span class="metric-label">Итоговая полезность</span><strong>{{ '%.2f'|format(evaluation.summary_score) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Ожидаемая чистая прибыль</span><strong>{{ '%.2f'|format(evaluation.financial_breakdown.result.net_profit) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Риск</span><strong>{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.risk_total) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Рабочая ставка</span><strong>{{ '%.1f'|format(evaluation.decision_summary.target_bid or evaluation.decision_summary.hard_bid) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Ставка с учетом бюджета</span><strong>{{ '%.1f'|format(evaluation.decision_summary.budget_limited_bid or 0.0) }}</strong></article>
+</section>
+
+<section class="grid cols-3 gap-4 mt-4">
+  {% for key in ['worst', 'base', 'best'] %}
+  {% set row = evaluation.scenario_breakdown[key] %}
+  <article class="card scenario-card">
+    <p class="section-kicker">{{ row.label }}</p>
+    <div class="key-value"><span>Доход</span><strong>{{ '%.2f'|format(row.revenue_total) }}</strong></div>
+    <div class="key-value"><span>Расходы</span><strong>{{ '%.2f'|format(row.cost_total) }}</strong></div>
+    <div class="key-value"><span>Штрафы</span><strong>{{ '%.2f'|format(row.penalties_total) }}</strong></div>
+    <div class="key-value"><span>Потери</span><strong>{{ '%.2f'|format(row.losses_total) }}</strong></div>
+    <div class="key-value"><span>Чистая прибыль</span><strong>{{ '%.2f'|format(row.net_profit) }}</strong></div>
+    <div class="key-value"><span>Полезность</span><strong>{{ '%.2f'|format(row.utility_score) }}</strong></div>
+    <div class="key-value"><span>Рабочая ставка сценария</span><strong>{{ '%.2f'|format(row.recommended_bid) }}</strong></div>
+    <div class="risk-block mt-3">{{ row.explanation }}</div>
+  </article>
+  {% endfor %}
+</section>
+
+<section class="grid cols-2 gap-4 mt-4">
+  <article class="card">
+    <p class="section-kicker">Декомпозиция расчёта</p>
+    <h2 class="h2">Из чего складывается оценка</h2>
+    <div class="table-wrap mt-3">
+      <table class="table">
+        <tbody>
+          {% for row in evaluation.financial_breakdown.ui_rows or [] %}
+          <tr{% if row.emphasis %} class="row-emphasis"{% endif %}>
+            <th class="col-text">{{ row.label }}</th>
+            <td class="num">{{ '%.2f'|format(row.value or 0.0) }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2" class="muted">Декомпозиция пока недоступна.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="card">
+    <p class="section-kicker">Комментарий аналитики</p>
+    <h2 class="h2">Ключевые причины оценки</h2>
+    <ul class="stack gap-2 mt-3">
+      {% for reason in evaluation.reasons %}
+      <li>{{ reason }}</li>
+      {% else %}
+      <li class="muted">Ключевые причины не рассчитаны.</li>
+      {% endfor %}
+    </ul>
+    <div class="table-wrap mt-3">
+      <table class="table">
+        <tbody>
+          <tr><th class="col-text">Осторожная ставка</th><td class="num">{{ '%.1f'|format(evaluation.decision_summary.cautious_bid or evaluation.decision_summary.soft_bid) }}</td></tr>
+          <tr><th class="col-text">Рабочая ставка</th><td class="num">{{ '%.1f'|format(evaluation.decision_summary.target_bid or evaluation.decision_summary.hard_bid) }}</td></tr>
+          <tr><th class="col-text">Предельная ставка</th><td class="num">{{ '%.1f'|format(evaluation.decision_summary.hard_ceiling_bid or evaluation.decision_summary.stop_bid) }}</td></tr>
+          <tr><th class="col-text">Ставка с учетом бюджета</th><td class="num">{{ '%.1f'|format(evaluation.decision_summary.budget_limited_bid or 0.0) }}</td></tr>
+          <tr><th class="col-text">Риск-премия в модели ставки</th><td class="num">{{ '%.2f'|format(evaluation.metrics.bids.risk_premium or 0.0) }}</td></tr>
+          <tr><th class="col-text">Резервный буфер</th><td class="num">{{ '%.2f'|format(evaluation.metrics.bids.reserve_margin or 0.0) }}</td></tr>
+          <tr><th class="col-text">Соответствие стратегии</th><td>{{ evaluation.strategy_fit_text }}</td></tr>
+          <tr><th class="col-text">Комментарий по рискам</th><td>{{ evaluation.risk_commentary }}</td></tr>
+          <tr><th class="col-text">Влияние на портфель (чистая прибыль)</th><td>{{ '%.2f'|format(evaluation.metrics.portfolio_delta.net_profit_base or 0.0) }}</td></tr>
+          <tr><th class="col-text">Влияние на портфель (risk-adjusted)</th><td>{{ '%.2f'|format(evaluation.metrics.portfolio_delta.risk_adjusted_net_profit or 0.0) }}</td></tr>
+          <tr><th class="col-text">Горизонт тактов</th><td>{{ evaluation.metrics.portfolio_delta.horizon_ticks or 0 }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="risk-block mt-3">{{ evaluation.score_definition }}</div>
+    {% if (evaluation.decision_summary.target_bid or 0.0) > (evaluation.decision_summary.budget_remaining or 0.0) %}
+    <div class="flash flash-warning mt-3">Справедливая цена выше доступного остатка бюджета.</div>
+    {% endif %}
+    {% if lot.note %}<div class="risk-block mt-3">{{ lot.note }}</div>{% endif %}
+    {% if lot.status == 'bought' %}<div class="risk-block mt-3">Лот куплен по цене {{ '%.1f'|format(lot.purchase_price or 0.0) }}.</div>{% endif %}
+  </article>
+</section>
+
+<section
+  class="card mt-4"
+  id="lotPairsCard"
+  {% if not forecast_blocked %}data-strategy-url="{{ strategy_api_url }}" data-lot-id="{{ lot.id }}"{% endif %}
+>
+  <p class="section-kicker">Лучшие пары</p>
+  <h2 class="h2">Синергия с этим лотом</h2>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead>
+        <tr>
+          <th class="col-text">Пара</th>
+          <th class="col-num">Синергия</th>
+          <th class="col-num">Чистая прибыль</th>
+          <th class="col-num">Рабочая ставка</th>
+          <th class="col-text">Ставки по лотам</th>
+          <th class="col-text">Причина</th>
+        </tr>
+      </thead>
+      <tbody id="lotBestPairsBody">
+        {% if forecast_blocked %}
+        <tr><td colspan="6" class="muted">Лучшие пары не рассчитаны или отсутствуют в бюджете.</td></tr>
+        {% else %}
+        <tr><td colspan="6" class="muted">Загружаю лучшие пары для этого лота...</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+(() => {
+  const api = window.IESApi || {};
+  const apiFetchJson = api.apiFetchJson;
+  const errorMessage = api.errorMessage || ((data) => data?.error?.message || 'Не удалось пересчитать лот.');
+  const recalcBtn = document.getElementById('recalculateLotBtn');
+  const status = document.getElementById('lotRecalcStatus');
+  if (!recalcBtn) return;
+
+  recalcBtn.addEventListener('click', async () => {
+    recalcBtn.disabled = true;
+    if (status) status.textContent = 'Пересчитываю лот...';
+    const data = await apiFetchJson('/api/lots/{{ lot.id }}/evaluate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({})
+    });
+    if (data.ok) {
+      if (status) status.textContent = 'Лот успешно пересчитан.';
+      window.location.reload();
+      return;
+    }
+    recalcBtn.disabled = false;
+    const message = errorMessage(data);
+    if (status) status.textContent = message;
+    alert(message);
+  });
+})();
+</script>
+{% endblock %}

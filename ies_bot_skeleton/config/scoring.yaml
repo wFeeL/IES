@@ -1,18 +1,18 @@
 {
   "scenarios": {
     "base": { "wind": 1.0, "solar": 1.0, "load": 1.0 },
-    "worst": { "wind": 0.9, "solar": 0.9, "load": 1.1 },
-    "best": { "wind": 1.1, "solar": 1.1, "load": 0.9 }
+    "worst": { "wind": 1.0, "solar": 0.5, "load": 1.5 },
+    "best": { "wind": 1.0, "solar": 1.5, "load": 0.5 }
   },
   "market": {
-    "market_max_power": 60,
-    "instant_buy_max_power": 1000000,
-    "instant_sell_max_power": 1000000
+    "market_max_power": 1000000,
+    "instant_buy_max_power": 0,
+    "instant_sell_max_power": 0
   },
   "network": {
-    "wear_threshold_mw": 40,
-    "wear_limit": 14,
-    "wear_k": 0.2,
+    "wear_threshold_mw": 9999,
+    "wear_limit": 1000000,
+    "wear_k": 0.0,
     "outage_ticks": 1,
     "outage_penalty_rub": 0.0,
     "outage_loss_scale": 1.0
@@ -22,5 +22,12 @@
     "ev_weight_worst": 0.35,
     "ev_weight_best": 0.15,
     "risk_lambda": 0.25
+  },
+  "evaluation": {
+    "risk_lambda": 0.25,
+    "volatility_lambda": 0.15,
+    "reserve_margin_abs": 5.0,
+    "reserve_margin_share": 0.10,
+    "storage_operating_cost_per_mwh_throughput": 0.0
   }
 }

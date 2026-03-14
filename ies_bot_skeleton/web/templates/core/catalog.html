@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Справочник | IES{% endblock %}
+{% block content %}
+<section class="card">
+  <p class="section-kicker">Глобальный каталог</p>
+  <h1 class="h1">Типы объектов</h1>
+  <p class="muted">Справочник сгруппирован по ролям в энергосистеме. На карточке остаются только ключевые параметры, а дополнительные детали показаны отдельно.</p>
+</section>
+
+<section class="stack gap-6 mt-4">
+  {% for section in sections %}
+  <article class="card">
+    <div class="section-head">
+      <div>
+        <p class="section-kicker">Категория</p>
+        <h2 class="h2">{{ section.label }}</h2>
+      </div>
+    </div>
+    <div class="catalog-grid mt-3">
+      {% for row in section.rows %}
+      <article class="catalog-card">
+        <div class="catalog-card-head">
+          <div>
+            <h3 class="h3">{{ row.name }}</h3>
+            <p class="muted"><code>{{ row.code }}</code> · {{ row.category_label }} · {{ row.subtype }}</p>
+          </div>
+          <span class="status-badge {{ 'status-fresh' if row.is_active else 'status-stale' }}">{{ row.status_label }}</span>
+        </div>
+        <p class="mt-2">{{ row.description or 'Описание не задано.' }}</p>
+        <div class="stack gap-2 mt-3">
+          {% for item in row.highlights %}
+          <div class="key-value">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+          {% endfor %}
+        </div>
+        {% if row.details %}
+        <details class="mt-3">
+          <summary>Дополнительные параметры</summary>
+          <div class="stack gap-2 mt-3">
+            {% for item in row.details %}
+            <div class="key-value">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+            {% endfor %}
+          </div>
+        </details>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </div>
+  </article>
+  {% endfor %}
+</section>
+
+<section class="card mt-4">
+  <p class="section-kicker">Помощь по терминам</p>
+  <h2 class="h2">Англо-русский словарь терминов</h2>
+  <div class="glossary-grid mt-4">
+    {% for group in glossary %}
+    <article class="glossary-card">
+      <h3 class="h3">{{ group.title }}</h3>
+      <div class="stack gap-2 mt-3">
+        {% for source, target in group.rows %}
+        <div class="key-value">
+          <code>{{ source }}</code>
+          <strong>{{ target }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

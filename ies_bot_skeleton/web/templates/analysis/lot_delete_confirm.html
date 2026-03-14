@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Удаление лота | IES{% endblock %}
+{% block content %}
+<section class="card danger-zone">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Удаление лота</p>
+      <h1 class="h1">Удаление лота «{{ lot.name }}»</h1>
+      <p class="muted">Действие необратимо. Оценки этого лота будут удалены.</p>
+    </div>
+  </div>
+
+  <div class="metric-strip mt-4">
+    <div><span class="metric-label">Позиций в составе</span><strong>{{ summary.object_types_count }}</strong></div>
+    <div><span class="metric-label">Всего объектов</span><strong>{{ summary.items_count }}</strong></div>
+    <div><span class="metric-label">Оценок</span><strong>{{ summary.evaluations_count }}</strong></div>
+    <div><span class="metric-label">Связанных объектов</span><strong>{{ summary.generated_objects_count }}</strong></div>
+  </div>
+
+  {% if summary.generated_objects_count %}
+  <div class="risk-block mt-3">
+    У лота есть связанные объекты в энергосистеме. При удалении лота связь с ними будет снята, сами объекты останутся в сессии.
+  </div>
+  {% endif %}
+
+  <form method="post" class="mt-4 actions">
+    {{ form.hidden_tag() }}
+    <button class="btn btn-danger" type="submit">Удалить лот</button>
+    <a class="btn btn-secondary" href="{{ cancel_url or url_for('pages.lots_page', session_id=session.id) }}">Отмена</a>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Объект энергосистемы | IES{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+
+<section class="card mt-4">
+  <p class="section-kicker">Энергосистема</p>
+  <h1 class="h1">{{ 'Новый объект' if editor_mode == 'create' else 'Редактирование объекта' }}</h1>
+  <p class="muted mt-2">Изменяйте параметры объекта в нормальной форме. Значения из типа объекта подставляются автоматически и могут быть уточнены на уровне сессии.</p>
+
+  <form method="post" class="stack gap-4 mt-4">
+    {{ form.hidden_tag() }}
+    <section class="admin-section">
+      <div class="grid cols-2 gap-4">
+        <label class="label">{{ form.object_type_id.label }} {{ form.object_type_id(class_='input', id='objectTypeSelect') }}</label>
+        <label class="label">{{ form.custom_name.label }} {{ form.custom_name(class_='input') }}</label>
+      </div>
+      <div class="grid cols-2 gap-4 mt-3">
+        <label class="label">{{ form.district.label }} {{ form.district(class_='input') }}</label>
+        <label class="label">{{ form.parent_instance_id.label }} {{ form.parent_instance_id(class_='input') }}</label>
+      </div>
+      <label class="inline mt-3">{{ form.is_active() }} <span>{{ form.is_active.label.text }}</span></label>
+    </section>
+
+    <section class="admin-section">
+      <p class="section-kicker">Параметры объекта</p>
+      <h2 class="h2">Настраиваемые значения</h2>
+      {% if object_type %}
+      <p class="muted mt-2">Тип объекта: {{ object_type.name }} ({{ object_type.code }}).</p>
+      {% endif %}
+      <div class="grid cols-2 gap-4 mt-3">
+        {% for row in parameter_rows %}
+        <div class="field-card">
+          {% if row.type == 'boolean' %}
+          <label class="inline">
+            <input type="checkbox" name="{{ row.key }}" value="1" {% if row.value %}checked{% endif %} />
+            <span>{{ row.label }}</span>
+          </label>
+          {% else %}
+          <label class="label">
+            {{ row.label }}
+            <input
+              class="input"
+              type="{{ 'number' if row.type == 'number' else 'text' }}"
+              name="{{ row.key }}"
+              value="{{ row.value if row.value is not none else '' }}"
+              {% if row.type == 'number' %}step="any"{% endif %}
+            />
+          </label>
+          {% endif %}
+          {% if row.default_value is not none %}
+          <div class="muted mt-2">Значение типа по умолчанию: {{ row.default_value }}</div>
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="empty-state">Для этого типа объекта нет настраиваемых параметров.</div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">Сохранить</button>
+      {% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Отмена</a>{% endif %}
+    </div>
+  </form>
+</section>
+<script>
+(() => {
+  const select = document.getElementById("objectTypeSelect");
+  if (!select) return;
+  select.addEventListener("change", () => {
+    const next = new URL(window.location.href);
+    next.searchParams.set("object_type_id", select.value);
+    window.location.href = next.toString();
+  });
+})();
+</script>
+{% endblock %}
