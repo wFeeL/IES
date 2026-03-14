@@ -106,7 +106,15 @@
             <strong class="text-ellipsis" title="{{ row.name }}">{{ row.name }}</strong>
             <div class="muted text-ellipsis" title="{{ row.composition_label }}">{{ row.composition_label }}</div>
           </td>
-          <td class="col-text"><span class="text-ellipsis" title="{{ row.structure }}">{{ row.structure }}</span></td>
+          <td class="col-text">
+            <div class="lot-chip-wrap" title="{{ row.structure }}">
+              {% for item in row.structure_items %}
+              <span class="lot-chip">{{ item.label }}</span>
+              {% else %}
+              <span class="muted">Пустой лот</span>
+              {% endfor %}
+            </div>
+          </td>
           <td class="num">{{ '%.1f'|format(row.price) }}</td>
           <td class="num">{{ '%.2f'|format(row.utility) }}</td>
           <td class="num">{{ '%.2f'|format(row.net_profit) }}</td>

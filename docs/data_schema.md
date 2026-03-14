@@ -104,7 +104,16 @@
     "income": {},
     "expenses": {},
     "losses_and_risks": {},
-    "result": {}
+    "result": {},
+    "ui_rows": [
+      {
+        "key": "entry_price",
+        "label": "Цена входа",
+        "value": 100.0,
+        "group": "expense",
+        "emphasis": false
+      }
+    ]
   },
   "decision_summary": {
     "cautious_bid": 40.0,
@@ -117,7 +126,26 @@
   "metrics": {
     "scenarios": {},
     "decomposition": {},
-    "bids": {},
+    "bids": {
+      "valuation_model": {
+        "model": "valuation_model_v2",
+        "profile": "balanced",
+        "risk_band": "low|medium|high",
+        "p_worst": 0.0,
+        "p_base": 0.0,
+        "p_best": 0.0,
+        "p_exp": 0.0,
+        "risk_ratio": 0.0,
+        "risk_premium": 0.0,
+        "v1": 0.0,
+        "v2": 0.0,
+        "blend": 0.0,
+        "cautious_bid": 0.0,
+        "target_bid": 0.0,
+        "hard_ceiling_bid": 0.0,
+        "budget_limited_bid": 0.0
+      }
+    },
     "portfolio_delta": {},
     "forecast_compatibility": {},
     "role_breakdown": {},
@@ -136,6 +164,7 @@
 - если пользовательский прогноз не выбран, используется built-in `Прогноз тестовой игры`;
 - отдельного режима без прогноза и отдельного compare-flow в схеме продукта нет.
 - исторические `evaluations` сохраняются в БД и экспорте, но не отображаются отдельным экраном в основном пользовательском UX.
+- `financial_breakdown.ui_rows` предназначен для UI: содержит только релевантные/ненулевые строки (`abs(value) > 1e-6`) + обязательные `entry_price` и `net_profit`.
 
 ## Forecast canonical schema
 
@@ -154,6 +183,41 @@
 - `resource_dependencies_json`
 - `forecast_model_type`
 - `economic_role`
+
+Forecast summary (SSR/API) дополнительно содержит display-слой для UI:
+- `load_series_display[]`:
+  - `key`, `label`, `avg`, `is_service`;
+- `series_stats_display[]`:
+  - `key`, `label`, `group` (`factor|profile|load|load_service`), `stats`.
+
+Legacy-поля (`load_series`, `series_stats`) сохранены для backward compatibility.
+
+## Strategy payload additions
+
+`GET /api/sessions/<id>/strategy` возвращает прежние поля, плюс аддитивно:
+
+```json
+{
+  "best_pairs": [
+    {
+      "lot_ids": [1, 2],
+      "lot_bid_breakdown": [
+        {
+          "lot_id": 1,
+          "lot_name": "Лот A",
+          "standalone_target_bid": 10.0,
+          "standalone_hard_ceiling_bid": 12.0,
+          "allocated_target_bid": 11.2,
+          "allocated_cautious_bid": 8.6,
+          "allocated_hard_ceiling_bid": 13.1,
+          "synergy_allocated": 1.2,
+          "budget_adjusted_bid": 9.8
+        }
+      ]
+    }
+  ]
+}
+```
 
 Built-in preset значения:
 - `Ruleset.code = "ies_test_game_2026"`

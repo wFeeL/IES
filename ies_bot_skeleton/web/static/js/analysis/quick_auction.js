@@ -2,6 +2,9 @@
   const api = window.IESApi || {};
   const apiFetchJson = api.apiFetchJson;
   const errorMessage = api.errorMessage || ((data) => data?.error?.message || 'Неизвестная ошибка');
+  if (typeof apiFetchJson !== 'function') {
+    return;
+  }
 
   function $(id) {
     return document.getElementById(id);
@@ -59,6 +62,23 @@
 
   function setStatus(text) {
     if ($('qaStatus')) $('qaStatus').textContent = text;
+  }
+
+  const initialDisabled = {
+    evalCurrent: Boolean($('evalCurrent')?.disabled),
+    refreshRanking: Boolean($('refreshRanking')?.disabled),
+    qaApplyFilters: Boolean($('qaApplyFilters')?.disabled),
+  };
+
+  function setBusy(busy) {
+    const controls = ['evalCurrent', 'refreshRanking', 'qaApplyFilters'];
+    controls.forEach((id) => {
+      const node = $(id);
+      if (!node) {
+        return;
+      }
+      node.disabled = Boolean(busy || initialDisabled[id]);
+    });
   }
 
   function netProfit(row) {
@@ -195,27 +215,37 @@
   async function evalLot(lotId) {
     const id = Number(lotId || 0);
     if (!id) return;
-    const bidSaved = await persistCurrentBid(id);
-    if (!bidSaved) return;
+    setBusy(true);
+    setStatus(`Оцениваю лот ${id}...`);
+    try {
+      const bidSaved = await persistCurrentBid(id);
+      if (!bidSaved) {
+        return;
+      }
 
-    const data = await apiFetchJson(`/api/lots/${id}/evaluate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': cfg().csrfToken || window.IES_CSRF_TOKEN || '',
-      },
-      body: JSON.stringify({}),
-    });
-    if (!data.ok) {
-      setStatus(errorMessage(data));
-      return;
+      const data = await apiFetchJson(`/api/lots/${id}/evaluate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': cfg().csrfToken || window.IES_CSRF_TOKEN || '',
+        },
+        body: JSON.stringify({}),
+      });
+      if (!data.ok) {
+        setStatus(errorMessage(data));
+        return;
+      }
+
+      updateDecisionPanel(data.item);
+      setStatus(
+        `Лот ${id} пересчитан. Полезность ${Number(data.item.summary_score || 0).toFixed(2)}, ` +
+        `рабочая ставка ${hardBid(data.item).toFixed(1)}.`
+      );
+    } catch (_) {
+      setStatus('Не удалось пересчитать лот из-за сетевой ошибки.');
+    } finally {
+      setBusy(false);
     }
-
-    updateDecisionPanel(data.item);
-    setStatus(
-      `Лот ${id} пересчитан. Полезность ${Number(data.item.summary_score || 0).toFixed(2)}, ` +
-      `рабочая ставка ${hardBid(data.item).toFixed(1)}.`
-    );
   }
 
   function rowActionsHtml(lotId) {
@@ -268,28 +298,36 @@
   }
 
   async function refreshRanking(preferredLotId) {
-    const params = new URLSearchParams();
-    params.set('status', 'available');
-    params.set('sort', $('qaSort')?.value || 'utility_desc');
-    if ($('qaMinUtility')?.value) params.set('utility_min', $('qaMinUtility').value);
-    if ($('qaMaxRisk')?.value) params.set('risk_max', $('qaMaxRisk').value);
+    setBusy(true);
+    setStatus('Обновляю shortlist...');
+    try {
+      const params = new URLSearchParams();
+      params.set('status', 'available');
+      params.set('sort', $('qaSort')?.value || 'utility_desc');
+      if ($('qaMinUtility')?.value) params.set('utility_min', $('qaMinUtility').value);
+      if ($('qaMaxRisk')?.value) params.set('risk_max', $('qaMaxRisk').value);
 
-    const data = await apiFetchJson(`/api/sessions/${cfg().sessionId}/lots/analytics?${params.toString()}`, {
-      headers: {'X-CSRFToken': cfg().csrfToken || window.IES_CSRF_TOKEN || ''},
-    });
-    if (!data.ok) {
-      setStatus(errorMessage(data));
-      return;
+      const data = await apiFetchJson(`/api/sessions/${cfg().sessionId}/lots/analytics?${params.toString()}`, {
+        headers: {'X-CSRFToken': cfg().csrfToken || window.IES_CSRF_TOKEN || ''},
+      });
+      if (!data.ok) {
+        setStatus(errorMessage(data));
+        return;
+      }
+      state.ranking = Array.isArray(data.items) ? data.items : [];
+      renderRanking(state.ranking);
+      const selectedLotId = Number(preferredLotId ?? $('currentLotId')?.value ?? 0);
+      const selected = rankingItemByLotId(selectedLotId) || state.ranking[0] || null;
+      if (selected) {
+        updateDecisionPanel(selected);
+        syncCurrentBid(selected.lot_id);
+      }
+      setStatus(`Получено лотов: ${state.ranking.length}.`);
+    } catch (_) {
+      setStatus('Не удалось обновить shortlist из-за сетевой ошибки.');
+    } finally {
+      setBusy(false);
     }
-    state.ranking = Array.isArray(data.items) ? data.items : [];
-    renderRanking(state.ranking);
-    const selectedLotId = Number(preferredLotId ?? $('currentLotId')?.value || 0);
-    const selected = rankingItemByLotId(selectedLotId) || state.ranking[0] || null;
-    if (selected) {
-      updateDecisionPanel(selected);
-      syncCurrentBid(selected.lot_id);
-    }
-    setStatus(`Получено лотов: ${state.ranking.length}.`);
   }
 
   async function evalCurrent() {
@@ -297,6 +335,21 @@
     if (!lotId) return;
     await evalLot(lotId);
     await refreshRanking(lotId);
+  }
+
+  function isHotkeyTarget(event) {
+    const target = event?.target;
+    if (!target || !(target instanceof Element)) {
+      return false;
+    }
+    if (target.closest('[contenteditable=""], [contenteditable="true"]')) {
+      return true;
+    }
+    const tag = String(target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+      return true;
+    }
+    return false;
   }
 
   window.addEventListener('DOMContentLoaded', () => {
@@ -352,15 +405,30 @@
     }
 
     document.addEventListener('keydown', async (event) => {
+      if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey) {
+        return;
+      }
+      if (isHotkeyTarget(event)) {
+        return;
+      }
+
       if (/^[1-9]$/.test(event.key)) {
         const index = Number(event.key) - 1;
         const rows = document.querySelectorAll('.auction-item');
-        if (rows[index]) rows[index].click();
+        if (rows[index]) {
+          event.preventDefault();
+          rows[index].click();
+          setStatus(`Выбран лот по горячей клавише ${event.key}.`);
+        }
+        return;
       }
       if (event.key.toLowerCase() === 'e') {
+        event.preventDefault();
         await evalCurrent();
+        return;
       }
       if (event.key.toLowerCase() === 'r') {
+        event.preventDefault();
         await refreshRanking();
       }
     });

@@ -389,10 +389,19 @@ def lots_analytics(session_id: int):
         lot = lots_by_id.get(int(item["lot_id"]))
         if lot is None:
             continue
-        structure = ", ".join(
-            f"{it.object_type.code if it.object_type else it.object_type_id} ×{max(1, int(it.quantity or 1))}"
-            for it in lot.items[:4]
-        )
+        structure_items = [
+            {
+                "object_type_id": int(it.object_type_id),
+                "code": (it.object_type.code if it.object_type else str(it.object_type_id)),
+                "name": (it.object_type.name if it.object_type else f"Тип {it.object_type_id}"),
+                "quantity": max(1, int(it.quantity or 1)),
+                "label": (
+                    f"{it.object_type.name if it.object_type else f'Тип {it.object_type_id}'} ×{max(1, int(it.quantity or 1))}"
+                ),
+            }
+            for it in lot.items
+        ]
+        structure = ", ".join(entry["label"] for entry in structure_items)
         composition = "all"
         categories = sorted(
             {
@@ -416,6 +425,7 @@ def lots_analytics(session_id: int):
                 **item,
                 "status": lot.status,
                 "structure": structure or "Пустой лот",
+                "structure_items": structure_items,
                 "composition": composition,
                 "price": float(
                     lot.purchase_price

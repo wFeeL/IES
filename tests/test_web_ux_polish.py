@@ -106,6 +106,8 @@ def test_workbench_focuses_on_forecast_portfolio_and_export_actions(client):
     assert f"/api/sessions/{session_id}/evaluations.csv" in html
     assert f"/evaluation/{session_id}" not in html
     assert f"/recommend/{session_id}" not in html
+    assert "Контур работы" not in html
+    assert "Продуктовый контур" not in html
 
 
 def test_dashboard_imports_session_via_ssr_form(client):
@@ -170,9 +172,12 @@ def test_quick_auction_script_keeps_selected_lot_after_refresh(client):
     js = js_resp.get_data(as_text=True)
 
     assert "async function refreshRanking(preferredLotId)" in js
-    assert "const selectedLotId = Number(preferredLotId ?? $('currentLotId')?.value || 0);" in js
+    assert "const selectedLotId = Number(preferredLotId ?? $('currentLotId')?.value ?? 0);" in js
     assert "const selected = rankingItemByLotId(selectedLotId) || state.ranking[0] || null;" in js
     assert "await refreshRanking(Number(button.dataset.lotId || 0));" in js
+    assert "function isHotkeyTarget(event)" in js
+    assert "tag === 'input' || tag === 'textarea' || tag === 'select'" in js
+    assert "event.preventDefault();" in js
 
 
 def test_forecast_page_shows_compatibility_block(client):
@@ -185,3 +190,4 @@ def test_forecast_page_shows_compatibility_block(client):
     assert "Совместимость прогноза" in html
     assert "Покрытые типы объектов" in html
     assert "Лишние колонки CSV" in html
+    assert "load_housea" not in html

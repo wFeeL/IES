@@ -11,19 +11,38 @@
 
   function renderSummary(target, title, payload) {
     if (!target) return;
-    const seriesRows = Object.entries(payload.series_stats || {})
-      .map(([key, stats]) => `
+    const statsRows = Array.isArray(payload.series_stats_display)
+      ? payload.series_stats_display
+      : Object.entries(payload.series_stats || {}).map(([key, stats]) => ({
+          key,
+          label: key,
+          stats,
+          group: 'legacy',
+        }));
+    const seriesRows = statsRows
+      .map((row) => `
         <tr>
-          <td>${key}</td>
-          <td>${formatNum(stats.min, 3)}</td>
-          <td>${formatNum(stats.max, 3)}</td>
-          <td>${formatNum(stats.avg, 3)}</td>
-          <td>${formatNum(stats.median, 3)}</td>
+          <td>${row.label || row.key || '—'}</td>
+          <td>${formatNum((row.stats || {}).min, 3)}</td>
+          <td>${formatNum((row.stats || {}).max, 3)}</td>
+          <td>${formatNum((row.stats || {}).avg, 3)}</td>
+          <td>${formatNum((row.stats || {}).median, 3)}</td>
         </tr>
       `)
       .join('');
-    const loads = Object.entries(payload.consumer_averages || {})
-      .map(([key, value]) => `<span class="pill">${key}: ${formatNum(value, 2)}</span>`)
+    const loadRows = Array.isArray(payload.load_series_display)
+      ? payload.load_series_display
+      : Object.entries(payload.consumer_averages || {}).map(([key, avg]) => ({
+          key,
+          label: key,
+          avg,
+          is_service: false,
+        }));
+    const loads = loadRows
+      .map(
+        (row) =>
+          `<span class="pill${row.is_service ? ' is-service' : ''}">${row.label || row.key}: ${formatNum(row.avg, 2)}</span>`
+      )
       .join('');
     const warnings = (payload.quality?.warnings || []).map((item) => `<li>${item}</li>`).join('');
     const problems = (payload.quality?.problem_columns || []).join(', ');

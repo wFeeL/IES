@@ -32,21 +32,6 @@
 </section>
 {% endif %}
 
-<section class="card mt-4">
-  <div class="section-head">
-    <div>
-      <p class="section-kicker">Контур работы</p>
-      <h2 class="h2">Сессия → Прогноз → Лоты → Покупка</h2>
-      <p class="muted">Основной рабочий сценарий: оцените лоты по активному прогнозу и сформируйте портфель в рамках бюджета.</p>
-    </div>
-    <div class="pill-row">
-      <span class="pill">Статус: активна</span>
-      <span class="pill">Прогноз: {{ forecast_context.source_label }}</span>
-      <span class="pill">Остаток: {{ '%.1f'|format(portfolio.remaining_budget) }}</span>
-    </div>
-  </div>
-</section>
-
 <section class="kpi-grid mt-4">
   <article class="kpi-card">
     <span class="metric-label">Лотов в сессии</span>
@@ -96,12 +81,14 @@
       <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ '%.2f'|format(forecast_card.avg_wind or 0.0) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ '%.2f'|format(forecast_card.avg_illumination or 0.0) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя цена рынка</span><strong>{{ '%.2f'|format(forecast_card.avg_market_price or 0.0) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Рядов нагрузки</span><strong>{{ forecast_card.load_series|length }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Рядов нагрузки</span><strong>{{ (forecast_card.load_series_display or [])|length }}</strong></div>
     </div>
     <div class="mt-3">
       <div class="pill-row">
-        {% for series in forecast_card.load_series %}
-        <span class="pill text-ellipsis" title="{{ series }}">{{ series }}: {{ '%.2f'|format(forecast_card.consumer_averages.get(series, 0.0)) }}</span>
+        {% for row in forecast_card.load_series_display or [] %}
+        <span class="pill text-ellipsis {{ 'is-service' if row.is_service else '' }}" title="{{ row.label }}">
+          {{ row.label }}: {{ '%.2f'|format(row.avg or 0.0) }}
+        </span>
         {% else %}
         <span class="muted">Ряды нагрузки не найдены.</span>
         {% endfor %}
@@ -121,9 +108,10 @@
             </tr>
           </thead>
           <tbody>
-            {% for key, stats in forecast_card.series_stats.items() %}
+            {% for row in forecast_card.series_stats_display or [] %}
+            {% set stats = row.stats or {} %}
             <tr>
-              <td class="text-ellipsis" title="{{ key }}">{{ key }}</td>
+              <td class="text-ellipsis" title="{{ row.label }}">{{ row.label }}</td>
               <td class="num">{{ '%.3f'|format(stats.min or 0.0) }}</td>
               <td class="num">{{ '%.3f'|format(stats.max or 0.0) }}</td>
               <td class="num">{{ '%.3f'|format(stats.avg or 0.0) }}</td>
@@ -255,7 +243,15 @@
         {% for row in available_rows %}
         <tr>
           <td class="col-text"><strong class="text-ellipsis" title="{{ row.name }}">{{ row.name }}</strong></td>
-          <td class="col-text"><span class="text-ellipsis" title="{{ row.structure }}">{{ row.structure }}</span></td>
+          <td class="col-text">
+            <div class="lot-chip-wrap" title="{{ row.structure }}">
+              {% for item in row.structure_items %}
+              <span class="lot-chip">{{ item.label }}</span>
+              {% else %}
+              <span class="muted">Пустой лот</span>
+              {% endfor %}
+            </div>
+          </td>
           <td class="num">{{ '%.2f'|format(row.utility) }}</td>
           <td class="num">{{ '%.2f'|format(row.net_profit) }}</td>
           <td class="num">{{ '%.2f'|format(row.risk) }}</td>

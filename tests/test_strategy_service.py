@@ -13,7 +13,7 @@ def test_build_combo_catalog_limits_combination_growth(monkeypatch):
     ]
     calls: list[tuple[int, ...]] = []
 
-    def _fake_combo_eval(*, session, lots, strategy, forecast, singles_net_profit):
+    def _fake_combo_eval(*, session, lots, strategy, forecast, singles_net_profit, standalone_bids):
         lot_ids = tuple(int(lot.id) for lot in lots)
         calls.append(lot_ids)
         size = len(lot_ids)
@@ -32,6 +32,7 @@ def test_build_combo_catalog_limits_combination_growth(monkeypatch):
             budget_limited_bid=float(10 * size),
             synergy_score=0.0,
             explanation="test",
+            lot_bid_breakdown=[],
         )
 
     monkeypatch.setattr(strategy_service, "_combo_eval", _fake_combo_eval)

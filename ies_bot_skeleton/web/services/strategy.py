@@ -23,6 +23,7 @@ class ComboEvaluation:
     budget_limited_bid: float
     synergy_score: float
     explanation: str
+    lot_bid_breakdown: List[Dict[str, Any]]
 
 
 def _session_lots(session: GameSession) -> Sequence[Lot]:
@@ -100,6 +101,7 @@ def _combo_eval(
     strategy: Optional[str],
     forecast: Optional[Forecast],
     singles_net_profit: Dict[int, float],
+    standalone_bids: Dict[int, Dict[str, Any]],
 ) -> ComboEvaluation:
     ordered_lots = sorted(lots, key=lambda row: int(row.id))
     payload = evaluate_lot_bundle(
@@ -115,6 +117,86 @@ def _combo_eval(
     single_sum = float(sum(float(singles_net_profit.get(lot_id, 0.0) or 0.0) for lot_id in lot_ids))
     synergy_score = float(base_profit - single_sum)
     explanation = _stringify_reasons(payload, synergy_score=synergy_score)
+
+    standalone_rows: List[Dict[str, Any]] = []
+    for lot in ordered_lots:
+        lot_id = int(lot.id)
+        base = dict(standalone_bids.get(lot_id) or {})
+        standalone_target = float(base.get("target_bid", 0.0) or 0.0)
+        standalone_cautious = float(base.get("cautious_bid", 0.0) or 0.0)
+        standalone_hard = float(base.get("hard_ceiling_bid", 0.0) or 0.0)
+        if len(ordered_lots) == 1 and standalone_target <= 0.0:
+            standalone_target = float(bids.get("target_bid", 0.0) or 0.0)
+            standalone_cautious = float(bids.get("cautious_bid", 0.0) or 0.0)
+            standalone_hard = float(bids.get("hard_ceiling_bid", 0.0) or 0.0)
+        lot_price = float(lot.current_bid or 0.0)
+        weight = standalone_target if standalone_target > 0.0 else lot_price
+        if weight <= 0.0:
+            weight = 1.0
+        standalone_rows.append(
+            {
+                "lot_id": lot_id,
+                "lot_name": lot.name,
+                "lot_price": lot_price,
+                "standalone_target_bid": standalone_target,
+                "standalone_cautious_bid": standalone_cautious,
+                "standalone_hard_ceiling_bid": standalone_hard,
+                "weight": weight,
+            }
+        )
+
+    weight_total = float(sum(float(row["weight"]) for row in standalone_rows)) or 1.0
+    target_synergy = float(
+        float(bids.get("target_bid", 0.0) or 0.0)
+        - sum(float(row["standalone_target_bid"]) for row in standalone_rows)
+    )
+    cautious_synergy = float(
+        float(bids.get("cautious_bid", 0.0) or 0.0)
+        - sum(float(row["standalone_cautious_bid"]) for row in standalone_rows)
+    )
+    hard_synergy = float(
+        float(bids.get("hard_ceiling_bid", 0.0) or 0.0)
+        - sum(float(row["standalone_hard_ceiling_bid"]) for row in standalone_rows)
+    )
+
+    combo_target_bid = float(bids.get("target_bid", 0.0) or 0.0)
+    budget_ratio = (
+        max(
+            0.0,
+            min(1.0, float(bids.get("budget_limited_bid", 0.0) or 0.0) / combo_target_bid),
+        )
+        if combo_target_bid > 0.0
+        else 1.0
+    )
+    lot_bid_breakdown: List[Dict[str, Any]] = []
+    for row in standalone_rows:
+        share = float(row["weight"]) / weight_total
+        allocated_target = max(
+            0.0,
+            float(row["standalone_target_bid"]) + target_synergy * share,
+        )
+        allocated_cautious = max(
+            0.0,
+            float(row["standalone_cautious_bid"]) + cautious_synergy * share,
+        )
+        allocated_hard = max(
+            allocated_target,
+            float(row["standalone_hard_ceiling_bid"]) + hard_synergy * share,
+        )
+        lot_bid_breakdown.append(
+            {
+                "lot_id": int(row["lot_id"]),
+                "lot_name": str(row["lot_name"]),
+                "standalone_target_bid": float(row["standalone_target_bid"]),
+                "standalone_hard_ceiling_bid": float(row["standalone_hard_ceiling_bid"]),
+                "allocated_target_bid": float(allocated_target),
+                "allocated_cautious_bid": float(allocated_cautious),
+                "allocated_hard_ceiling_bid": float(allocated_hard),
+                "synergy_allocated": float(target_synergy * share),
+                "budget_adjusted_bid": float(max(0.0, allocated_target * budget_ratio)),
+            }
+        )
+
     return ComboEvaluation(
         lot_ids=lot_ids,
         payload=payload,
@@ -129,6 +211,7 @@ def _combo_eval(
         budget_limited_bid=float(bids.get("budget_limited_bid", 0.0) or 0.0),
         synergy_score=synergy_score,
         explanation=explanation,
+        lot_bid_breakdown=lot_bid_breakdown,
     )
 
 
@@ -157,6 +240,7 @@ def _combo_to_dict(
             (combo.payload.get("metrics") or {}).get("forecast_compatibility") or {}
         ),
         "reason": combo.explanation,
+        "lot_bid_breakdown": list(combo.lot_bid_breakdown),
     }
 
 
@@ -177,6 +261,7 @@ def _build_combo_catalog(
     lot_map = {int(lot.id): lot for lot in available_lots}
     singles: List[ComboEvaluation] = []
     singles_net_profit: Dict[int, float] = {}
+    standalone_bids: Dict[int, Dict[str, Any]] = {}
     for lot in available_lots:
         if not _within_budget(price=_combo_price([lot]), remaining_budget=remaining_budget):
             continue
@@ -186,9 +271,15 @@ def _build_combo_catalog(
             strategy=strategy,
             forecast=forecast,
             singles_net_profit={},
+            standalone_bids={},
         )
         singles.append(row)
         singles_net_profit[int(lot.id)] = float(row.net_profit_base)
+        standalone_bids[int(lot.id)] = {
+            "target_bid": float(row.target_bid),
+            "cautious_bid": float(row.cautious_bid),
+            "hard_ceiling_bid": float(row.hard_ceiling_bid),
+        }
 
     combos: Dict[Tuple[int, ...], ComboEvaluation] = {row.lot_ids: row for row in singles}
     if not singles:
@@ -220,6 +311,7 @@ def _build_combo_catalog(
                     strategy=strategy,
                     forecast=forecast,
                     singles_net_profit=singles_net_profit,
+                    standalone_bids=standalone_bids,
                 )
         if not expanded:
             break

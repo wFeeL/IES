@@ -89,6 +89,25 @@ def test_missing_admin_entities_redirect_with_flash_message(client):
     assert "Тип объекта не найден." in type_resp.get_data(as_text=True)
 
 
+def test_sidebar_navigation_uses_svg_icons_and_no_product_contour(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Sidebar icons")
+
+    resp = client.get(f"/sessions/{session_id}")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+
+    assert "Сессии и аналитика" in html
+    assert "Справочник" in html
+    assert "Администрирование" in html
+    assert '<svg viewBox="0 0 24 24" fill="none">' in html
+    assert "M4 4h7v7H4z" in html
+    assert "M5 4h12a2 2" in html
+    assert "M12 3.5l2 .9" in html
+    assert "Продуктовый контур" not in html
+    assert "sidebar-promo" not in html
+
+
 def test_legacy_analysis_pages_redirect_to_main_flow(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Legacy redirects")

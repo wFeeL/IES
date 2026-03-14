@@ -21,6 +21,8 @@ def test_lots_table_uses_compact_headers_and_actions_menu(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Lots table")
     type_map = _type_map(client)
+    type_rows = client.get("/api/object-types").get_json()["items"]
+    type_name = {row["code"]: row["name"] for row in type_rows}
 
     created = client.post(
         "/api/lots",
@@ -33,6 +35,9 @@ def test_lots_table_uses_compact_headers_and_actions_menu(client):
             "items": [
                 {"object_type_id": type_map["wind"], "quantity": 1},
                 {"object_type_id": type_map["storage"], "quantity": 1},
+                {"object_type_id": type_map["office"], "quantity": 1},
+                {"object_type_id": type_map["house"], "quantity": 1},
+                {"object_type_id": type_map["factory"], "quantity": 1},
             ],
         },
     )
@@ -49,6 +54,13 @@ def test_lots_table_uses_compact_headers_and_actions_menu(client):
     assert 'aria-haspopup="menu"' in html
     assert 'role="menu"' in html
     assert 'title="Очень длинное имя лота для проверки tooltip и ellipsis"' in html
+    assert 'class="lot-chip-wrap"' in html
+    assert html.count('class="lot-chip"') >= 5
+    assert f'{type_name["wind"]} ×1' in html
+    assert f'{type_name["storage"]} ×1' in html
+    assert f'{type_name["office"]} ×1' in html
+    assert f'{type_name["house"]} ×1' in html
+    assert f'{type_name["factory"]} ×1' in html
 
 
 def test_session_dashboard_shows_forecast_portfolio_and_quick_actions(client):
@@ -59,7 +71,8 @@ def test_session_dashboard_shows_forecast_portfolio_and_quick_actions(client):
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
 
-    assert "Сессия → Прогноз → Лоты → Покупка" in html
+    assert "Сессия → Прогноз → Лоты → Покупка" not in html
+    assert "Контур работы" not in html
     assert "Активный прогноз" in html
     assert "Готовность данных" in html
     assert "Бюджет и портфель" in html

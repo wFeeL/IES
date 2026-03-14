@@ -13,8 +13,11 @@ from ies_bot_skeleton.web.models import (
     ObjectType,
 )
 from ies_bot_skeleton.web.services.evaluation import (
+    _consumer_demand_mw,
     _financial_breakdown,
+    _solar_generation_mw,
     _scenario_row,
+    _wind_generation_mw,
     evaluate_lot,
 )
 from ies_bot_skeleton.web.services.forecast_service import (
@@ -135,6 +138,22 @@ def test_recommended_bid_is_within_budget(app_ctx):
     assert budget_limited == pytest.approx(min(hard, remaining))
     assert out["decision_summary"]["budget_limited_bid"] == pytest.approx(budget_limited)
     assert out["metrics"]["bids"]["budget_remaining"] == pytest.approx(remaining)
+    valuation = dict((out["metrics"]["bids"] or {}).get("valuation_model") or {})
+    assert valuation["model"] == "valuation_model_v2"
+    assert valuation["profile"] == "balanced"
+    assert valuation["risk_band"] in {"low", "medium", "high"}
+    assert valuation["target_bid"] == pytest.approx(hard)
+    assert valuation["budget_limited_bid"] == pytest.approx(budget_limited)
+    assert "risk_ratio" in valuation
+    assert "v1" in valuation
+    assert "v2" in valuation
+    ui_rows = list((out["financial_breakdown"] or {}).get("ui_rows") or [])
+    assert any(str(row.get("key")) == "entry_price" for row in ui_rows)
+    assert any(str(row.get("key")) == "net_profit" for row in ui_rows)
+    for row in ui_rows:
+        if str(row.get("key")) in {"entry_price", "net_profit"}:
+            continue
+        assert abs(float(row.get("value", 0.0))) > 1e-6
     assert 0.0 <= float(out["confidence"]) <= 1.0
     assert "delta_score" in out["metrics"]
     assert out["forecast_context"]["source"] == "selected_forecast"
@@ -171,6 +190,82 @@ def test_legacy_load_columns_are_mapped_to_canonical_series(app_ctx):
 
     assert float(out["financial_breakdown"]["income"]["total"]) > 0.0
     assert float(out["metrics"]["scenario_delta"]["base"]["delta_income"]) > 0.0
+
+
+def test_houseb_alias_forecast_profile_is_supported(app_ctx):
+    session = app_ctx["session"]
+    type_house = db.session.query(ObjectType).filter_by(code="house").one()
+
+    lot = Lot(
+        session_id=session.id,
+        name="HouseB profile lot",
+        scope="normal",
+        status="available",
+        base_bid=10.0,
+        current_bid=10.0,
+    )
+    db.session.add(lot)
+    db.session.flush()
+    db.session.add(LotItem(lot_id=lot.id, object_type_id=type_house.id, quantity=1))
+    db.session.commit()
+
+    rows = ["tick,wind,illumination,houseB,market_price"]
+    for tick in range(48):
+        rows.append(f"{tick},3,0.6,{8 + (tick % 3)},10")
+    houseb_csv = ("\n".join(rows) + "\n").encode("utf-8")
+    houseb_forecast, _ = parse_and_store_forecast(
+        session_id=session.id,
+        name="HouseB alias",
+        source_file="houseb.csv",
+        content=houseb_csv,
+    )
+
+    summary = summarize_forecast(houseb_forecast)
+    load_display = list(summary.get("load_series_display") or [])
+    assert load_display
+    assert any(str(row.get("key")) == "housea" for row in load_display)
+    assert any(str(row.get("key")) == "class3" and bool(row.get("is_service")) for row in load_display)
+
+    out = evaluate_lot(session=session, lot=lot, forecast=houseb_forecast, persist=False)
+    assert float(out["financial_breakdown"]["income"]["served_load_revenue"]) > 0.0
+
+
+def test_forecast_display_rows_use_human_labels_and_service_group(app_ctx):
+    session = app_ctx["session"]
+    forecast, _ = parse_and_store_forecast(
+        session_id=session.id,
+        name="Display labels",
+        source_file="display.csv",
+        content=_h48_csv_legacy_loads(),
+    )
+
+    summary = summarize_forecast(forecast)
+    display_rows = list(summary.get("load_series_display") or [])
+    class3_row = next(row for row in display_rows if str(row.get("key")) == "class3")
+    assert class3_row["label"] != "class3"
+    assert bool(class3_row["is_service"]) is True
+
+    stats_display = list(summary.get("series_stats_display") or [])
+    class3_stats = next(row for row in stats_display if str(row.get("key")) == "class3")
+    assert class3_stats["group"] == "load_service"
+    assert class3_stats["label"] != "class3"
+
+
+def test_forecast_value_interpretation_uses_absolute_branches_for_large_values():
+    # Consumer: >1.5 means absolute demand in MW, not multiplier.
+    assert _consumer_demand_mw(expected_consumption_mw=5.0, profile_value=1.2, load_scale=1.0) == pytest.approx(6.0)
+    assert _consumer_demand_mw(expected_consumption_mw=5.0, profile_value=8.0, load_scale=1.0) == pytest.approx(8.0)
+
+    # Generation: large values are capped by installed generation in absolute branch.
+    wind_mw = _wind_generation_mw(
+        wind_value=6.0,
+        generation_mw=4.0,
+        efficiency=1.0,
+        object_defaults={"wind_k_default": 0.1},
+    )
+    solar_mw = _solar_generation_mw(solar_value=7.0, generation_mw=3.0, efficiency=1.0)
+    assert wind_mw <= 4.0 + 1e-9
+    assert solar_mw <= 3.0 + 1e-9
 
 
 def test_generator_income_does_not_double_count_internal_supply(app_ctx):

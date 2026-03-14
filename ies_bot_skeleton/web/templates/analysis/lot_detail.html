@@ -110,21 +110,14 @@
     <div class="table-wrap mt-3">
       <table class="table">
         <tbody>
-          <tr><th class="col-text">Доход от объектов</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.income.object_income) }}</td></tr>
-          <tr><th class="col-text">Доход от экспорта</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.income.export_revenue or evaluation.financial_breakdown.income.market_income) }}</td></tr>
-          <tr><th class="col-text">Эффект замещения рыночной покупки</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.income.avoided_market_purchase_value or 0.0) }}</td></tr>
-          <tr><th class="col-text">Экологический вклад</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.income.eco_value) }}</td></tr>
-          <tr><th class="col-text">Цена входа</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.expenses.entry_price) }}</td></tr>
-          <tr><th class="col-text">Контрактные расходы</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.expenses.contract_costs) }}</td></tr>
-          <tr><th class="col-text">Топливо и налоги</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.expenses.fuel_and_taxes) }}</td></tr>
-          <tr><th class="col-text">Эксплуатация накопителя</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.expenses.storage_operating_cost or 0.0) }}</td></tr>
-          <tr><th class="col-text">Допзакупка на рынке</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.expenses.market_purchase) }}</td></tr>
-          <tr><th class="col-text">Сетевые потери</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.network_losses) }}</td></tr>
-          <tr><th class="col-text">Штрафы за перегруз</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.overload_penalties or 0.0) }}</td></tr>
-          <tr><th class="col-text">Штрафы за дефицит</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.deficit_penalties or 0.0) }}</td></tr>
-          <tr><th class="col-text">Штрафы всего</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.penalties) }}</td></tr>
-          <tr><th class="col-text">Риск-премия</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.losses_and_risks.risk_total) }}</td></tr>
-          <tr><th class="col-text">Итог</th><td class="num">{{ '%.2f'|format(evaluation.financial_breakdown.result.net_profit) }}</td></tr>
+          {% for row in evaluation.financial_breakdown.ui_rows or [] %}
+          <tr{% if row.emphasis %} class="row-emphasis"{% endif %}>
+            <th class="col-text">{{ row.label }}</th>
+            <td class="num">{{ '%.2f'|format(row.value or 0.0) }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2" class="muted">Декомпозиция пока недоступна.</td></tr>
+          {% endfor %}
         </tbody>
       </table>
     </div>
@@ -147,6 +140,8 @@
           <tr><th class="col-text">Рабочая ставка</th><td class="num">{{ '%.1f'|format(evaluation.decision_summary.target_bid or evaluation.decision_summary.hard_bid) }}</td></tr>
           <tr><th class="col-text">Предельная ставка</th><td class="num">{{ '%.1f'|format(evaluation.decision_summary.hard_ceiling_bid or evaluation.decision_summary.stop_bid) }}</td></tr>
           <tr><th class="col-text">Ставка с учетом бюджета</th><td class="num">{{ '%.1f'|format(evaluation.decision_summary.budget_limited_bid or 0.0) }}</td></tr>
+          <tr><th class="col-text">Риск-премия в модели ставки</th><td class="num">{{ '%.2f'|format(evaluation.metrics.bids.risk_premium or 0.0) }}</td></tr>
+          <tr><th class="col-text">Резервный буфер</th><td class="num">{{ '%.2f'|format(evaluation.metrics.bids.reserve_margin or 0.0) }}</td></tr>
           <tr><th class="col-text">Соответствие стратегии</th><td>{{ evaluation.strategy_fit_text }}</td></tr>
           <tr><th class="col-text">Комментарий по рискам</th><td>{{ evaluation.risk_commentary }}</td></tr>
           <tr><th class="col-text">Влияние на портфель (чистая прибыль)</th><td>{{ '%.2f'|format(evaluation.metrics.portfolio_delta.net_profit_base or 0.0) }}</td></tr>
@@ -179,14 +174,15 @@
           <th class="col-num">Синергия</th>
           <th class="col-num">Чистая прибыль</th>
           <th class="col-num">Рабочая ставка</th>
+          <th class="col-text">Ставки по лотам</th>
           <th class="col-text">Причина</th>
         </tr>
       </thead>
       <tbody id="lotBestPairsBody">
         {% if forecast_blocked %}
-        <tr><td colspan="5" class="muted">Лучшие пары не рассчитаны или отсутствуют в бюджете.</td></tr>
+        <tr><td colspan="6" class="muted">Лучшие пары не рассчитаны или отсутствуют в бюджете.</td></tr>
         {% else %}
-        <tr><td colspan="5" class="muted">Загружаю лучшие пары для этого лота...</td></tr>
+        <tr><td colspan="6" class="muted">Загружаю лучшие пары для этого лота...</td></tr>
         {% endif %}
       </tbody>
     </table>

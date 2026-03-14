@@ -48,6 +48,37 @@ STALE_REASON_LABELS: Dict[str, str] = {
     "object_type_changed": "обновлены типы объектов",
 }
 
+FORECAST_FACTOR_LABELS: Dict[str, str] = {
+    "wind_factor": "Фактор ветра",
+    "solar_factor": "Фактор солнца",
+    "market_price_buy": "Рыночная цена покупки",
+    "market_price_sell": "Рыночная цена продажи",
+    "fuel_price": "Цена топлива",
+    "temperature": "Температура",
+    "time_of_day": "Время суток",
+}
+
+FORECAST_PROFILE_LABELS: Dict[str, str] = {
+    "factory_load": "Нагрузка завода",
+    "office_load": "Нагрузка офиса",
+    "house_load": "Нагрузка домохозяйств",
+    "solar_profile": "Профиль солнечной генерации",
+    "wind_profile": "Профиль ветровой генерации",
+    "storage_default_profile": "Профиль накопителя",
+}
+
+FORECAST_LOAD_LABELS: Dict[str, str] = {
+    "housea": "Домохозяйства A",
+    "houseb": "Домохозяйства B",
+    "office": "Офисная нагрузка",
+    "factory": "Промышленная нагрузка",
+    "consumer": "Общая потребительская нагрузка",
+    "load": "Совокупная нагрузка",
+    "class3": "Служебный ряд: class3",
+}
+
+FORECAST_SERVICE_LOAD_KEYS = {"class3", "consumer", "load"}
+
 
 def strategy_label(code: str | None) -> str:
     if not code:
@@ -87,3 +118,16 @@ def stale_reason_label(raw_reason: str | None) -> str:
         if item not in uniq:
             uniq.append(item)
     return "; ".join(uniq)
+
+
+def forecast_series_label(key: str | None) -> str:
+    if not key:
+        return "—"
+    code = str(key).strip().lower()
+    if code in FORECAST_FACTOR_LABELS:
+        return FORECAST_FACTOR_LABELS[code]
+    if code in FORECAST_PROFILE_LABELS:
+        return FORECAST_PROFILE_LABELS[code]
+    if code in FORECAST_LOAD_LABELS:
+        return FORECAST_LOAD_LABELS[code]
+    return code.replace("_", " ")

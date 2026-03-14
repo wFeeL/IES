@@ -48,27 +48,34 @@
 
         <nav class="sidebar-nav">
           <a class="sidebar-link {{ 'is-active' if analysis_active else '' }}" href="{{ url_for('pages.dashboard') }}">
-            <span class="sidebar-link-icon">▣</span>
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v11h-7zM4 13h7v8H4z"></path>
+              </svg>
+            </span>
             <span>Сессии и аналитика</span>
           </a>
           <a class="sidebar-link {{ 'is-active' if endpoint == 'pages.catalog' else '' }}" href="{{ url_for('pages.catalog') }}">
-            <span class="sidebar-link-icon">◍</span>
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M5 4h12a2 2 0 0 1 2 2v12H7a2 2 0 0 0-2 2V4zm0 0H4"></path>
+                <path d="M7 8h8M7 11h8M7 14h5"></path>
+              </svg>
+            </span>
             <span>Справочник</span>
           </a>
           {% if current_user.role == 'admin' %}
           <a class="sidebar-link {{ 'is-active' if endpoint.startswith('pages.settings_') else '' }}" href="{{ url_for('pages.settings_model_page') }}">
-            <span class="sidebar-link-icon">⚙</span>
+            <span class="sidebar-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M12 3.5l2 .9 2.2-.3 1.2 1.9 2 .9v2.2l1.2 1.9-1.2 1.9V15l-2 .9-1.2 1.9-2.2-.3-2 .9-2-.9-2.2.3-1.2-1.9-2-.9v-2.2L2.6 13l1.2-1.9V8.9l2-.9 1.2-1.9 2.2.3 2-.9z"></path>
+                <circle cx="12" cy="12" r="3.2"></circle>
+              </svg>
+            </span>
             <span>Администрирование</span>
           </a>
           {% endif %}
         </nav>
-
-        <article class="sidebar-promo">
-          <p class="section-kicker">Продуктовый контур</p>
-          <h2 class="h3">Сессия → Прогноз → Лоты → Покупка</h2>
-          <p class="muted">Единый путь решений без compare-flow и legacy экранов.</p>
-          <a class="btn btn-primary btn-block sidebar-promo-btn" href="{{ url_for('pages.dashboard') }}">Открыть рабочий контур</a>
-        </article>
       </aside>
 
       <div class="dashboard-main">

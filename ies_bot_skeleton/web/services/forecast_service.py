@@ -14,6 +14,7 @@ from ies_bot_skeleton.domain.lot_analysis.forecast_loader import load_forecasts
 from ..extensions import db
 from ..models import Forecast, ForecastPeriod, GameSession, ObjectType
 from .test_game_preset import TEST_GAME_BUNDLED_FORECAST_NAME
+from .ui_text import FORECAST_SERVICE_LOAD_KEYS, forecast_series_label
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FORECASTS_DIR = ROOT / "resources" / "lot_analysis" / "default_forecasts"
@@ -71,8 +72,11 @@ _PROFILE_ALIASES: Dict[str, tuple[str, ...]] = {
         "house_load",
         "house",
         "housea",
+        "houseb",
         "load_house",
+        "load_houseb",
         "load_housea",
+        "consumption_houseb",
         "consumption_house",
     ),
     "solar_profile": ("solar_profile", "solar_output_profile"),
@@ -89,9 +93,12 @@ _LEGACY_PROFILE_TO_LOAD = {
 _LEGACY_LOAD_TO_PROFILE = {
     "house": "house_load",
     "housea": "house_load",
+    "houseb": "house_load",
     "load_house": "house_load",
     "load_housea": "house_load",
+    "load_houseb": "house_load",
     "consumption_house": "house_load",
+    "consumption_houseb": "house_load",
     "office": "office_load",
     "load_office": "office_load",
     "consumption_office": "office_load",
@@ -158,6 +165,59 @@ def _series_stats(values: Iterable[Optional[float]]) -> Optional[Dict[str, float
         "avg": round(sum(rows) / len(rows), 4),
         "median": round(float(statistics.median(rows)), 4),
     }
+
+
+def _build_load_series_display(
+    load_rows: Dict[str, Dict[int, float]],
+) -> List[Dict[str, Any]]:
+    display: List[Dict[str, Any]] = []
+    for key in sorted(load_rows.keys()):
+        values = load_rows.get(key) or {}
+        avg_value = _series_stats(values.values())
+        display.append(
+            {
+                "key": key,
+                "label": forecast_series_label(key),
+                "avg": float(avg_value["avg"]) if avg_value is not None else None,
+                "is_service": key in FORECAST_SERVICE_LOAD_KEYS,
+            }
+        )
+    return display
+
+
+def _build_series_stats_display(
+    series_stats: Dict[str, Dict[str, float] | None],
+    load_rows: Dict[str, Dict[int, float]],
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for key in CANONICAL_FACTOR_KEYS:
+        rows.append(
+            {
+                "key": key,
+                "label": forecast_series_label(key),
+                "group": "factor",
+                "stats": dict(series_stats.get(key) or {}) or None,
+            }
+        )
+    for key in CANONICAL_PROFILE_KEYS:
+        rows.append(
+            {
+                "key": key,
+                "label": forecast_series_label(key),
+                "group": "profile",
+                "stats": dict(series_stats.get(key) or {}) or None,
+            }
+        )
+    for key in sorted(load_rows.keys()):
+        rows.append(
+            {
+                "key": key,
+                "label": forecast_series_label(key),
+                "group": "load_service" if key in FORECAST_SERVICE_LOAD_KEYS else "load",
+                "stats": _series_stats((load_rows.get(key) or {}).values()),
+            }
+        )
+    return rows
 
 
 def _canonical_load_key(raw_key: str) -> Optional[str]:
@@ -714,6 +774,8 @@ def bundled_forecast_summary() -> Dict[str, Any]:
         class3 = _build_class3_series(load_rows)
         if class3:
             load_rows["class3"] = class3
+    load_series_display = _build_load_series_display(load_rows)
+    series_stats_display = _build_series_stats_display(series_stats, load_rows)
 
     return {
         "mode": "builtin",
@@ -730,9 +792,11 @@ def bundled_forecast_summary() -> Dict[str, Any]:
         "factors_keys": sorted(factors.keys()),
         "profiles_keys": sorted(profiles.keys()),
         "load_series": sorted(load_rows.keys()),
+        "load_series_display": load_series_display,
         "load_series_raw": sorted(load_rows.keys()),
         "consumer_averages": {k: avg(v.values()) for k, v in load_rows.items()},
         "series_stats": series_stats,
+        "series_stats_display": series_stats_display,
         "compatibility_report": {
             "is_compatible": True,
             "blocking_reasons": [],
@@ -1033,9 +1097,11 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
             "factors_keys": [],
             "profiles_keys": [],
             "load_series": [],
+            "load_series_display": [],
             "load_series_raw": [],
             "consumer_averages": {},
             "series_stats": {},
+            "series_stats_display": [],
             "compatibility_report": dict(forecast.compatibility_report_json or {}),
             "quality": {
                 "warnings": warnings,
@@ -1063,12 +1129,14 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
         class3 = _build_class3_series(load_rows)
         if class3:
             load_rows["class3"] = class3
+    load_series_display = _build_load_series_display(load_rows)
 
     series_stats: Dict[str, Dict[str, float] | None] = {}
     for key in CANONICAL_FACTOR_KEYS:
         series_stats[key] = _series_stats((factors.get(key) or {}).values())
     for key in CANONICAL_PROFILE_KEYS:
         series_stats[key] = _series_stats((profiles.get(key) or {}).values())
+    series_stats_display = _build_series_stats_display(series_stats, load_rows)
 
     warnings = list((forecast.metadata_json or {}).get("warnings_detail") or [])
     compatibility_report = dict(forecast.compatibility_report_json or {})
@@ -1094,9 +1162,11 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
         "factors_keys": sorted(factors.keys()),
         "profiles_keys": sorted(profiles.keys()),
         "load_series": sorted(load_rows.keys()),
+        "load_series_display": load_series_display,
         "load_series_raw": sorted(load_rows.keys()),
         "consumer_averages": {key: avg(values.values()) for key, values in load_rows.items()},
         "series_stats": series_stats,
+        "series_stats_display": series_stats_display,
         "compatibility_report": compatibility_report,
         "is_compatible": bool(forecast.is_compatible),
         "incompatibility_reason": forecast.incompatibility_reason or "",

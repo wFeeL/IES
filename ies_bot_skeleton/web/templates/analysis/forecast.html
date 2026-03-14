@@ -27,7 +27,7 @@
       <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ '%.2f'|format(active_forecast_summary.avg_wind or 0.0) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ '%.2f'|format(active_forecast_summary.avg_illumination or 0.0) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя цена рынка</span><strong>{{ '%.2f'|format(active_forecast_summary.avg_market_price or 0.0) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Ряды нагрузки</span><strong>{{ active_forecast_summary.load_series|length }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Ряды нагрузки</span><strong>{{ (active_forecast_summary.load_series_display or [])|length }}</strong></div>
     </div>
     <div class="risk-block mt-3">{{ active_forecast_summary.quality.text }}</div>
     <div class="table-wrap mt-3">
@@ -85,7 +85,10 @@
           <td>{{ fc.id }}</td>
           <td><strong class="text-ellipsis" title="{{ fc.name }}">{{ fc.name }}</strong><div class="muted text-ellipsis" title="{{ fc.source_file }}">{{ fc.source_file }}</div></td>
           <td>{{ summary.tick_from or '—' }}–{{ summary.tick_to or '—' }}</td>
-          <td class="text-ellipsis" title="{{ summary.load_series|join(', ') if summary.load_series else 'не найдены' }}">{{ summary.load_series|join(', ') if summary.load_series else 'не найдены' }}</td>
+          {% set load_labels = (summary.load_series_display or []) | map(attribute='label') | list %}
+          <td class="text-ellipsis" title="{{ load_labels|join(', ') if load_labels else 'не найдены' }}">
+            {{ load_labels|join(', ') if load_labels else 'не найдены' }}
+          </td>
           <td>
             {% if compat.is_compatible %}
             <span class="status-badge status-fresh">Совместим</span>

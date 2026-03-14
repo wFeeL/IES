@@ -29,13 +29,34 @@
     return labels.length ? labels.join(' + ') : '—';
   }
 
+  function renderLotBidBreakdown(row) {
+    const breakdown = Array.isArray(row?.lot_bid_breakdown) ? row.lot_bid_breakdown : [];
+    if (!breakdown.length) {
+      return '';
+    }
+    return breakdown
+      .map((item) => {
+        const lotName = item?.lot_name ? escapeHtml(item.lot_name) : `Лот ${Number(item?.lot_id || 0)}`;
+        return `${lotName}: ${formatNumber(item?.allocated_target_bid, 1)} ` +
+          `(лимит ${formatNumber(item?.allocated_hard_ceiling_bid, 1)}, ` +
+          `синергия ${formatNumber(item?.synergy_allocated, 1)})`;
+      })
+      .join('<br/>');
+  }
+
   function renderSessionList(rows, emptyMessage, detailBuilder) {
     if (!Array.isArray(rows) || rows.length === 0) {
       return `<li class="muted">${escapeHtml(emptyMessage)}</li>`;
     }
     return rows
       .map((row) => {
-        return `<li><strong>${escapeHtml(names(row))}</strong><br/><span class="muted">${detailBuilder(row)}</span></li>`;
+        const breakdownHtml = renderLotBidBreakdown(row);
+        return (
+          `<li><strong>${escapeHtml(names(row))}</strong><br/>` +
+          `<span class="muted">${detailBuilder(row)}</span>` +
+          (breakdownHtml ? `<div class="muted mt-1">${breakdownHtml}</div>` : '') +
+          `</li>`
+        );
       })
       .join('');
   }
@@ -98,16 +119,18 @@
 
   function renderLotPairs(rows) {
     if (!Array.isArray(rows) || rows.length === 0) {
-      return '<tr><td colspan="5" class="muted">Лучшие пары не рассчитаны или отсутствуют в бюджете.</td></tr>';
+      return '<tr><td colspan="6" class="muted">Лучшие пары не рассчитаны или отсутствуют в бюджете.</td></tr>';
     }
     return rows
       .map((row) => {
+        const breakdown = renderLotBidBreakdown(row);
         return `
           <tr>
             <td class="col-text">${escapeHtml(names(row))}</td>
             <td class="num">${formatNumber(row.synergy_score, 2)}</td>
             <td class="num">${formatNumber(row.net_profit_base, 2)}</td>
             <td class="num">${formatNumber(row.target_bid, 1)}</td>
+            <td class="col-text">${breakdown || '—'}</td>
             <td class="col-text">${escapeHtml(row.reason || '—')}</td>
           </tr>
         `;
@@ -159,7 +182,7 @@
     }
     const data = await apiFetchJson(url, {method: 'GET'});
     if (!data.ok) {
-      body.innerHTML = `<tr><td colspan="5" class="muted">${escapeHtml(errorMessage(data))}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="6" class="muted">${escapeHtml(errorMessage(data))}</td></tr>`;
       return;
     }
     const rows = Array.isArray(data.item?.best_pairs) ? data.item.best_pairs : [];

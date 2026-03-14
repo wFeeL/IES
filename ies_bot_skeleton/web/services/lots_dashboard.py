@@ -31,14 +31,23 @@ def analytics_by_lot_for_session(session: GameSession) -> Dict[int, Dict[str, An
 def lot_summary(lot: Lot) -> Dict[str, Any]:
     counts = {"consumer": 0, "generator": 0, "storage": 0, "infrastructure": 0}
     items_total = 0
-    names: list[str] = []
+    structure_items: list[Dict[str, Any]] = []
     for item in _lot_items(lot):
         qty = max(1, int(item.quantity or 1))
         items_total += qty
         category = (item.object_type.category if item.object_type else "other") or "other"
         counts[category] = counts.get(category, 0) + qty
-        if item.object_type is not None:
-            names.append(f"{item.object_type.name} x{qty}")
+        object_name = item.object_type.name if item.object_type is not None else "Неизвестный тип"
+        object_code = item.object_type.code if item.object_type is not None else str(item.object_type_id)
+        structure_items.append(
+            {
+                "object_type_id": int(item.object_type_id),
+                "code": object_code,
+                "name": object_name,
+                "quantity": qty,
+                "label": f"{object_name} ×{qty}",
+            }
+        )
     if (
         counts.get("infrastructure", 0) > 0
         and counts.get("generator", 0) > 0
@@ -79,7 +88,8 @@ def lot_summary(lot: Lot) -> Dict[str, Any]:
             "infrastructure": "Инфраструктурный",
             "storage": "Накопительный",
         }.get(composition, "Смешанный"),
-        "structure": ", ".join(names[:4]) if names else "Пустой лот",
+        "structure": ", ".join(item["label"] for item in structure_items) if structure_items else "Пустой лот",
+        "structure_items": structure_items,
     }
 
 
@@ -93,6 +103,7 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "lot_id": int(lot.id),
         "name": lot.name,
         "structure": summary["structure"],
+        "structure_items": list(summary.get("structure_items") or []),
         "composition": summary["composition"],
         "composition_label": summary["composition_label"],
         "summary": summary,

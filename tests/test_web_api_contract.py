@@ -315,6 +315,7 @@ def test_forecast_compatibility_and_strategy_endpoints(client):
     assert "best_combination" in strategy_item
     if strategy_item["best_singles"]:
         assert "budget_limited_bid" in strategy_item["best_singles"][0]
+        assert "lot_bid_breakdown" in strategy_item["best_singles"][0]
 
 
 def test_incompatible_forecast_blocks_evaluation_and_strategy(client):
@@ -375,6 +376,129 @@ def test_incompatible_forecast_blocks_evaluation_and_strategy(client):
     assert strategy_resp.get_json()["error"]["code"] == "forecast_incompatible"
 
 
+def test_strategy_endpoint_returns_per_lot_bid_breakdown(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Per lot strategy")
+    wind_id = _type_id_by_code(client, "wind")
+
+    for idx, bid in enumerate((80, 85, 90), start=1):
+        resp = client.post(
+            "/api/lots",
+            json={
+                "session_id": session_id,
+                "name": f"Strategy lot {idx}",
+                "scope": "normal",
+                "base_bid": bid,
+                "current_bid": bid,
+                "items": [{"object_type_id": wind_id, "quantity": 1}],
+            },
+        )
+        assert resp.status_code == 200
+
+    strategy = client.get(f"/api/sessions/{session_id}/strategy?top_n=10")
+    assert strategy.status_code == 200
+    item = strategy.get_json()["item"]
+
+    rows = list(item.get("best_singles") or []) + list(item.get("best_pairs") or []) + list(
+        item.get("best_groups") or []
+    )
+    if item.get("best_combination"):
+        rows.append(item["best_combination"])
+    assert rows
+
+    checked = False
+    for row in rows:
+        breakdown = list(row.get("lot_bid_breakdown") or [])
+        if not breakdown:
+            continue
+        checked = True
+        assert len(breakdown) == int(row.get("lots_count") or len(row.get("lot_ids") or []))
+        for part in breakdown:
+            assert "lot_id" in part
+            assert "lot_name" in part
+            assert "standalone_target_bid" in part
+            assert "standalone_hard_ceiling_bid" in part
+            assert "allocated_target_bid" in part
+            assert "allocated_cautious_bid" in part
+            assert "allocated_hard_ceiling_bid" in part
+            assert "synergy_allocated" in part
+            assert "budget_adjusted_bid" in part
+    assert checked is True
+
+
+def test_analytics_rows_return_full_structure_items_without_truncation(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Structure items")
+    type_rows = client.get("/api/object-types").get_json()["items"]
+    by_code = {row["code"]: row for row in type_rows}
+
+    created = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Detailed structure",
+            "scope": "normal",
+            "base_bid": 100.0,
+            "current_bid": 100.0,
+            "items": [
+                {"object_type_id": int(by_code["wind"]["id"]), "quantity": 1},
+                {"object_type_id": int(by_code["storage"]["id"]), "quantity": 1},
+                {"object_type_id": int(by_code["office"]["id"]), "quantity": 1},
+                {"object_type_id": int(by_code["house"]["id"]), "quantity": 1},
+                {"object_type_id": int(by_code["factory"]["id"]), "quantity": 1},
+            ],
+        },
+    )
+    assert created.status_code == 200
+    lot_id = int(created.get_json()["item"]["id"])
+
+    analytics = client.get(f"/api/sessions/{session_id}/lots/analytics")
+    assert analytics.status_code == 200
+    rows = analytics.get_json()["items"]
+    row = next(item for item in rows if int(item["lot_id"]) == lot_id)
+
+    structure_items = list(row.get("structure_items") or [])
+    assert len(structure_items) == 5
+    labels = {item["label"] for item in structure_items}
+    assert f'{by_code["wind"]["name"]} ×1' in labels
+    assert f'{by_code["storage"]["name"]} ×1' in labels
+    assert f'{by_code["office"]["name"]} ×1' in labels
+    assert f'{by_code["house"]["name"]} ×1' in labels
+    assert f'{by_code["factory"]["name"]} ×1' in labels
+    for label in labels:
+        assert label in str(row.get("structure") or "")
+
+
+def test_test_game_solar_storage_profit_is_not_inflated_anymore(client):
+    login(client, "admin", "admin123")
+    test_game_ruleset = ruleset_id_by_code(client, "ies_test_game_2026")
+    create_resp = client.post(
+        "/api/sessions",
+        json={
+            "title": "Test game profitability",
+            "ruleset_id": test_game_ruleset,
+            "selected_strategy": "balanced",
+            "budget_total": 200.0,
+        },
+    )
+    assert create_resp.status_code == 200
+    session_id = int(create_resp.get_json()["item"]["id"])
+
+    lots_resp = client.get(f"/api/lots?session_id={session_id}")
+    assert lots_resp.status_code == 200
+    lots = lots_resp.get_json()["items"]
+    solar_lot = next((row for row in lots if row.get("name") == "Солнечный накопитель"), None)
+    assert solar_lot is not None
+
+    eval_resp = client.post(f'/api/lots/{int(solar_lot["id"])}/evaluate', json={})
+    assert eval_resp.status_code == 200
+    payload = eval_resp.get_json()["item"]
+    net_profit = float(payload["financial_breakdown"]["result"]["net_profit"])
+
+    assert net_profit < 1000.0
+    assert payload["metrics"]["bids"]["valuation_model"]["model"] == "valuation_model_v2"
+
+
 def test_evaluate_and_analytics_return_uncapped_and_budget_limited_bids(client):
     login(client, "admin", "admin123")
     ruleset_id = ruleset_id_by_code(client, "ies_2026")
@@ -419,6 +543,9 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_limited_bids(client):
     assert item["budget_limited_bid"] == pytest.approx(
         min(item["target_bid"], item["portfolio_context"]["remaining_budget"])
     )
+    assert "ui_rows" in item["financial_breakdown"]
+    assert "valuation_model" in item["metrics"]["bids"]
+    assert item["metrics"]["bids"]["valuation_model"]["model"] == "valuation_model_v2"
 
     analytics_resp = client.get(f"/api/sessions/{session_id}/lots/analytics")
     assert analytics_resp.status_code == 200

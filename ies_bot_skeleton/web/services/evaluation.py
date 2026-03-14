@@ -162,7 +162,10 @@ def _period_series(
     profile_alias = {
         "house": "house_load",
         "housea": "house_load",
+        "houseb": "house_load",
         "load_housea": "house_load",
+        "load_houseb": "house_load",
+        "consumption_houseb": "house_load",
         "office": "office_load",
         "load_office": "office_load",
         "factory": "factory_load",
@@ -213,7 +216,7 @@ def _bundled_series() -> Tuple[Dict[str, Dict[int, float]], Dict[str, Dict[int, 
     load = pack.get("load", {}) or {}
     for raw_key, values in load.items():
         key = _norm(raw_key)
-        if key in {"house", "housea", "load_housea"}:
+        if key in {"house", "housea", "houseb", "load_housea", "load_houseb"}:
             canonical = "house_load"
         elif key in {"office", "load_office"}:
             canonical = "office_load"
@@ -266,6 +269,51 @@ def _factor_value(
     if tick in series:
         return _as_float(series[tick], default)
     return float(default)
+
+
+def _consumer_demand_mw(
+    *,
+    expected_consumption_mw: float,
+    profile_value: float,
+    load_scale: float,
+) -> float:
+    # Canonical forecast rows may come either as factors (0..1.5) or absolute MW (>1.5).
+    if profile_value <= 1.5:
+        demand = max(0.0, expected_consumption_mw) * max(0.0, profile_value)
+    else:
+        demand = max(0.0, profile_value)
+    return max(0.0, demand * max(0.0, load_scale))
+
+
+def _wind_generation_mw(
+    *,
+    wind_value: float,
+    generation_mw: float,
+    efficiency: float,
+    object_defaults: Dict[str, Any],
+) -> float:
+    speed_or_factor = max(0.0, wind_value)
+    cap = max(0.0, generation_mw)
+    eff = _clamp(efficiency, 0.1, 1.2)
+    if speed_or_factor <= 1.5:
+        return cap * speed_or_factor * eff
+    k = max(0.0, _as_float(object_defaults.get("wind_k_default"), 0.08))
+    physical = k * (speed_or_factor**3)
+    return min(cap, physical) * eff
+
+
+def _solar_generation_mw(
+    *,
+    solar_value: float,
+    generation_mw: float,
+    efficiency: float,
+) -> float:
+    irradiation_or_factor = max(0.0, solar_value)
+    cap = max(0.0, generation_mw)
+    eff = _clamp(efficiency, 0.1, 1.2)
+    if irradiation_or_factor <= 1.5:
+        return cap * irradiation_or_factor * eff
+    return min(cap, irradiation_or_factor) * eff
 
 
 def _asset_profile_key(asset: Asset) -> str:
@@ -356,6 +404,7 @@ def _simulate_scenario(
     eco_cfg = dict(cfg.get("eco", {}) or {})
     storage_cfg = dict(cfg.get("storage", {}) or {})
     evaluation_cfg = dict(cfg.get("evaluation", {}) or {})
+    object_defaults = dict(cfg.get("object_defaults", {}) or {})
 
     market_buy_default = _as_float(market_cfg.get("external_buy_price"), 10.0)
     market_sell_default = _as_float(market_cfg.get("external_sell_price"), 2.0)
@@ -456,8 +505,14 @@ def _simulate_scenario(
             profile_value = _profile_value(profile_key, profiles, tick, 1.0)
             if asset.role == "consumer":
                 base_load = _as_float(asset.parameters.get("expected_consumption_mw"), 1.0)
-                tariff = _as_float(asset.parameters.get("tariff_rub_per_mw_tick"), 0.0)
-                load = max(0.0, base_load * profile_value * scales["load"]) * qty
+                load = (
+                    _consumer_demand_mw(
+                        expected_consumption_mw=base_load,
+                        profile_value=profile_value,
+                        load_scale=scales["load"],
+                    )
+                    * qty
+                )
                 demand_total += load
                 if _norm(asset.code) == "factory":
                     demand_factory += load
@@ -468,7 +523,13 @@ def _simulate_scenario(
                     max(0.0, _as_float(asset.parameters.get("generation_mw"), 0.0)) * qty
                 )
                 if code in {"wind"}:
-                    supply = generation_mw * max(0.0, wind_factor) * max(0.0, profile_value) * eff
+                    wind_input = max(0.0, wind_factor) * max(0.0, profile_value)
+                    supply = _wind_generation_mw(
+                        wind_value=wind_input,
+                        generation_mw=generation_mw,
+                        efficiency=eff,
+                        object_defaults=object_defaults,
+                    )
                     renewable_generation += supply
                     eco_value += (
                         supply
@@ -476,7 +537,12 @@ def _simulate_scenario(
                         * _as_float(eco_cfg.get("eco_point_value_rub"), 1.0)
                     )
                 elif code in {"solar", "cyber_solar", "solarrobot"}:
-                    supply = generation_mw * max(0.0, solar_factor) * max(0.0, profile_value) * eff
+                    solar_input = max(0.0, solar_factor) * max(0.0, profile_value)
+                    supply = _solar_generation_mw(
+                        solar_value=solar_input,
+                        generation_mw=generation_mw,
+                        efficiency=eff,
+                    )
                     renewable_generation += supply
                     eco_value += (
                         supply
@@ -585,7 +651,14 @@ def _simulate_scenario(
             base_load = _as_float(asset.parameters.get("expected_consumption_mw"), 1.0)
             profile_key = _asset_profile_key(asset)
             profile_value = _profile_value(profile_key, profiles, tick, 1.0)
-            demand = max(0.0, base_load * profile_value * scales["load"]) * qty
+            demand = (
+                _consumer_demand_mw(
+                    expected_consumption_mw=base_load,
+                    profile_value=profile_value,
+                    load_scale=scales["load"],
+                )
+                * qty
+            )
             served = demand * served_ratio
             tariff = _as_float(asset.parameters.get("tariff_rub_per_mw_tick"), 0.0)
             served_load_revenue += served * tariff
@@ -848,12 +921,239 @@ def _financial_breakdown(
         "overload_penalties": losses_and_risks["overload_penalties"],
         "deficit_penalties": losses_and_risks["deficit_penalties"],
     }
+    ui_rows: List[Dict[str, Any]] = []
+
+    def push_row(
+        *,
+        key: str,
+        label: str,
+        value: float,
+        group: str,
+        always: bool = False,
+        emphasis: bool = False,
+    ) -> None:
+        numeric = float(value)
+        if not always and abs(numeric) <= 1e-6:
+            return
+        ui_rows.append(
+            {
+                "key": key,
+                "label": label,
+                "value": numeric,
+                "group": group,
+                "emphasis": bool(emphasis),
+            }
+        )
+
+    push_row(
+        key="served_load_revenue",
+        label="Доход от объектов",
+        value=income["served_load_revenue"],
+        group="income",
+    )
+    push_row(
+        key="export_revenue",
+        label="Доход от экспорта",
+        value=income["export_revenue"],
+        group="income",
+    )
+    push_row(
+        key="avoided_market_purchase_value",
+        label="Эффект замещения рыночной покупки",
+        value=income["avoided_market_purchase_value"],
+        group="income",
+    )
+    push_row(
+        key="eco_value",
+        label="Экологический вклад",
+        value=income["eco_value"],
+        group="income",
+    )
+    push_row(
+        key="entry_price",
+        label="Цена входа",
+        value=expenses["entry_price"],
+        group="expense",
+        always=True,
+    )
+    push_row(
+        key="contract_costs",
+        label="Контрактные расходы",
+        value=expenses["contract_costs"],
+        group="expense",
+    )
+    push_row(
+        key="fuel_and_taxes",
+        label="Топливо и налоги",
+        value=expenses["fuel_and_taxes"],
+        group="expense",
+    )
+    push_row(
+        key="storage_operating_cost",
+        label="Эксплуатация накопителя",
+        value=expenses["storage_operating_cost"],
+        group="expense",
+    )
+    push_row(
+        key="market_purchase",
+        label="Допзакупка на рынке",
+        value=expenses["market_purchase"],
+        group="expense",
+    )
+    push_row(
+        key="network_losses",
+        label="Сетевые потери",
+        value=losses_and_risks["network_losses"],
+        group="loss",
+    )
+    push_row(
+        key="overload_penalties",
+        label="Штрафы за перегруз",
+        value=losses_and_risks["overload_penalties"],
+        group="loss",
+    )
+    push_row(
+        key="deficit_penalties",
+        label="Штрафы за дефицит",
+        value=losses_and_risks["deficit_penalties"],
+        group="loss",
+    )
+    push_row(
+        key="penalties",
+        label="Штрафы всего",
+        value=losses_and_risks["penalties"],
+        group="loss",
+    )
+    push_row(
+        key="risk_total",
+        label="Риск-премия",
+        value=losses_and_risks["risk_total"],
+        group="loss",
+    )
+    push_row(
+        key="net_profit",
+        label="Итоговая чистая прибыль",
+        value=net_profit,
+        group="result",
+        always=True,
+        emphasis=True,
+    )
     return {
         "income": income,
         "expenses": expenses,
         "losses_and_risks": losses_and_risks,
         "result": result,
         "decomposition": decomposition,
+        "ui_rows": ui_rows,
+    }
+
+
+def _valuation_model_v2(
+    *,
+    p_worst: float,
+    p_base: float,
+    p_best: float,
+    p_exp: float,
+    horizon_ticks: int,
+    remaining_budget: float,
+    evaluation_cfg: Dict[str, Any],
+) -> Dict[str, Any]:
+    horizon = max(1, int(horizon_ticks or 1))
+    risk_lambda = float(evaluation_cfg.get("risk_lambda", 0.25))
+    volatility_lambda = float(evaluation_cfg.get("volatility_lambda", 0.15))
+    reserve_margin_abs = float(evaluation_cfg.get("reserve_margin_abs", 5.0))
+    reserve_margin_share = float(evaluation_cfg.get("reserve_margin_share", 0.10))
+
+    scenario_volatility = float(
+        pstdev([float(p_worst), float(p_base), float(p_best)])
+        if len({float(p_worst), float(p_base), float(p_best)}) > 1
+        else 0.0
+    )
+    downside_gap = max(0.0, float(p_base) - float(p_worst))
+    risk_premium = float(risk_lambda * downside_gap + volatility_lambda * scenario_volatility)
+    risk_ratio = float(risk_premium / max(abs(float(p_exp)), abs(float(p_base)), 1.0))
+
+    if float(p_worst) <= 0.0 or risk_ratio >= 0.60:
+        risk_band = "high"
+    elif risk_ratio >= 0.30:
+        risk_band = "medium"
+    else:
+        risk_band = "low"
+
+    payback_ticks_map = {"low": 25, "medium": 20, "high": 15}
+    cap_share_map = {"low": 0.25, "medium": 0.20, "high": 0.15}
+    risk_factor_map = {"low": 0.35, "medium": 0.45, "high": 0.55}
+    blend_weights_map = {"low": (0.70, 0.30), "medium": (0.60, 0.40), "high": (0.50, 0.50)}
+    cautious_share_map = {"low": 0.35, "medium": 0.30, "high": 0.25}
+    risk_buffer_map = {"low": 0.35, "medium": 0.60, "high": 0.85}
+
+    payback_ticks = int(payback_ticks_map[risk_band])
+    cap_share = float(cap_share_map[risk_band])
+    risk_factor = float(risk_factor_map[risk_band])
+    blend_v1_w, blend_v2_w = blend_weights_map[risk_band]
+
+    positive_expected = max(0.0, float(p_exp))
+    v1_payback = positive_expected / float(horizon) * float(payback_ticks)
+    v1_cap = positive_expected * cap_share
+    v1 = max(0.0, min(v1_payback, v1_cap))
+    v2 = positive_expected * 0.10 * risk_factor
+    blend = float(blend_v1_w * v1 + blend_v2_w * v2)
+
+    reserve_margin = float(max(reserve_margin_abs, reserve_margin_share * positive_expected))
+    risk_buffer = float(risk_premium * risk_buffer_map[risk_band])
+
+    if float(p_worst) <= 0.0:
+        cautious_bid = 0.0
+    else:
+        cautious_bid = max(
+            0.0,
+            min(v2, float(p_worst) * float(cautious_share_map[risk_band])),
+        )
+
+    target_candidate = max(0.0, blend - 0.50 * reserve_margin - risk_buffer)
+    target_bid = max(cautious_bid, target_candidate)
+
+    hard_base_cap = max(0.0, float(p_base) - 0.20 * reserve_margin)
+    hard_candidate = max(target_bid, blend + 0.20 * positive_expected, v1_cap)
+    if hard_base_cap > 0.0:
+        hard_ceiling_bid = max(target_bid, min(hard_candidate, hard_base_cap))
+    else:
+        hard_ceiling_bid = max(target_bid, hard_candidate)
+    if hard_ceiling_bid < target_bid:
+        hard_ceiling_bid = target_bid
+
+    budget_limited_bid = min(target_bid, max(0.0, float(remaining_budget)))
+    risk_adjusted_net_profit = float(float(p_exp) - risk_premium - reserve_margin)
+
+    return {
+        "model": "valuation_model_v2",
+        "profile": "balanced",
+        "risk_band": risk_band,
+        "horizon_ticks": int(horizon),
+        "p_worst": float(p_worst),
+        "p_base": float(p_base),
+        "p_best": float(p_best),
+        "p_exp": float(p_exp),
+        "scenario_volatility": float(scenario_volatility),
+        "downside_gap": float(downside_gap),
+        "risk_ratio": float(risk_ratio),
+        "risk_premium": float(risk_premium),
+        "payback_ticks": int(payback_ticks),
+        "cap_share": float(cap_share),
+        "risk_factor": float(risk_factor),
+        "v1_payback": float(v1_payback),
+        "v1_cap": float(v1_cap),
+        "v1": float(v1),
+        "v2": float(v2),
+        "blend": float(blend),
+        "blend_weights": {"v1": float(blend_v1_w), "v2": float(blend_v2_w)},
+        "reserve_margin": float(reserve_margin),
+        "risk_buffer": float(risk_buffer),
+        "cautious_bid": float(cautious_bid),
+        "target_bid": float(target_bid),
+        "hard_ceiling_bid": float(hard_ceiling_bid),
+        "budget_limited_bid": float(budget_limited_bid),
+        "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
     }
 
 
@@ -980,33 +1280,24 @@ def evaluate_lot_bundle(
         best=net_profit_best,
     )
     evaluation_cfg = dict(rules_cfg.get("evaluation", {}) or {})
-    risk_lambda = float(evaluation_cfg.get("risk_lambda", 0.25))
-    volatility_lambda = float(evaluation_cfg.get("volatility_lambda", 0.15))
-    reserve_margin_abs = float(evaluation_cfg.get("reserve_margin_abs", 5.0))
-    reserve_margin_share = float(evaluation_cfg.get("reserve_margin_share", 0.10))
-    scenario_volatility = float(
-        pstdev([net_profit_worst, net_profit_base, net_profit_best])
-        if len({net_profit_worst, net_profit_base, net_profit_best}) > 1
-        else 0.0
+    valuation_model = _valuation_model_v2(
+        p_worst=float(net_profit_worst),
+        p_base=float(net_profit_base),
+        p_best=float(net_profit_best),
+        p_exp=float(expected_net_profit),
+        horizon_ticks=len(ticks),
+        remaining_budget=float(remaining_budget),
+        evaluation_cfg=evaluation_cfg,
     )
-    risk_premium = float(
-        risk_lambda * max(0.0, net_profit_base - net_profit_worst)
-        + volatility_lambda * scenario_volatility
-    )
-    reserve_margin = float(
-        max(reserve_margin_abs, reserve_margin_share * max(0.0, expected_net_profit))
-    )
+    cautious_bid = float(valuation_model["cautious_bid"])
+    target_bid = float(valuation_model["target_bid"])
+    hard_ceiling_bid = float(valuation_model["hard_ceiling_bid"])
+    budget_limited_bid = float(valuation_model["budget_limited_bid"])
+    risk_premium = float(valuation_model["risk_premium"])
+    reserve_margin = float(valuation_model["reserve_margin"])
+    risk_adjusted_net_profit = float(valuation_model["risk_adjusted_net_profit"])
+    scenario_volatility = float(valuation_model["scenario_volatility"])
     synergy_adjustment = 1.0
-    risk_adjusted_net_profit = float(expected_net_profit - risk_premium - reserve_margin)
-
-    cautious_bid = max(0.0, net_profit_worst - reserve_margin)
-    target_bid = max(cautious_bid, expected_net_profit - risk_premium - reserve_margin)
-    hard_ceiling_bid = max(target_bid, net_profit_base - reserve_margin)
-    if target_bid < cautious_bid:
-        target_bid = cautious_bid
-    if hard_ceiling_bid < target_bid:
-        hard_ceiling_bid = target_bid
-    budget_limited_bid = min(target_bid, remaining_budget)
 
     weights = strategy_weights(rules_cfg, selected_strategy)
     delta_profit = (
@@ -1045,7 +1336,7 @@ def evaluate_lot_bundle(
     reasons = _human_reasons(d_base, top_k=5)
     risk_commentary = (
         "Риск контролируемый: прогноз совместим, запас по худшему сценарию положительный."
-        if delta_risk < 20
+        if valuation_model["risk_band"] == "low"
         else "Риск повышен: чувствительность к сценариям требует более осторожной ставки."
     )
     strategy_fit_text = (
@@ -1083,6 +1374,7 @@ def evaluate_lot_bundle(
             "synergy_adjustment": float(synergy_adjustment),
             "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
             "valuation_basis": "fair_value",
+            "valuation_model": valuation_model,
         },
         "portfolio_delta": {
             "net_profit_base": float(net_profit_base),
