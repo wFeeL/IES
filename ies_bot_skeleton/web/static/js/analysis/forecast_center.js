@@ -6,19 +6,22 @@
   function formatNum(value, digits) {
     const number = Number(value);
     if (!Number.isFinite(number)) return '—';
-    return number.toFixed(digits);
+    const fixed = number.toFixed(Math.max(0, Number(digits || 0)));
+    return fixed.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
   }
 
   function renderSummary(target, title, payload) {
     if (!target) return;
-    const statsRows = Array.isArray(payload.series_stats_display)
-      ? payload.series_stats_display
-      : Object.entries(payload.series_stats || {}).map(([key, stats]) => ({
-          key,
-          label: key,
-          stats,
-          group: 'legacy',
-        }));
+    const statsRows = Array.isArray(payload.mapped_raw_stats_display) && payload.mapped_raw_stats_display.length
+      ? payload.mapped_raw_stats_display
+      : Array.isArray(payload.series_stats_display)
+        ? payload.series_stats_display
+        : Object.entries(payload.series_stats || {}).map(([key, stats]) => ({
+            key,
+            label: key,
+            stats,
+            group: 'legacy',
+          }));
     const seriesRows = statsRows
       .map((row) => `
         <tr>
@@ -30,34 +33,20 @@
         </tr>
       `)
       .join('');
-    const loadRows = Array.isArray(payload.load_series_display)
-      ? payload.load_series_display
-      : Object.entries(payload.consumer_averages || {}).map(([key, avg]) => ({
-          key,
-          label: key,
-          avg,
-          is_service: false,
-        }));
-    const loads = loadRows
-      .map(
-        (row) =>
-          `<span class="pill${row.is_service ? ' is-service' : ''}">${row.label || row.key}: ${formatNum(row.avg, 2)}</span>`
-      )
-      .join('');
     const warnings = (payload.quality?.warnings || []).map((item) => `<li>${item}</li>`).join('');
     const problems = (payload.quality?.problem_columns || []).join(', ');
     const empty = (payload.quality?.empty_columns || []).join(', ');
+    const tickRange = payload.mapped_tick_range_label || `${payload.tick_from ?? '—'}–${payload.tick_to ?? '—'}`;
 
     target.innerHTML = `
       <div class="risk-block">
         <strong>${title}</strong>
         <div class="mt-2">Источник: ${payload.source_kind || '—'}</div>
-        <div>Такты: ${payload.tick_from ?? '—'}–${payload.tick_to ?? '—'}</div>
+        <div>Такты: ${tickRange}</div>
         <div>Периодов: ${payload.count ?? 0}</div>
         <div>Средний ветер: ${formatNum(payload.avg_wind, 2)}</div>
         <div>Средняя освещённость: ${formatNum(payload.avg_illumination, 2)}</div>
         <div>Средняя цена рынка: ${formatNum(payload.avg_market_price, 2)}</div>
-        <div class="pill-row mt-3">${loads || '<span class="muted">Ряды нагрузки не найдены.</span>'}</div>
         <div class="mt-3">${payload.quality?.text || ''}</div>
         ${problems ? `<div class="mt-2">Проблемные ряды: ${problems}</div>` : ''}
         ${empty ? `<div class="mt-2">Пустые колонки: ${empty}</div>` : ''}
@@ -119,16 +108,55 @@
     `;
   }
 
+  function setSelectedForecast(forecastId) {
+    document.querySelectorAll('[data-forecast-id]').forEach((node) => {
+      const nodeId = Number(node.dataset.forecastId || 0);
+      node.classList.toggle('row-selected', nodeId === Number(forecastId || 0));
+    });
+  }
+
   async function loadForecastDetails(forecastId) {
     return apiFetchJson(`/api/forecast/${forecastId}`, {
       headers: {'X-CSRFToken': (window.IES_FORECAST_CENTER || {}).csrfToken || window.IES_CSRF_TOKEN || ''},
     });
   }
 
-  window.addEventListener('DOMContentLoaded', () => {
+  async function runDiagnostics(forecastId, withChart) {
     const out = document.getElementById('forecastOut');
     const chart = document.getElementById('forecastChart');
+    if (!forecastId) {
+      renderSummary(out, 'Диагностика', {quality: {text: 'Сначала выберите прогноз.'}, series_stats: {}});
+      return;
+    }
+
+    setSelectedForecast(forecastId);
+    out.innerHTML = '<div class="risk-block">Собираю диагностику...</div>';
+    if (withChart) {
+      chart.innerHTML = '<div class="muted">Готовлю график...</div>';
+    }
+    const data = await loadForecastDetails(forecastId);
+    if (!data.ok) {
+      renderSummary(out, 'Ошибка', {quality: {text: errorMessage(data)}, series_stats: {}});
+      if (withChart) {
+        chart.innerHTML = `<div class="muted">${errorMessage(data)}</div>`;
+      }
+      return;
+    }
+
+    renderSummary(out, `Диагностика прогноза #${forecastId}`, data.item?.summary || {});
+    if (withChart) {
+      renderChart(chart, data.item?.periods || []);
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    const out = document.getElementById('forecastOut');
     const form = document.getElementById('forecastForm');
+    const activeForecastId = Number((window.IES_FORECAST_CENTER || {}).activeForecastId || 0);
+
+    if (activeForecastId > 0) {
+      setSelectedForecast(activeForecastId);
+    }
 
     form?.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -143,35 +171,24 @@
       window.setTimeout(() => window.location.reload(), 700);
     });
 
-    document.querySelectorAll('.analyzeBtn').forEach((button) => {
-      button.addEventListener('click', async () => {
-        out.innerHTML = '<div class="risk-block">Собираю диагностику...</div>';
-        const data = await apiFetchJson(`/api/forecast/${button.dataset.forecastId}/analyze`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': (window.IES_FORECAST_CENTER || {}).csrfToken || window.IES_CSRF_TOKEN || '',
-          },
-          body: JSON.stringify({}),
-        });
-        if (!data.ok) {
-          renderSummary(out, 'Ошибка', {quality: {text: errorMessage(data)}, series_stats: {}});
+    document.querySelectorAll('[data-forecast-id]').forEach((row) => {
+      row.addEventListener('click', async (event) => {
+        if (event.target.closest('button, a, input, form')) {
           return;
         }
-        renderSummary(out, `Диагностика прогноза #${button.dataset.forecastId}`, data.item || {});
+        await runDiagnostics(Number(row.dataset.forecastId || 0), false);
+      });
+    });
+
+    document.querySelectorAll('.analyzeBtn').forEach((button) => {
+      button.addEventListener('click', async () => {
+        await runDiagnostics(Number(button.dataset.forecastId || 0), false);
       });
     });
 
     document.querySelectorAll('.chartBtn').forEach((button) => {
       button.addEventListener('click', async () => {
-        chart.innerHTML = '<div class="muted">Готовлю график...</div>';
-        const data = await loadForecastDetails(button.dataset.forecastId);
-        if (!data.ok) {
-          chart.innerHTML = `<div class="muted">${errorMessage(data)}</div>`;
-          return;
-        }
-        renderChart(chart, data.item?.periods || []);
-        renderSummary(out, `Диагностика прогноза #${button.dataset.forecastId}`, data.item?.summary || {});
+        await runDiagnostics(Number(button.dataset.forecastId || 0), true);
       });
     });
   });

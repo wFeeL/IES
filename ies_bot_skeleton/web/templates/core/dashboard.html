@@ -53,7 +53,7 @@
           <div class="session-card-main">
             <div>
               <h3 class="h3">{{ row.title }}</h3>
-              <p class="muted">Стратегия: {{ row.strategy_label }} · Бюджет: {{ '%.1f'|format(row.budget_total) }} · Остаток: {{ '%.1f'|format(row.remaining_budget) }}</p>
+              <p class="muted">Стратегия: {{ row.strategy_label }} · Бюджет: {{ fmt_num(row.budget_total, 1) }} · Остаток: {{ fmt_num(row.remaining_budget, 1) }}</p>
               <p class="muted">Активный прогноз: {{ row.forecast_name }} · {{ row.forecast_source }} · Обновлено: {{ row.updated_at_label }}</p>
             </div>
             <span class="status-badge status-fresh">Сессия активна</span>

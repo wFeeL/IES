@@ -103,6 +103,16 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
     financial = dict(evaluation.get("financial_breakdown") or {})
     result = dict(financial.get("result") or {})
     losses = dict(financial.get("losses_and_risks") or {})
+    decision_summary = dict(evaluation.get("decision_summary") or {})
+    working_bid = float(
+        evaluation.get("working_bid")
+        or decision_summary.get("working_bid")
+        or decision_summary.get("target_bid")
+        or decision_summary.get("cautious_bid")
+        or decision_summary.get("hard_ceiling_bid")
+        or decision_summary.get("hard_bid")
+        or 0.0
+    )
     stale_reason_raw = str(evaluation.get("stale_reason") or "")
     return {
         "lot": lot,
@@ -122,13 +132,24 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "utility": float(evaluation.get("summary_score", 0.0) or 0.0),
         "net_profit": float(result.get("net_profit", 0.0) or 0.0),
         "risk": float(losses.get("risk_total", 0.0) or 0.0),
+        "working_bid": float(working_bid),
+        "working_bid_source": str(
+            evaluation.get("working_bid_source")
+            or decision_summary.get("working_bid_source")
+            or "none"
+        ),
+        "working_bid_reason": str(
+            evaluation.get("working_bid_reason")
+            or decision_summary.get("working_bid_reason")
+            or ""
+        ),
         "target_bid": float(
-            (evaluation.get("decision_summary") or {}).get("target_bid", 0.0)
-            or (evaluation.get("decision_summary") or {}).get("hard_bid", 0.0)
+            decision_summary.get("target_bid", 0.0)
+            or decision_summary.get("hard_bid", 0.0)
             or 0.0
         ),
         "budget_limited_bid": float(
-            (evaluation.get("decision_summary") or {}).get("budget_limited_bid", 0.0) or 0.0
+            decision_summary.get("budget_limited_bid", 0.0) or 0.0
         ),
         "status": lot.status,
         "is_stale": bool(evaluation.get("is_stale")),
@@ -192,7 +213,11 @@ def sort_lot_rows(rows: list[Dict[str, Any]], sort_key: str) -> list[Dict[str, A
     if sort_key == "risk_asc":
         return sorted(rows, key=lambda row: row["risk"])
     if sort_key == "bid_desc":
-        return sorted(rows, key=lambda row: row["target_bid"], reverse=True)
+        return sorted(
+            rows,
+            key=lambda row: float(row.get("working_bid", row.get("target_bid", 0.0)) or 0.0),
+            reverse=True,
+        )
     if sort_key == "price_asc":
         return sorted(rows, key=lambda row: row["price"])
     if sort_key == "price_desc":

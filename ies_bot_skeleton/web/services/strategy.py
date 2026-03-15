@@ -21,6 +21,9 @@ class ComboEvaluation:
     target_bid: float
     hard_ceiling_bid: float
     budget_limited_bid: float
+    working_bid: float
+    working_bid_source: str
+    working_bid_reason: str
     synergy_score: float
     explanation: str
     lot_bid_breakdown: List[Dict[str, Any]]
@@ -109,6 +112,7 @@ def _combo_eval(
     )
     metrics = dict(payload.get("metrics") or {})
     bids = dict(metrics.get("bids") or {})
+    decision_summary = dict(payload.get("decision_summary") or {})
     portfolio_delta = dict(metrics.get("portfolio_delta") or {})
     financial = dict(payload.get("financial_breakdown") or {})
     losses = dict(financial.get("losses_and_risks") or {})
@@ -138,6 +142,7 @@ def _combo_eval(
                 "lot_id": lot_id,
                 "lot_name": lot.name,
                 "lot_price": lot_price,
+                "standalone_net_profit": float(singles_net_profit.get(lot_id, 0.0) or 0.0),
                 "standalone_target_bid": standalone_target,
                 "standalone_cautious_bid": standalone_cautious,
                 "standalone_hard_ceiling_bid": standalone_hard,
@@ -146,6 +151,10 @@ def _combo_eval(
         )
 
     weight_total = float(sum(float(row["weight"]) for row in standalone_rows)) or 1.0
+    standalone_profit_total = float(
+        sum(float(row["standalone_net_profit"]) for row in standalone_rows)
+    )
+    synergy_profit = float(base_profit - standalone_profit_total)
     target_synergy = float(
         float(bids.get("target_bid", 0.0) or 0.0)
         - sum(float(row["standalone_target_bid"]) for row in standalone_rows)
@@ -187,6 +196,8 @@ def _combo_eval(
             {
                 "lot_id": int(row["lot_id"]),
                 "lot_name": str(row["lot_name"]),
+                "lot_label": f"{row['lot_name']} ({int(row['lot_id'])})",
+                "standalone_net_profit": float(row["standalone_net_profit"]),
                 "standalone_target_bid": float(row["standalone_target_bid"]),
                 "standalone_hard_ceiling_bid": float(row["standalone_hard_ceiling_bid"]),
                 "allocated_target_bid": float(allocated_target),
@@ -194,6 +205,13 @@ def _combo_eval(
                 "allocated_hard_ceiling_bid": float(allocated_hard),
                 "synergy_allocated": float(target_synergy * share),
                 "budget_adjusted_bid": float(max(0.0, allocated_target * budget_ratio)),
+                "allocated_net_profit": float(
+                    float(row["standalone_net_profit"]) + float(synergy_profit * share)
+                ),
+                "price": float(max(0.0, allocated_target * budget_ratio)),
+                "profit": float(
+                    float(row["standalone_net_profit"]) + float(synergy_profit * share)
+                ),
             }
         )
 
@@ -209,6 +227,27 @@ def _combo_eval(
         target_bid=float(bids.get("target_bid", 0.0) or 0.0),
         hard_ceiling_bid=float(bids.get("hard_ceiling_bid", 0.0) or 0.0),
         budget_limited_bid=float(bids.get("budget_limited_bid", 0.0) or 0.0),
+        working_bid=float(
+            payload.get("working_bid")
+            or decision_summary.get("working_bid")
+            or bids.get("working_bid")
+            or bids.get("target_bid")
+            or bids.get("cautious_bid")
+            or bids.get("hard_ceiling_bid")
+            or 0.0
+        ),
+        working_bid_source=str(
+            payload.get("working_bid_source")
+            or decision_summary.get("working_bid_source")
+            or bids.get("working_bid_source")
+            or "none"
+        ),
+        working_bid_reason=str(
+            payload.get("working_bid_reason")
+            or decision_summary.get("working_bid_reason")
+            or bids.get("working_bid_reason")
+            or ""
+        ),
         synergy_score=synergy_score,
         explanation=explanation,
         lot_bid_breakdown=lot_bid_breakdown,
@@ -220,9 +259,14 @@ def _combo_to_dict(
     *,
     lot_names: Dict[int, str],
 ) -> Dict[str, Any]:
+    lot_labels = [
+        f"{lot_names.get(lot_id, f'Лот {lot_id}')} ({lot_id})" for lot_id in combo.lot_ids
+    ]
     return {
         "lot_ids": list(combo.lot_ids),
         "lot_names": [lot_names.get(lot_id, f"Лот {lot_id}") for lot_id in combo.lot_ids],
+        "lot_labels": lot_labels,
+        "display_title": " + ".join(lot_labels),
         "lots_count": len(combo.lot_ids),
         "total_price": float(combo.total_price),
         "risk_adjusted_net_profit": float(combo.risk_adjusted_net_profit),
@@ -234,6 +278,9 @@ def _combo_to_dict(
         "target_bid": float(combo.target_bid),
         "hard_ceiling_bid": float(combo.hard_ceiling_bid),
         "budget_limited_bid": float(combo.budget_limited_bid),
+        "working_bid": float(combo.working_bid),
+        "working_bid_source": str(combo.working_bid_source),
+        "working_bid_reason": str(combo.working_bid_reason),
         "scenario_breakdown": dict(combo.payload.get("scenario_breakdown") or {}),
         "portfolio_delta": dict((combo.payload.get("metrics") or {}).get("portfolio_delta") or {}),
         "forecast_compatibility": dict(

@@ -103,7 +103,7 @@
         {% for row in lot_rows %}
         <tr>
           <td class="col-text">
-            <strong class="text-ellipsis" title="{{ row.name }}">{{ row.name }}</strong>
+            <strong class="text-clamp-2" title="{{ row.name }}">{{ row.name }}</strong>
             <div class="muted text-ellipsis" title="{{ row.composition_label }}">{{ row.composition_label }}</div>
           </td>
           <td class="col-text">
@@ -115,11 +115,11 @@
               {% endfor %}
             </div>
           </td>
-          <td class="num">{{ '%.1f'|format(row.price) }}</td>
-          <td class="num">{{ '%.2f'|format(row.utility) }}</td>
-          <td class="num">{{ '%.2f'|format(row.net_profit) }}</td>
-          <td class="num">{{ '%.2f'|format(row.risk) }}</td>
-          <td class="num">{{ '%.2f'|format(row.target_bid) }}</td>
+          <td class="num">{{ fmt_num(row.price, 1) }}</td>
+          <td class="num">{{ fmt_num(row.utility, 2) }}</td>
+          <td class="num">{{ fmt_num(row.net_profit, 2) }}</td>
+          <td class="num">{{ fmt_num(row.risk, 2) }}</td>
+          <td class="num">{{ fmt_num(row.working_bid, 2) }}</td>
           <td class="col-text">
             <span>{{ lot_status_label(row.status) }}</span>
             {% if row.is_stale %}<div><span class="status-badge status-stale" title="{{ row.stale_reason_label or row.stale_reason }}">Оценка устарела</span></div>{% endif %}

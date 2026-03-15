@@ -13,6 +13,7 @@ from ies_bot_skeleton.domain.lot_analysis.forecast_loader import load_forecasts
 
 from ..extensions import db
 from ..models import Forecast, ForecastPeriod, GameSession, ObjectType
+from .formatting import format_tick_range
 from .test_game_preset import TEST_GAME_BUNDLED_FORECAST_NAME
 from .ui_text import FORECAST_SERVICE_LOAD_KEYS, forecast_series_label
 
@@ -169,17 +170,22 @@ def _series_stats(values: Iterable[Optional[float]]) -> Optional[Dict[str, float
 
 def _build_load_series_display(
     load_rows: Dict[str, Dict[int, float]],
+    *,
+    display_labels: Dict[str, str] | None = None,
 ) -> List[Dict[str, Any]]:
     display: List[Dict[str, Any]] = []
+    labels = dict(display_labels or {})
     for key in sorted(load_rows.keys()):
         values = load_rows.get(key) or {}
         avg_value = _series_stats(values.values())
+        label = str(labels.get(key) or "").strip() or forecast_series_label(key)
         display.append(
             {
                 "key": key,
-                "label": forecast_series_label(key),
+                "label": label,
                 "avg": float(avg_value["avg"]) if avg_value is not None else None,
                 "is_service": key in FORECAST_SERVICE_LOAD_KEYS,
+                "is_raw_label": key in labels,
             }
         )
     return display
@@ -188,33 +194,154 @@ def _build_load_series_display(
 def _build_series_stats_display(
     series_stats: Dict[str, Dict[str, float] | None],
     load_rows: Dict[str, Dict[int, float]],
+    *,
+    display_labels: Dict[str, str] | None = None,
 ) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
+    labels = dict(display_labels or {})
     for key in CANONICAL_FACTOR_KEYS:
         rows.append(
             {
                 "key": key,
-                "label": forecast_series_label(key),
+                "label": str(labels.get(key) or "").strip() or forecast_series_label(key),
                 "group": "factor",
                 "stats": dict(series_stats.get(key) or {}) or None,
+                "is_raw_label": key in labels,
             }
         )
     for key in CANONICAL_PROFILE_KEYS:
         rows.append(
             {
                 "key": key,
-                "label": forecast_series_label(key),
+                "label": str(labels.get(key) or "").strip() or forecast_series_label(key),
                 "group": "profile",
                 "stats": dict(series_stats.get(key) or {}) or None,
+                "is_raw_label": key in labels,
             }
         )
     for key in sorted(load_rows.keys()):
         rows.append(
             {
                 "key": key,
-                "label": forecast_series_label(key),
+                "label": str(labels.get(key) or "").strip() or forecast_series_label(key),
                 "group": "load_service" if key in FORECAST_SERVICE_LOAD_KEYS else "load",
                 "stats": _series_stats((load_rows.get(key) or {}).values()),
+                "is_raw_label": key in labels,
+            }
+        )
+    return rows
+
+
+def _ordered_mapped_columns(
+    *,
+    headers: Iterable[str] | None,
+    resolved_map: Dict[str, Any] | None,
+) -> List[Dict[str, str]]:
+    column_map = dict(resolved_map or {})
+    mapped: List[Dict[str, str]] = []
+    seen_raw: set[str] = set()
+
+    for factor_key, source_column in dict(column_map.get("factors") or {}).items():
+        canonical = _norm(str(factor_key))
+        raw_name = str(source_column or "").strip()
+        if canonical not in _FACTOR_SET or not raw_name:
+            continue
+        raw_norm = _norm(raw_name)
+        if raw_norm in seen_raw:
+            continue
+        seen_raw.add(raw_norm)
+        mapped.append(
+            {
+                "raw_name": raw_name,
+                "canonical_key": canonical,
+                "mapped_kind": "factor",
+            }
+        )
+
+    for profile_key, source_column in dict(column_map.get("profiles") or {}).items():
+        canonical_profile = _canonical_profile_key(str(profile_key))
+        raw_name = str(source_column or "").strip()
+        if canonical_profile is None or not raw_name:
+            continue
+        raw_norm = _norm(raw_name)
+        if raw_norm in seen_raw:
+            continue
+        seen_raw.add(raw_norm)
+        mapped.append(
+            {
+                "raw_name": raw_name,
+                "canonical_key": canonical_profile,
+                "mapped_kind": "profile",
+            }
+        )
+
+    headers_list = [str(header) for header in (headers or []) if str(header).strip()]
+    if not headers_list:
+        return mapped
+    order = {_norm(header): index for index, header in enumerate(headers_list)}
+    return sorted(
+        mapped,
+        key=lambda row: (
+            order.get(_norm(row["raw_name"]), len(order) + 10_000),
+            row["raw_name"].lower(),
+        ),
+    )
+
+
+def _build_mapped_raw_stats_display(
+    *,
+    mapped_columns: List[Dict[str, str]],
+    factors: Dict[str, Dict[int, float]],
+    profiles: Dict[str, Dict[int, float]],
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for column in mapped_columns:
+        canonical_key = str(column.get("canonical_key") or "").strip()
+        mapped_kind = str(column.get("mapped_kind") or "").strip()
+        raw_name = str(column.get("raw_name") or "").strip()
+        if not canonical_key or not raw_name:
+            continue
+        source_bucket = factors if mapped_kind == "factor" else profiles
+        stats = _series_stats((source_bucket.get(canonical_key) or {}).values())
+        rows.append(
+            {
+                "key": raw_name,
+                "label": raw_name,
+                "group": mapped_kind,
+                "mapped_kind": mapped_kind,
+                "canonical_key": canonical_key,
+                "stats": stats,
+                "is_raw_label": True,
+            }
+        )
+    return rows
+
+
+def _build_mapped_load_series_display(
+    *,
+    mapped_columns: List[Dict[str, str]],
+    profiles: Dict[str, Dict[int, float]],
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for column in mapped_columns:
+        mapped_kind = str(column.get("mapped_kind") or "").strip()
+        canonical_key = str(column.get("canonical_key") or "").strip()
+        raw_name = str(column.get("raw_name") or "").strip()
+        if mapped_kind != "profile" or not canonical_key or not raw_name:
+            continue
+        legacy_load_key = _legacy_load_from_profile_key(canonical_key)
+        if legacy_load_key is None:
+            continue
+        stats = _series_stats((profiles.get(canonical_key) or {}).values())
+        rows.append(
+            {
+                "key": raw_name,
+                "label": raw_name,
+                "avg": float(stats["avg"]) if stats is not None else None,
+                "is_service": False,
+                "is_raw_label": True,
+                "canonical_key": canonical_key,
+                "load_key": legacy_load_key,
             }
         )
     return rows
@@ -413,6 +540,29 @@ def _legacy_load_from_profile_key(profile_key: str) -> Optional[str]:
     if key in _LEGACY_PROFILE_TO_LOAD:
         return _LEGACY_PROFILE_TO_LOAD[key]
     return None
+
+
+def _display_labels_from_column_map(resolved_map: Dict[str, Any] | None) -> Dict[str, str]:
+    labels: Dict[str, str] = {}
+    column_map = dict(resolved_map or {})
+
+    for factor_key, source_column in dict(column_map.get("factors") or {}).items():
+        canonical = _norm(str(factor_key))
+        raw_name = str(source_column or "").strip()
+        if canonical in _FACTOR_SET and raw_name:
+            labels[canonical] = raw_name
+
+    for profile_key, source_column in dict(column_map.get("profiles") or {}).items():
+        canonical_profile = _canonical_profile_key(str(profile_key))
+        raw_name = str(source_column or "").strip()
+        if canonical_profile is None or not raw_name:
+            continue
+        labels[canonical_profile] = raw_name
+        legacy_load_key = _legacy_load_from_profile_key(canonical_profile)
+        if legacy_load_key:
+            labels[legacy_load_key] = raw_name
+
+    return labels
 
 
 def _canonical_forecast_rows(
@@ -794,9 +944,19 @@ def bundled_forecast_summary() -> Dict[str, Any]:
         "load_series": sorted(load_rows.keys()),
         "load_series_display": load_series_display,
         "load_series_raw": sorted(load_rows.keys()),
+        "mapped_raw_columns": [],
+        "mapped_raw_stats_display": [],
+        "mapped_tick_range_label": format_tick_range(
+            ticks[0] if ticks else None,
+            ticks[-1] if ticks else None,
+            periods=len(ticks),
+        ),
         "consumer_averages": {k: avg(v.values()) for k, v in load_rows.items()},
         "series_stats": series_stats,
         "series_stats_display": series_stats_display,
+        "internal_canonical_load_series": sorted(load_rows.keys()),
+        "internal_canonical_series_stats": series_stats,
+        "column_display_labels": {},
         "compatibility_report": {
             "is_compatible": True,
             "blocking_reasons": [],
@@ -983,6 +1143,8 @@ def parse_and_store_forecast(
         raise ValueError("; ".join(errors))
 
     factors, profiles, ticks = _canonical_forecast_rows(periods)
+    mapped_columns = _ordered_mapped_columns(headers=headers, resolved_map=resolved)
+    mapped_headers = [str(row.get("raw_name")) for row in mapped_columns if row.get("raw_name")]
     compatibility_report = build_forecast_compatibility_report(
         session=session_obj,
         ticks=ticks,
@@ -1003,6 +1165,8 @@ def parse_and_store_forecast(
             "resolved": resolved,
             "guessed": guessed,
             "unused_columns": unused_columns,
+            "headers": list(headers),
+            "mapped_headers": mapped_headers,
         },
         metadata_json={
             "rows": len(periods),
@@ -1099,9 +1263,16 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
             "load_series": [],
             "load_series_display": [],
             "load_series_raw": [],
+            "mapped_raw_columns": [],
+            "mapped_raw_stats_display": [],
+            "mapped_tick_range_label": format_tick_range(None, None, periods=0),
             "consumer_averages": {},
             "series_stats": {},
             "series_stats_display": [],
+            "internal_canonical_load_series": [],
+            "internal_canonical_series_stats": {},
+            "column_display_labels": {},
+            "resolved_column_map": {},
             "compatibility_report": dict(forecast.compatibility_report_json or {}),
             "quality": {
                 "warnings": warnings,
@@ -1121,6 +1292,17 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
             return None
         return round(sum(rows) / len(rows), 4)
 
+    normalization_map = dict(forecast.normalization_map_json or {})
+    resolved_map = dict(normalization_map.get("resolved") or forecast.column_map_json or {})
+    display_labels = _display_labels_from_column_map(resolved_map)
+    headers = list(normalization_map.get("headers") or [])
+    mapped_columns = _ordered_mapped_columns(headers=headers, resolved_map=resolved_map)
+    mapped_raw_columns = [
+        str(row.get("raw_name"))
+        for row in mapped_columns
+        if str(row.get("raw_name") or "").strip()
+    ]
+
     load_rows: Dict[str, Dict[int, float]] = {}
     for profile_key, legacy_key in _LEGACY_PROFILE_TO_LOAD.items():
         if profile_key in profiles:
@@ -1129,14 +1311,22 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
         class3 = _build_class3_series(load_rows)
         if class3:
             load_rows["class3"] = class3
-    load_series_display = _build_load_series_display(load_rows)
+    load_series_display = _build_mapped_load_series_display(
+        mapped_columns=mapped_columns,
+        profiles=profiles,
+    )
 
     series_stats: Dict[str, Dict[str, float] | None] = {}
     for key in CANONICAL_FACTOR_KEYS:
         series_stats[key] = _series_stats((factors.get(key) or {}).values())
     for key in CANONICAL_PROFILE_KEYS:
         series_stats[key] = _series_stats((profiles.get(key) or {}).values())
-    series_stats_display = _build_series_stats_display(series_stats, load_rows)
+    mapped_raw_stats_display = _build_mapped_raw_stats_display(
+        mapped_columns=mapped_columns,
+        factors=factors,
+        profiles=profiles,
+    )
+    series_stats_display = list(mapped_raw_stats_display)
 
     warnings = list((forecast.metadata_json or {}).get("warnings_detail") or [])
     compatibility_report = dict(forecast.compatibility_report_json or {})
@@ -1161,12 +1351,23 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
         "avg_market_price": avg((factors.get("market_price_buy") or {}).values()),
         "factors_keys": sorted(factors.keys()),
         "profiles_keys": sorted(profiles.keys()),
-        "load_series": sorted(load_rows.keys()),
+        "load_series": [str(row.get("label") or row.get("key") or "") for row in load_series_display],
         "load_series_display": load_series_display,
-        "load_series_raw": sorted(load_rows.keys()),
+        "load_series_raw": list(mapped_raw_columns),
+        "mapped_raw_columns": list(mapped_raw_columns),
+        "mapped_raw_stats_display": list(mapped_raw_stats_display),
+        "mapped_tick_range_label": format_tick_range(
+            ticks[0] if ticks else None,
+            ticks[-1] if ticks else None,
+            periods=len(ticks),
+        ),
         "consumer_averages": {key: avg(values.values()) for key, values in load_rows.items()},
         "series_stats": series_stats,
         "series_stats_display": series_stats_display,
+        "internal_canonical_load_series": sorted(load_rows.keys()),
+        "internal_canonical_series_stats": series_stats,
+        "column_display_labels": display_labels,
+        "resolved_column_map": resolved_map,
         "compatibility_report": compatibility_report,
         "is_compatible": bool(forecast.is_compatible),
         "incompatibility_reason": forecast.incompatibility_reason or "",

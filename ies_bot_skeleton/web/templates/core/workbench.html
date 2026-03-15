@@ -43,11 +43,11 @@
   </article>
   <article class="kpi-card">
     <span class="metric-label">Суммарная полезность портфеля</span>
-    <strong>{{ '%.2f'|format(kpis.portfolio_utility) }}</strong>
+    <strong>{{ fmt_num(kpis.portfolio_utility, 2) }}</strong>
   </article>
   <article class="kpi-card">
     <span class="metric-label">Чистая прибыль портфеля</span>
-    <strong>{{ '%.2f'|format(kpis.portfolio_net_profit) }}</strong>
+    <strong>{{ fmt_num(kpis.portfolio_net_profit, 2) }}</strong>
   </article>
   <article class="kpi-card">
     <span class="metric-label">Риск портфеля</span>
@@ -76,26 +76,15 @@
       <button class="btn btn-secondary" type="submit">Сделать активным</button>
     </form>
     <div class="insight-grid mt-4">
-      <div class="metric-card"><span class="metric-label">Такты</span><strong>{{ forecast_card.tick_from or '—' }}–{{ forecast_card.tick_to or '—' }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Такты</span><strong>{{ fmt_tick_range(forecast_card.tick_from, forecast_card.tick_to, periods=forecast_card.count or 0) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Периодов</span><strong>{{ forecast_card.count or 0 }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ '%.2f'|format(forecast_card.avg_wind or 0.0) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ '%.2f'|format(forecast_card.avg_illumination or 0.0) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Средняя цена рынка</span><strong>{{ '%.2f'|format(forecast_card.avg_market_price or 0.0) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Рядов нагрузки</span><strong>{{ (forecast_card.load_series_display or [])|length }}</strong></div>
-    </div>
-    <div class="mt-3">
-      <div class="pill-row">
-        {% for row in forecast_card.load_series_display or [] %}
-        <span class="pill text-ellipsis {{ 'is-service' if row.is_service else '' }}" title="{{ row.label }}">
-          {{ row.label }}: {{ '%.2f'|format(row.avg or 0.0) }}
-        </span>
-        {% else %}
-        <span class="muted">Ряды нагрузки не найдены.</span>
-        {% endfor %}
-      </div>
+      <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ fmt_num(forecast_card.avg_wind, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ fmt_num(forecast_card.avg_illumination, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Средняя цена рынка</span><strong>{{ fmt_num(forecast_card.avg_market_price, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Колонок CSV (mapped)</span><strong>{{ (forecast_card.mapped_raw_columns or [])|length }}</strong></div>
     </div>
     <details class="mt-3">
-      <summary>Статистика по столбцам прогноза</summary>
+      <summary>Статистика по mapped колонкам CSV</summary>
       <div class="table-wrap mt-2">
         <table class="table">
           <thead>
@@ -108,14 +97,15 @@
             </tr>
           </thead>
           <tbody>
-            {% for row in forecast_card.series_stats_display or [] %}
+            {% set mapped_rows = forecast_card.mapped_raw_stats_display or forecast_card.series_stats_display or [] %}
+            {% for row in mapped_rows %}
             {% set stats = row.stats or {} %}
             <tr>
               <td class="text-ellipsis" title="{{ row.label }}">{{ row.label }}</td>
-              <td class="num">{{ '%.3f'|format(stats.min or 0.0) }}</td>
-              <td class="num">{{ '%.3f'|format(stats.max or 0.0) }}</td>
-              <td class="num">{{ '%.3f'|format(stats.avg or 0.0) }}</td>
-              <td class="num">{{ '%.3f'|format(stats.median or 0.0) }}</td>
+              <td class="num">{{ fmt_num(stats.min, 3) }}</td>
+              <td class="num">{{ fmt_num(stats.max, 3) }}</td>
+              <td class="num">{{ fmt_num(stats.avg, 3) }}</td>
+              <td class="num">{{ fmt_num(stats.median, 3) }}</td>
             </tr>
             {% else %}
             <tr><td colspan="5" class="muted">Статистика пока недоступна.</td></tr>
@@ -242,7 +232,7 @@
       <tbody>
         {% for row in available_rows %}
         <tr>
-          <td class="col-text"><strong class="text-ellipsis" title="{{ row.name }}">{{ row.name }}</strong></td>
+          <td class="col-text"><strong class="text-clamp-2" title="{{ row.name }}">{{ row.name }}</strong></td>
           <td class="col-text">
             <div class="lot-chip-wrap" title="{{ row.structure }}">
               {% for item in row.structure_items %}
@@ -252,10 +242,10 @@
               {% endfor %}
             </div>
           </td>
-          <td class="num">{{ '%.2f'|format(row.utility) }}</td>
-          <td class="num">{{ '%.2f'|format(row.net_profit) }}</td>
-          <td class="num">{{ '%.2f'|format(row.risk) }}</td>
-          <td class="num">{{ '%.2f'|format(row.target_bid) }}</td>
+          <td class="num">{{ fmt_num(row.utility, 2) }}</td>
+          <td class="num">{{ fmt_num(row.net_profit, 2) }}</td>
+          <td class="num">{{ fmt_num(row.risk, 2) }}</td>
+          <td class="num">{{ fmt_num(row.working_bid, 2) }}</td>
           <td class="col-text">
             <span>{{ lot_status_label(row.status) }}</span>
             {% if row.is_stale %}<div><span class="status-badge status-stale" title="{{ row.stale_reason_label or row.stale_reason }}">Оценка устарела</span></div>{% endif %}
@@ -304,13 +294,13 @@
     </div>
   </div>
   <div class="insight-grid mt-3">
-    <div class="metric-card"><span class="metric-label">Стартовый бюджет</span><strong>{{ '%.1f'|format(portfolio.budget_total) }}</strong></div>
-    <div class="metric-card"><span class="metric-label">Потрачено</span><strong>{{ '%.1f'|format(portfolio.spent_total) }}</strong></div>
-    <div class="metric-card"><span class="metric-label">Осталось</span><strong>{{ '%.1f'|format(portfolio.remaining_budget) }}</strong></div>
+    <div class="metric-card"><span class="metric-label">Стартовый бюджет</span><strong>{{ fmt_num(portfolio.budget_total, 1) }}</strong></div>
+    <div class="metric-card"><span class="metric-label">Потрачено</span><strong>{{ fmt_num(portfolio.spent_total, 1) }}</strong></div>
+    <div class="metric-card"><span class="metric-label">Осталось</span><strong>{{ fmt_num(portfolio.remaining_budget, 1) }}</strong></div>
     <div class="metric-card"><span class="metric-label">Куплено лотов</span><strong>{{ portfolio.bought_lots_count }}</strong></div>
-    <div class="metric-card"><span class="metric-label">Ожидаемый доход</span><strong>{{ '%.1f'|format(portfolio.aggregate_income_total) }}</strong></div>
-    <div class="metric-card"><span class="metric-label">Ожидаемые расходы</span><strong>{{ '%.1f'|format(portfolio.aggregate_expenses_total) }}</strong></div>
-    <div class="metric-card"><span class="metric-label">Чистая прибыль</span><strong>{{ '%.1f'|format(portfolio.aggregate_net_profit) }}</strong></div>
+    <div class="metric-card"><span class="metric-label">Ожидаемый доход</span><strong>{{ fmt_num(portfolio.aggregate_income_total, 1) }}</strong></div>
+    <div class="metric-card"><span class="metric-label">Ожидаемые расходы</span><strong>{{ fmt_num(portfolio.aggregate_expenses_total, 1) }}</strong></div>
+    <div class="metric-card"><span class="metric-label">Чистая прибыль</span><strong>{{ fmt_num(portfolio.aggregate_net_profit, 1) }}</strong></div>
     <div class="metric-card"><span class="metric-label">Уровень риска</span><strong>{{ portfolio.risk_profile_label }}</strong></div>
   </div>
   <div class="table-wrap mt-3">
@@ -328,11 +318,11 @@
       <tbody>
         {% for row in purchased_rows %}
         <tr>
-          <td class="text-ellipsis" title="{{ row.name }}">{{ row.name }}</td>
-          <td class="num">{{ '%.1f'|format(row.purchase_price) }}</td>
-          <td class="num">{{ '%.2f'|format(row.net_profit) }}</td>
-          <td class="num">{{ '%.2f'|format(row.risk) }}</td>
-          <td class="num">{{ '%.1f'|format((row.net_profit / portfolio.aggregate_net_profit * 100.0) if portfolio.aggregate_net_profit else 0.0) }}%</td>
+          <td class="text-clamp-2" title="{{ row.name }}">{{ row.name }}</td>
+          <td class="num">{{ fmt_num(row.purchase_price, 1) }}</td>
+          <td class="num">{{ fmt_num(row.net_profit, 2) }}</td>
+          <td class="num">{{ fmt_num(row.risk, 2) }}</td>
+          <td class="num">{{ fmt_num((row.net_profit / portfolio.aggregate_net_profit * 100.0) if portfolio.aggregate_net_profit else 0.0, 1) }}%</td>
           <td class="actions-col">
             <div class="actions">
               <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть</a>

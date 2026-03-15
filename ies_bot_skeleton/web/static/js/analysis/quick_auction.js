@@ -10,12 +10,17 @@
     return document.getElementById(id);
   }
 
-  const state = {
-    ranking: [],
-  };
-
   function cfg() {
     return window.IES_QUICK_AUCTION || {};
+  }
+
+  const state = {
+    ranking: [],
+    shortlistSuggested: [],
+  };
+
+  function csrfToken() {
+    return cfg().csrfToken || window.IES_CSRF_TOKEN || '';
   }
 
   function storageKey() {
@@ -26,11 +31,51 @@
     return `ies-shortlist-${cfg().sessionId || 0}`;
   }
 
+  function formatNumber(value, digits) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+      return '0';
+    }
+    const fixed = number.toFixed(Math.max(0, Number(digits || 0)));
+    return fixed.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+  }
+
+  function toNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+  }
+
   function getShortlist() {
     try {
       return JSON.parse(localStorage.getItem(shortlistKey()) || '[]').map((value) => Number(value));
     } catch (_) {
       return [];
+    }
+  }
+
+  function setShortlist(ids) {
+    const normalized = Array.from(
+      new Set((ids || []).map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0))
+    );
+    localStorage.setItem(shortlistKey(), JSON.stringify(normalized));
+    return normalized;
+  }
+
+  function updateHeroBudget(snapshot) {
+    const budgetTotal = Number(snapshot?.budget_total);
+    const spentTotal = Number(snapshot?.spent_total);
+    const remainingBudget = Number(snapshot?.remaining_budget);
+    const totalNode = document.querySelector('[data-session-budget-total]');
+    const spentNode = document.querySelector('[data-session-spent-total]');
+    const remainingNode = document.querySelector('[data-session-remaining-budget]');
+    if (totalNode && Number.isFinite(budgetTotal)) {
+      totalNode.textContent = formatNumber(budgetTotal, 1);
+    }
+    if (spentNode && Number.isFinite(spentTotal)) {
+      spentNode.textContent = formatNumber(spentTotal, 1);
+    }
+    if (remainingNode && Number.isFinite(remainingBudget)) {
+      remainingNode.textContent = formatNumber(remainingBudget, 1);
     }
   }
 
@@ -68,10 +113,11 @@
     evalCurrent: Boolean($('evalCurrent')?.disabled),
     refreshRanking: Boolean($('refreshRanking')?.disabled),
     qaApplyFilters: Boolean($('qaApplyFilters')?.disabled),
+    buyCurrentLot: Boolean($('buyCurrentLot')?.disabled),
   };
 
   function setBusy(busy) {
-    const controls = ['evalCurrent', 'refreshRanking', 'qaApplyFilters'];
+    const controls = ['evalCurrent', 'refreshRanking', 'qaApplyFilters', 'buyCurrentLot'];
     controls.forEach((id) => {
       const node = $(id);
       if (!node) {
@@ -89,13 +135,24 @@
     return Number((row.financial_breakdown || {}).losses_and_risks?.risk_total || row.risk || 0);
   }
 
-  function hardBid(row) {
+  function workingBid(row) {
     return Number(
+      row.working_bid ||
+      (row.decision_summary || {}).working_bid ||
       (row.decision_summary || {}).target_bid ||
-      (row.decision_summary || {}).hard_bid ||
-      row.target_bid ||
-      row.recommended_bid_hard ||
+      (row.decision_summary || {}).cautious_bid ||
+      (row.decision_summary || {}).hard_ceiling_bid ||
       0
+    );
+  }
+
+  function workingBidReason(row) {
+    return (
+      row.working_bid_reason ||
+      (row.decision_summary || {}).working_bid_reason ||
+      row.risk_commentary ||
+      row.explanation ||
+      ''
     );
   }
 
@@ -115,7 +172,7 @@
       return riskValue(a) - riskValue(b);
     }
     if (key === 'bid_desc') {
-      return hardBid(b) - hardBid(a);
+      return workingBid(b) - workingBid(a);
     }
     return Number(b.summary_score || 0) - Number(a.summary_score || 0);
   }
@@ -143,9 +200,7 @@
 
   function setCurrentLinks(lotId) {
     const lotLink = $('openCurrentLot');
-    const buyLink = $('buyCurrentLot');
     if (lotLink) lotLink.href = lotId ? `/lots/item/${lotId}` : '#';
-    if (buyLink) buyLink.href = lotId ? `/lots/item/${lotId}/buy` : '#';
   }
 
   function setActiveAuctionItem(lotId) {
@@ -162,40 +217,49 @@
     return state.ranking.find((row) => Number(row.lot_id || 0) === targetId) || null;
   }
 
-  function syncCurrentBid(lotId) {
-    const row = document.querySelector(`.auction-item[data-lot-id="${lotId}"]`);
-    if (!row || !$('currentBid')) return;
-    $('currentBid').value = row.dataset.currentBid || '';
+  function syncCurrentBid(lotId, force = false) {
+    const input = $('currentBid');
+    if (!input) return;
+    const ranked = rankingItemByLotId(lotId);
+    const fallback = document.querySelector(`.auction-item[data-lot-id="${lotId}"]`)?.dataset.currentBid;
+    const nextValue = ranked ? workingBid(ranked) : toNumber(fallback);
+    if (force || !input.value) {
+      input.value = formatNumber(nextValue, 1);
+    }
     setCurrentLinks(lotId);
   }
 
   function updateDecisionPanel(item) {
     if (!item) return;
-    $('qaScore').textContent = Number(item.summary_score || 0).toFixed(2);
-    $('qaRisk').textContent = riskValue(item).toFixed(2);
-    $('qaBid').textContent = hardBid(item).toFixed(1);
-    if ($('qaBudgetBid')) $('qaBudgetBid').textContent = budgetLimitedBid(item).toFixed(1);
+    $('qaScore').textContent = formatNumber(item.summary_score, 2);
+    $('qaRisk').textContent = formatNumber(riskValue(item), 2);
+    $('qaBid').textContent = formatNumber(workingBid(item), 1);
+    if ($('qaBudgetBid')) $('qaBudgetBid').textContent = formatNumber(budgetLimitedBid(item), 1);
     const reasons = Array.isArray(item.reasons) ? item.reasons.slice(0, 3).join('; ') : '';
-    $('qaCommentary').textContent = reasons || item.risk_commentary || item.explanation || 'Нет комментария.';
+    $('qaCommentary').textContent = reasons || workingBidReason(item) || 'Нет комментария.';
+    if (workingBid(item) <= 0) {
+      $('qaCommentary').textContent = workingBidReason(item) || 'Рабочая цена недоступна для текущего лота.';
+    }
     const lotId = Number(item.lot_id || 0);
     $('currentLotId').value = String(lotId || '');
     setCurrentLinks(lotId);
     setActiveAuctionItem(lotId);
+    syncCurrentBid(lotId, true);
   }
 
   async function persistCurrentBid(lotId) {
     const bidRaw = $('currentBid')?.value || '';
     if (!bidRaw) return true;
     const bid = Number(bidRaw);
-    if (!Number.isFinite(bid) || bid < 0) {
-      setStatus('Текущая ставка должна быть числом не меньше нуля.');
+    if (!Number.isFinite(bid) || bid <= 0) {
+      setStatus('Цена покупки должна быть числом больше нуля.');
       return false;
     }
     const data = await apiFetchJson(`/api/lots/${lotId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRFToken': cfg().csrfToken || window.IES_CSRF_TOKEN || '',
+        'X-CSRFToken': csrfToken(),
       },
       body: JSON.stringify({current_bid: bid}),
     });
@@ -207,7 +271,7 @@
     if (item) {
       item.dataset.currentBid = String(bid);
       const label = item.querySelector('.auction-item-bid');
-      if (label) label.textContent = `(${bid.toFixed(1)})`;
+      if (label) label.textContent = `(${formatNumber(bid, 1)})`;
     }
     return true;
   }
@@ -227,7 +291,7 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRFToken': cfg().csrfToken || window.IES_CSRF_TOKEN || '',
+          'X-CSRFToken': csrfToken(),
         },
         body: JSON.stringify({}),
       });
@@ -238,8 +302,8 @@
 
       updateDecisionPanel(data.item);
       setStatus(
-        `Лот ${id} пересчитан. Полезность ${Number(data.item.summary_score || 0).toFixed(2)}, ` +
-        `рабочая ставка ${hardBid(data.item).toFixed(1)}.`
+        `Лот ${id} пересчитан. Полезность ${formatNumber(data.item.summary_score, 2)}, ` +
+        `рабочая ставка ${formatNumber(workingBid(data.item), 1)}.`
       );
     } catch (_) {
       setStatus('Не удалось пересчитать лот из-за сетевой ошибки.');
@@ -253,9 +317,34 @@
       <div class="actions">
         <button class="btn btn-secondary quickEvalRow" data-lot-id="${lotId}" type="button">Оценить</button>
         <a class="btn btn-secondary" href="/lots/item/${lotId}">Открыть лот</a>
-        <a class="btn btn-secondary" href="/lots/item/${lotId}/buy">Купить</a>
+        <button class="btn btn-secondary quickBuyRow" data-lot-id="${lotId}" type="button">Купить</button>
       </div>
     `;
+  }
+
+  function syncAuctionListWithRanking() {
+    const ids = new Set(state.ranking.map((row) => Number(row.lot_id || 0)));
+    document.querySelectorAll('.auction-item').forEach((item) => {
+      const lotId = Number(item.dataset.lotId || 0);
+      const ranked = rankingItemByLotId(lotId);
+      if (!ids.has(lotId)) {
+        item.remove();
+        return;
+      }
+      if (!ranked) {
+        return;
+      }
+      const nextBid = workingBid(ranked);
+      item.dataset.currentBid = String(nextBid);
+      const label = item.querySelector('.auction-item-bid');
+      if (label) {
+        label.textContent = `(${formatNumber(nextBid, 1)})`;
+      }
+    });
+
+    document.querySelectorAll('.auction-item').forEach((item, index) => {
+      item.dataset.hotkey = String(index + 1);
+    });
   }
 
   function renderRanking(rows) {
@@ -277,11 +366,11 @@
       tr.innerHTML = `
         <td>${index + 1}</td>
         <td>${row.lot_id}</td>
-        <td>${Number(row.summary_score || 0).toFixed(2)}</td>
-        <td>${netProfit(row).toFixed(2)}</td>
-        <td>${riskValue(row).toFixed(2)}</td>
-        <td>${hardBid(row).toFixed(1)}</td>
-        <td>${reasons || row.risk_commentary || row.explanation || ''}</td>
+        <td>${formatNumber(row.summary_score, 2)}</td>
+        <td>${formatNumber(netProfit(row), 2)}</td>
+        <td>${formatNumber(riskValue(row), 2)}</td>
+        <td>${formatNumber(workingBid(row), 1)}</td>
+        <td>${reasons || workingBidReason(row)}</td>
         <td>${rowActionsHtml(row.lot_id)}</td>
       `;
       body.appendChild(tr);
@@ -290,9 +379,17 @@
     body.querySelectorAll('.quickEvalRow').forEach((button) => {
       button.addEventListener('click', async () => {
         $('currentLotId').value = button.dataset.lotId;
-        syncCurrentBid(button.dataset.lotId);
+        syncCurrentBid(button.dataset.lotId, true);
         await evalLot(button.dataset.lotId);
         await refreshRanking(Number(button.dataset.lotId || 0));
+      });
+    });
+
+    body.querySelectorAll('.quickBuyRow').forEach((button) => {
+      button.addEventListener('click', async () => {
+        $('currentLotId').value = button.dataset.lotId;
+        syncCurrentBid(button.dataset.lotId, true);
+        await buyCurrentLot();
       });
     });
   }
@@ -308,23 +405,108 @@
       if ($('qaMaxRisk')?.value) params.set('risk_max', $('qaMaxRisk').value);
 
       const data = await apiFetchJson(`/api/sessions/${cfg().sessionId}/lots/analytics?${params.toString()}`, {
-        headers: {'X-CSRFToken': cfg().csrfToken || window.IES_CSRF_TOKEN || ''},
+        headers: {'X-CSRFToken': csrfToken()},
       });
       if (!data.ok) {
         setStatus(errorMessage(data));
         return;
       }
       state.ranking = Array.isArray(data.items) ? data.items : [];
+      if (state.shortlistSuggested.length) {
+        const available = new Set(state.ranking.map((row) => Number(row.lot_id || 0)));
+        setShortlist(state.shortlistSuggested.filter((id) => available.has(Number(id))));
+        state.shortlistSuggested = [];
+      } else {
+        const available = new Set(state.ranking.map((row) => Number(row.lot_id || 0)));
+        setShortlist(getShortlist().filter((id) => available.has(Number(id))));
+      }
+      syncAuctionListWithRanking();
       renderRanking(state.ranking);
       const selectedLotId = Number(preferredLotId ?? $('currentLotId')?.value ?? 0);
       const selected = rankingItemByLotId(selectedLotId) || state.ranking[0] || null;
       if (selected) {
         updateDecisionPanel(selected);
-        syncCurrentBid(selected.lot_id);
+      } else {
+        $('currentLotId').value = '';
+        if ($('currentBid')) $('currentBid').value = '';
+        setCurrentLinks(0);
+        setActiveAuctionItem(0);
       }
       setStatus(`Получено лотов: ${state.ranking.length}.`);
     } catch (_) {
       setStatus('Не удалось обновить shortlist из-за сетевой ошибки.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function recalculateAllLots(preferredLotId) {
+    setBusy(true);
+    setStatus('Пересчитываю все лоты...');
+    try {
+      const recalc = await apiFetchJson(`/api/sessions/${cfg().sessionId}/recalculate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken(),
+        },
+        body: JSON.stringify({}),
+      });
+      if (!recalc.ok) {
+        setStatus(errorMessage(recalc));
+        return;
+      }
+      state.shortlistSuggested = Array.isArray(recalc?.meta?.shortlist_suggested_ids)
+        ? recalc.meta.shortlist_suggested_ids.map((value) => Number(value || 0)).filter((value) => value > 0)
+        : [];
+      updateHeroBudget({
+        remaining_budget: recalc?.meta?.remaining_budget,
+      });
+      await refreshRanking(preferredLotId);
+      setStatus(`Пересчитано лотов: ${Number(recalc?.meta?.count || 0)}.`);
+    } catch (_) {
+      setStatus('Не удалось пересчитать лоты из-за сетевой ошибки.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function buyCurrentLot() {
+    const lotId = Number($('currentLotId')?.value || 0);
+    if (!lotId) {
+      setStatus('Сначала выберите лот для покупки.');
+      return;
+    }
+    const priceRaw = $('currentBid')?.value || '';
+    const purchasePrice = Number(priceRaw);
+    if (!Number.isFinite(purchasePrice) || purchasePrice <= 0) {
+      setStatus('Цена покупки должна быть числом больше нуля.');
+      return;
+    }
+
+    setBusy(true);
+    setStatus(`Покупаю лот ${lotId} по цене ${formatNumber(purchasePrice, 1)}...`);
+    try {
+      const data = await apiFetchJson(`/api/lots/${lotId}/buy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken(),
+        },
+        body: JSON.stringify({purchase_price: purchasePrice}),
+      });
+      if (!data.ok) {
+        setStatus(errorMessage(data));
+        return;
+      }
+      updateHeroBudget(data?.item || {});
+      const remaining = formatNumber(data?.item?.remaining_budget, 1);
+      const boughtLotId = Number(data?.item?.lot_id || lotId);
+      setShortlist(getShortlist().filter((id) => Number(id) !== boughtLotId));
+      setStatus(`Лот ${lotId} куплен. Остаток бюджета: ${remaining}.`);
+      await recalculateAllLots(0);
+    } catch (_) {
+      setStatus('Не удалось выполнить покупку из-за сетевой ошибки.');
     } finally {
       setBusy(false);
     }
@@ -355,32 +537,35 @@
   window.addEventListener('DOMContentLoaded', () => {
     restoreState();
     state.ranking = Array.isArray(cfg().initialRanking) ? cfg().initialRanking : [];
+    syncAuctionListWithRanking();
     renderRanking(state.ranking);
     const initialLotId = Number($('currentLotId')?.value || 0);
     const selected = rankingItemByLotId(initialLotId) || state.ranking[0] || null;
     if (selected) {
       updateDecisionPanel(selected);
-      syncCurrentBid(selected.lot_id);
     }
 
-    document.querySelectorAll('.auction-item').forEach((item, index) => {
+    document.querySelectorAll('.auction-item').forEach((item) => {
       item.addEventListener('click', () => {
         const lotId = Number(item.dataset.lotId || 0);
         setActiveAuctionItem(lotId);
         $('currentLotId').value = String(lotId || '');
-        syncCurrentBid(lotId);
+        syncCurrentBid(lotId, true);
         const ranked = rankingItemByLotId(lotId);
         if (ranked) {
           updateDecisionPanel(ranked);
         }
         persistState();
       });
-      item.dataset.hotkey = String(index + 1);
     });
 
     $('evalCurrent')?.addEventListener('click', evalCurrent);
     $('refreshRanking')?.addEventListener('click', async () => {
-      await refreshRanking(Number($('currentLotId')?.value || 0));
+      await recalculateAllLots(Number($('currentLotId')?.value || 0));
+      persistState();
+    });
+    $('buyCurrentLot')?.addEventListener('click', async () => {
+      await buyCurrentLot();
       persistState();
     });
     $('qaApplyFilters')?.addEventListener('click', () => {
@@ -397,7 +582,7 @@
 
     const initialRawLotId = $('currentLotId')?.value;
     if (initialRawLotId) {
-      syncCurrentBid(Number(initialRawLotId || 0));
+      syncCurrentBid(Number(initialRawLotId || 0), true);
       setActiveAuctionItem(Number(initialRawLotId || 0));
     }
     if (!initialRawLotId && document.querySelector('.auction-item')) {
@@ -429,7 +614,12 @@
       }
       if (event.key.toLowerCase() === 'r') {
         event.preventDefault();
-        await refreshRanking();
+        await recalculateAllLots(Number($('currentLotId')?.value || 0));
+        return;
+      }
+      if (event.key.toLowerCase() === 'b') {
+        event.preventDefault();
+        await buyCurrentLot();
       }
     });
   });

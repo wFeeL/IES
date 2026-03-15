@@ -454,6 +454,24 @@ def lots_analytics(session_id: int):
                 "budget_limited_bid": float(
                     (item.get("decision_summary") or {}).get("budget_limited_bid", 0.0) or 0.0
                 ),
+                "working_bid": float(
+                    item.get("working_bid")
+                    or (item.get("decision_summary") or {}).get("working_bid")
+                    or (item.get("decision_summary") or {}).get("target_bid")
+                    or (item.get("decision_summary") or {}).get("cautious_bid")
+                    or (item.get("decision_summary") or {}).get("hard_ceiling_bid")
+                    or 0.0
+                ),
+                "working_bid_source": str(
+                    item.get("working_bid_source")
+                    or (item.get("decision_summary") or {}).get("working_bid_source")
+                    or "none"
+                ),
+                "working_bid_reason": str(
+                    item.get("working_bid_reason")
+                    or (item.get("decision_summary") or {}).get("working_bid_reason")
+                    or ""
+                ),
             }
         )
 
@@ -479,8 +497,11 @@ def lots_analytics(session_id: int):
     elif sort_key == "bid_desc":
         enriched.sort(
             key=lambda row: float(
-                row.get("target_bid")
+                row.get("working_bid")
+                or row.get("target_bid")
+                or (row.get("decision_summary") or {}).get("working_bid", 0.0)
                 or (row.get("decision_summary") or {}).get("target_bid", 0.0)
+                or (row.get("decision_summary") or {}).get("cautious_bid", 0.0)
                 or (row.get("decision_summary") or {}).get("hard_bid", 0.0)
             ),
             reverse=True,
@@ -500,7 +521,54 @@ def lots_analytics(session_id: int):
 def recalculate_session_lots(session_id: int):
     session = get_session_or_404(session_id)
     rows = rank_session_lots(session=session, lots=session.lots, persist=True)
-    return jsonify({"ok": True, "items": rows, "meta": {"count": len(rows)}})
+    available_lot_ids = {
+        int(lot.id) for lot in session.lots if str(lot.status or "") == "available"
+    }
+    available_rows = [row for row in rows if int(row.get("lot_id") or 0) in available_lot_ids]
+    non_zero_working = [
+        row
+        for row in available_rows
+        if float(
+            row.get("working_bid")
+            or (row.get("decision_summary") or {}).get("working_bid")
+            or (row.get("decision_summary") or {}).get("target_bid")
+            or 0.0
+        )
+        > 0.0
+    ]
+    shortlist = sorted(
+        non_zero_working,
+        key=lambda row: (
+            float(
+                ((row.get("metrics") or {}).get("portfolio_delta") or {}).get(
+                    "risk_adjusted_net_profit",
+                    0.0,
+                )
+            ),
+            float(row.get("working_bid") or 0.0),
+        ),
+        reverse=True,
+    )
+    spent_total = float(
+        sum(
+            float(lot.purchase_price or 0.0)
+            for lot in session.lots
+            if str(lot.status or "") == "bought"
+        )
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "items": rows,
+            "meta": {
+                "count": len(rows),
+                "remaining_budget": max(0.0, float(session.budget_total or 0.0) - spent_total),
+                "available_count": len(available_rows),
+                "non_zero_working_bid_count": len(non_zero_working),
+                "shortlist_suggested_ids": [int(row.get("lot_id") or 0) for row in shortlist[:8]],
+            },
+        }
+    )
 
 
 @api_bp.get("/sessions/<int:session_id>/strategy")
@@ -625,7 +693,21 @@ def buy_lot_endpoint(lot_id: int):
     lot = get_lot_or_404(lot_id)
     session = get_session_or_404(lot.session_id)
     payload = json_payload()
-    summary = buy_lot(session, lot, float(payload.get("purchase_price", 0.0) or 0.0))
+    purchase_price_raw = payload.get("purchase_price")
+    if purchase_price_raw in (None, ""):
+        evaluation = evaluate_session_lot(session=session, lot=lot, persist=False)
+        purchase_price = float(
+            evaluation.get("working_bid")
+            or (evaluation.get("decision_summary") or {}).get("working_bid")
+            or (evaluation.get("decision_summary") or {}).get("target_bid")
+            or (evaluation.get("decision_summary") or {}).get("cautious_bid")
+            or (evaluation.get("decision_summary") or {}).get("hard_ceiling_bid")
+            or (evaluation.get("decision_summary") or {}).get("hard_bid")
+            or 0.0
+        )
+    else:
+        purchase_price = float(purchase_price_raw or 0.0)
+    summary = buy_lot(session, lot, purchase_price)
     db.session.commit()
     return jsonify({"ok": True, "item": summary})
 

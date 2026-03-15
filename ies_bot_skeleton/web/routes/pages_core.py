@@ -354,6 +354,9 @@ def session_forecast_selection_action(session_id: int):
         flash("Активный прогноз обновлён", "success")
     else:
         flash("Не удалось выбрать прогноз", "error")
+    target = (request.form.get("next") or request.referrer or "").strip()
+    if target and is_safe_internal_url(target):
+        return redirect(target)
     return redirect(url_for("pages.session_page", session_id=session.id))
 
 

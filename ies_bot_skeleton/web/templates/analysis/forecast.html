@@ -22,12 +22,12 @@
     <h2 class="h2 text-ellipsis" title="{{ active_forecast_summary.name or 'Прогноз тестовой игры' }}">{{ active_forecast_summary.name or 'Прогноз тестовой игры' }}</h2>
     <p class="muted">{{ forecast_context.source_label }}</p>
     <div class="insight-grid mt-3">
-      <div class="metric-card"><span class="metric-label">Такты</span><strong>{{ active_forecast_summary.tick_from or '—' }}–{{ active_forecast_summary.tick_to or '—' }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Такты</span><strong>{{ fmt_tick_range(active_forecast_summary.tick_from, active_forecast_summary.tick_to, periods=active_forecast_summary.count or 0) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Периодов</span><strong>{{ active_forecast_summary.count or 0 }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ '%.2f'|format(active_forecast_summary.avg_wind or 0.0) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ '%.2f'|format(active_forecast_summary.avg_illumination or 0.0) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Средняя цена рынка</span><strong>{{ '%.2f'|format(active_forecast_summary.avg_market_price or 0.0) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Ряды нагрузки</span><strong>{{ (active_forecast_summary.load_series_display or [])|length }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ fmt_num(active_forecast_summary.avg_wind, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ fmt_num(active_forecast_summary.avg_illumination, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Средняя цена рынка</span><strong>{{ fmt_num(active_forecast_summary.avg_market_price, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Колонок CSV (mapped)</span><strong>{{ (active_forecast_summary.mapped_raw_columns or [])|length }}</strong></div>
     </div>
     <div class="risk-block mt-3">{{ active_forecast_summary.quality.text }}</div>
     <div class="table-wrap mt-3">
@@ -81,11 +81,11 @@
         {% for fc in forecasts %}
         {% set summary = forecast_summaries[fc.id] %}
         {% set compat = compatibility_by_forecast[fc.id] %}
-        <tr>
+        <tr data-forecast-id="{{ fc.id }}">
           <td>{{ fc.id }}</td>
           <td><strong class="text-ellipsis" title="{{ fc.name }}">{{ fc.name }}</strong><div class="muted text-ellipsis" title="{{ fc.source_file }}">{{ fc.source_file }}</div></td>
-          <td>{{ summary.tick_from or '—' }}–{{ summary.tick_to or '—' }}</td>
-          {% set load_labels = (summary.load_series_display or []) | map(attribute='label') | list %}
+          <td>{{ fmt_tick_range(summary.tick_from, summary.tick_to, periods=summary.count or 0) }}</td>
+          {% set load_labels = summary.mapped_raw_columns or [] %}
           <td class="text-ellipsis" title="{{ load_labels|join(', ') if load_labels else 'не найдены' }}">
             {{ load_labels|join(', ') if load_labels else 'не найдены' }}
           </td>
@@ -102,6 +102,7 @@
             <div class="actions">
               <form method="post" action="{{ url_for('pages.session_forecast_selection_action', session_id=session.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <input type="hidden" name="next" value="{{ url_for('pages.forecast_page', session_id=session.id) }}" />
                 <input type="hidden" name="selected_forecast_id" value="{{ fc.id }}" />
                 <button class="btn btn-secondary" type="submit">Сделать активным</button>
               </form>
@@ -136,7 +137,8 @@
 <script>
 window.IES_FORECAST_CENTER = {
   sessionId: {{ session.id }},
-  csrfToken: "{{ csrf_token() }}"
+  csrfToken: "{{ csrf_token() }}",
+  activeForecastId: {{ active_forecast_id or 0 }}
 };
 </script>
 <script defer src="{{ url_for('static', filename='js/analysis/forecast_center.js') }}"></script>

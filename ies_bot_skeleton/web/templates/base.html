@@ -41,7 +41,15 @@
     <div class="dashboard-shell">
       <aside class="dashboard-sidebar">
         <a class="sidebar-brand" href="{{ url_for('pages.dashboard') }}">
-          <span class="sidebar-brand-mark">◉</span>
+          <span class="sidebar-brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M4 17h16"></path>
+              <path d="M7 17V9"></path>
+              <path d="M12 17V6"></path>
+              <path d="M17 17v-4"></path>
+              <path d="M12 3 9.5 8h3l-1.5 4 4-6h-3z"></path>
+            </svg>
+          </span>
           <span class="sidebar-brand-text">IES Кабинет</span>
         </a>
         <p class="sidebar-subtitle">Единый кабинет аналитики и покупки лотов по прогнозу</p>
@@ -93,9 +101,28 @@
           <div class="dashboard-top-actions">
             <button type="button" class="btn btn-secondary" id="themeToggle">Тема</button>
             <span class="pill locale-pill">🇷🇺 Рус</span>
-            <button class="btn btn-ghost icon-btn" type="button" aria-label="Уведомления">◌</button>
+            <button class="btn btn-ghost icon-btn" type="button" aria-label="Уведомления">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6 16v-4a6 6 0 1 1 12 0v4"></path>
+                <path d="M4 16h16"></path>
+                <path d="M10 19a2 2 0 0 0 4 0"></path>
+              </svg>
+            </button>
             <span class="user-chip">
-              <span class="user-chip-avatar">{{ current_user.username[0]|upper if current_user.username else 'U' }}</span>
+              <span class="user-chip-avatar" aria-hidden="true">
+                {% if current_user.role == 'admin' %}
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M12 3.8 18 6v5.2c0 4.4-2.8 7.1-6 9-3.2-1.9-6-4.6-6-9V6z"></path>
+                  <path d="M9.5 11.5a2.5 2.5 0 1 1 5 0"></path>
+                  <path d="M8.5 15.5a4.1 4.1 0 0 1 7 0"></path>
+                </svg>
+                {% else %}
+                <svg viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="8" r="3"></circle>
+                  <path d="M6.5 18a5.5 5.5 0 0 1 11 0"></path>
+                </svg>
+                {% endif %}
+              </span>
               <span class="user-chip-text">
                 <strong>{{ current_user.username }}</strong>
                 <small>{{ current_user.role }}</small>

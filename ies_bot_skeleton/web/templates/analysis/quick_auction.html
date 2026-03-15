@@ -35,12 +35,16 @@
       <div>
         <p class="section-kicker">Шорт-лист</p>
         <h1 class="h1">Быстрый аукцион</h1>
-        <p class="muted">Горячие клавиши: <kbd>1..9</kbd> выбрать лот, <kbd>E</kbd> оценить, <kbd>R</kbd> обновить список.</p>
+        <p class="muted">Горячие клавиши: <kbd>1..9</kbd> выбрать лот, <kbd>E</kbd> оценить, <kbd>R</kbd> пересчитать все лоты, <kbd>B</kbd> купить.</p>
       </div>
     </div>
     <ul id="auctionLots" class="stack gap-2 mt-3">
       {% for lot in lots %}
-      <li class="auction-item" data-lot-id="{{ lot.id }}" data-current-bid="{{ '%.1f'|format(lot.current_bid or 0.0) }}"><strong>{{ loop.index }}.</strong> {{ lot.name }} <span class="muted auction-item-bid">({{ '%.1f'|format(lot.current_bid or 0.0) }})</span></li>
+      <li class="auction-item" data-lot-id="{{ lot.id }}" data-current-bid="{{ fmt_num(lot.current_bid, 1) }}">
+        <strong>{{ loop.index }}.</strong>
+        <span class="text-clamp-2" title="{{ lot.name }}">{{ lot.name }}</span>
+        <span class="muted auction-item-bid">({{ fmt_num(lot.current_bid, 1) }})</span>
+      </li>
       {% else %}
       <li class="muted">Нет доступных лотов.</li>
       {% endfor %}
@@ -56,12 +60,12 @@
     </div>
     <div class="stack gap-3 mt-3">
       <label class="label">ID текущего лота <input id="currentLotId" class="input" type="number" /></label>
-      <label class="label">Текущая ставка по лоту <input id="currentBid" class="input" type="number" step="0.1" /></label>
+      <label class="label">Цена покупки (рабочая ставка по умолчанию) <input id="currentBid" class="input" type="number" step="0.1" /></label>
       <div class="actions">
         <button id="evalCurrent" class="btn btn-primary" type="button" {% if forecast_blocked %}disabled{% endif %}>Оценить</button>
-        <button id="refreshRanking" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Обновить список</button>
+        <button id="refreshRanking" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Пересчитать все лоты</button>
         <a id="openCurrentLot" class="btn btn-secondary" href="#">Открыть лот</a>
-        <a id="buyCurrentLot" class="btn btn-secondary" href="#">Купить</a>
+        <button id="buyCurrentLot" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Купить</button>
       </div>
     </div>
     <div class="metric-strip mt-4" id="decisionMetrics">
@@ -120,16 +124,16 @@
         <tr data-lot-id="{{ row.lot_id }}">
           <td>{{ loop.index }}</td>
           <td>{{ row.lot_id }}</td>
-          <td>{{ '%.2f'|format(row.summary_score) }}</td>
-          <td>{{ '%.2f'|format(row.financial_breakdown.result.net_profit) }}</td>
-          <td>{{ '%.2f'|format(row.financial_breakdown.losses_and_risks.risk_total) }}</td>
-          <td>{{ '%.1f'|format(row.decision_summary.target_bid or row.decision_summary.hard_bid) }}</td>
-          <td>{{ (row.reasons[:2]|join('; ')) if row.reasons else row.risk_commentary }}</td>
+          <td>{{ fmt_num(row.summary_score, 2) }}</td>
+          <td>{{ fmt_num(row.financial_breakdown.result.net_profit, 2) }}</td>
+          <td>{{ fmt_num(row.financial_breakdown.losses_and_risks.risk_total, 2) }}</td>
+          <td>{{ fmt_num(row.working_bid or row.decision_summary.working_bid, 1) }}</td>
+          <td>{{ row.working_bid_reason or ((row.reasons[:2]|join('; ')) if row.reasons else row.risk_commentary) }}</td>
           <td>
             <div class="actions">
               <button class="btn btn-secondary quickEvalRow" data-lot-id="{{ row.lot_id }}" type="button">Оценить</button>
               <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть лот</a>
-              <a class="btn btn-secondary" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=row.lot_id) }}">Купить</a>
+              <button class="btn btn-secondary quickBuyRow" data-lot-id="{{ row.lot_id }}" type="button">Купить</button>
             </div>
           </td>
         </tr>

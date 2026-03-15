@@ -12,6 +12,7 @@ from ...application.objects import (
     create_session_object,
     delete_session_object,
     get_session_object_or_error,
+    list_session_objects,
     update_session_object,
 )
 from ...application.portfolio import (
@@ -34,6 +35,11 @@ from ..forms import (
 )
 from ..models import Forecast, GameSession, Lot, ObjectInstance, ObjectType
 from ..services.evaluation import ForecastCompatibilityError
+from ..services.connection_advisor import (
+    recommend_connection_for_profile,
+    recommendations_for_session_objects,
+)
+from ..services.formatting import format_number, format_tick_range
 from ..services.forecast_service import session_forecast_compatibility, summarize_forecast
 from ..services.lots_dashboard import (
     analytics_by_lot_for_session,
@@ -119,9 +125,8 @@ def _forecast_line(session: GameSession) -> str:
     ctx = session_analysis_view(session)
     forecast = ctx["forecast_summary"]
     name = forecast.get("name") or TEST_GAME_BUNDLED_FORECAST_NAME
-    tick_from = forecast.get("tick_from") or "—"
-    tick_to = forecast.get("tick_to") or "—"
-    return f"Анализ выполнен по прогнозу: {name}, такты {tick_from}–{tick_to}."
+    tick_range = format_tick_range(forecast.get("tick_from"), forecast.get("tick_to"))
+    return f"Анализ выполнен по прогнозу: {name}, такты {tick_range}."
 
 
 def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict[str, Any]:
@@ -131,6 +136,7 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
     )
 
     def _scenario(label: str) -> Dict[str, Any]:
+        scoped_reason = f"{label}: {reason}"
         return {
             "label": label,
             "revenue_total": 0.0,
@@ -141,12 +147,12 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "utility_score": 0.0,
             "bid_ceiling": 0.0,
             "recommended_bid": 0.0,
-            "explanation": reason,
+            "explanation": scoped_reason,
             "income_total": 0.0,
             "expenses_total": 0.0,
             "utility_total": 0.0,
             "expected_net_profit_at_current_price": 0.0,
-            "comment": reason,
+            "comment": scoped_reason,
         }
 
     return {
@@ -187,6 +193,9 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "hard_ceiling_bid": 0.0,
             "budget_limited_bid": 0.0,
             "budget_remaining": 0.0,
+            "working_bid": 0.0,
+            "working_bid_source": "none",
+            "working_bid_reason": reason,
             "soft_bid": 0.0,
             "hard_bid": 0.0,
             "stop_bid": 0.0,
@@ -194,6 +203,9 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
         "reasons": [reason],
         "risk_commentary": reason,
         "strategy_fit_text": "Оценка заблокирована до исправления совместимости прогноза.",
+        "working_bid": 0.0,
+        "working_bid_source": "none",
+        "working_bid_reason": reason,
         "is_stale": False,
         "stale_reason": "",
         "score_definition": "Оценка недоступна из-за несовместимого прогноза.",
@@ -271,6 +283,27 @@ def _render_object_editor(
     object_type = _object_type_by_form_value(form.object_type_id.data)
     current_parameters = obj.current_parameters_json if obj is not None else {}
     submitted_values = dict(request.form) if request.method == "POST" else None
+    draft_parameters = dict(current_parameters or {})
+    if object_type is not None and submitted_values is not None:
+        try:
+            draft_parameters = parameters_from_form(
+                object_type,
+                submitted_values,
+                current_parameters=current_parameters,
+            )
+        except ValueError:
+            draft_parameters = dict(current_parameters or {})
+    draft_district = form.district.data or (obj.district if obj is not None else "default")
+    connection_recommendation = None
+    if object_type is not None:
+        connection_recommendation = recommend_connection_for_profile(
+            session=session,
+            object_type=object_type,
+            parameters=draft_parameters,
+            district=draft_district,
+            existing_objects=list(session.objects),
+            exclude_object_id=obj.id if obj is not None else None,
+        )
     title = "Редактирование объекта" if obj is not None else "Новый объект"
     ctx = nav(
         breadcrumb_items=[
@@ -289,6 +322,7 @@ def _render_object_editor(
         form=form,
         object_instance=obj,
         object_type=object_type,
+        connection_recommendation=connection_recommendation,
         parameter_rows=parameter_rows(
             object_type,
             current_parameters=current_parameters,
@@ -336,7 +370,9 @@ def system_view(session_id: int):
     session = db.session.get(GameSession, session_id)
     if session is None:
         return _missing_session_redirect()
-    issues = validate_session_network(list(session.objects))
+    object_rows = list_session_objects(session.id)
+    issues = validate_session_network(list(object_rows))
+    connection_recommendations = recommendations_for_session_objects(session)
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -350,7 +386,8 @@ def system_view(session_id: int):
         "analysis/system.html",
         session=session,
         issues=issues,
-        object_rows=session.objects,
+        object_rows=object_rows,
+        connection_recommendations=connection_recommendations,
         show_analysis_context=False,
         **session_analysis_view(session),
         **ctx,
@@ -715,12 +752,24 @@ def lot_buy_confirm_page(lot_id: int):
     portfolio = portfolio_summary(session)
     form = LotPurchaseForm()
     if request.method == "GET":
-        form.purchase_price.data = float(lot.current_bid or 0.0)
+        form.purchase_price.data = float(
+            evaluation.get("working_bid")
+            or (evaluation.get("decision_summary") or {}).get("working_bid")
+            or (evaluation.get("decision_summary") or {}).get("target_bid")
+            or (evaluation.get("decision_summary") or {}).get("cautious_bid")
+            or (evaluation.get("decision_summary") or {}).get("hard_ceiling_bid")
+            or (evaluation.get("decision_summary") or {}).get("hard_bid")
+            or lot.current_bid
+            or 0.0
+        )
     if form.validate_on_submit():
         try:
             summary = buy_lot(session, lot, float(form.purchase_price.data or 0.0))
             db.session.commit()
-            flash(f"Лот «{lot.name}» куплен по цене {summary['purchase_price']:.1f}", "success")
+            flash(
+                f"Лот «{lot.name}» куплен по цене {format_number(summary['purchase_price'], 1)}",
+                "success",
+            )
             return redirect(url_for("pages.lot_detail_page", lot_id=lot.id))
         except ValueError as exc:
             db.session.rollback()
@@ -769,7 +818,10 @@ def lot_undo_buy_action(lot_id: int):
             summary = undo_lot_purchase(session, lot)
             db.session.commit()
             flash(
-                f"Покупка лота «{lot.name}» отменена, бюджет восстановлен до {summary['remaining_budget']:.1f}",
+                "Покупка лота «{name}» отменена, бюджет восстановлен до {budget}".format(
+                    name=lot.name,
+                    budget=format_number(summary["remaining_budget"], 1),
+                ),
                 "success",
             )
         except ValueError as exc:

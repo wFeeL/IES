@@ -28,6 +28,34 @@
       {% if object_type %}
       <p class="muted mt-2">Тип объекта: {{ object_type.name }} ({{ object_type.code }}).</p>
       {% endif %}
+      {% if connection_recommendation %}
+      <div class="risk-block mt-3">
+        <strong>Рекомендация по подключению: {{ connection_recommendation.recommended_point }}</strong>
+        <div class="mt-2">{{ connection_recommendation.message }}</div>
+        <div class="muted mt-2">
+          Текущая точка: {{ connection_recommendation.current_point }} ·
+          Потери: {{ fmt_num(connection_recommendation.current_loss_pct, 1) }}% → {{ fmt_num(connection_recommendation.recommended_loss_pct, 1) }}% ·
+          Лимит: {{ fmt_num(connection_recommendation.recommended_capacity_mw, 2) }} МВт ·
+          Остаток лимита: {{ fmt_num(connection_recommendation.recommended_remaining_capacity_mw, 2) }} МВт.
+        </div>
+        <div class="muted mt-1">Нагрузка кандидата: {{ fmt_num(connection_recommendation.expected_power_mw, 2) }} МВт.</div>
+        <div class="muted mt-1">
+          Допустимые альтернативы:
+          {% if connection_recommendation.feasible_alternatives %}
+          {% for alt in connection_recommendation.feasible_alternatives %}
+            {{ alt.point }} (остаток {{ fmt_num(alt.remaining_capacity_mw, 2) }} МВт){% if not loop.last %}, {% endif %}
+          {% endfor %}
+          {% else %}
+            нет
+          {% endif %}
+        </div>
+        {% if connection_recommendation.rejected_points %}
+        <div class="muted mt-1">
+          Точки, которые не проходят по лимитам: {{ connection_recommendation.rejected_points|length }}.
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
       <div class="grid cols-2 gap-4 mt-3">
         {% for row in parameter_rows %}
         <div class="field-card">
@@ -49,7 +77,10 @@
           </label>
           {% endif %}
           {% if row.default_value is not none %}
-          <div class="muted mt-2">Значение типа по умолчанию: {{ row.default_value }}</div>
+          <div class="muted mt-2">
+            Значение типа по умолчанию:
+            {{ fmt_num(row.default_value, 2) if row.type == 'number' else row.default_value }}
+          </div>
           {% endif %}
         </div>
         {% else %}

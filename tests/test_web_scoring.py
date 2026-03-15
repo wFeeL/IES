@@ -223,10 +223,9 @@ def test_houseb_alias_forecast_profile_is_supported(app_ctx):
     summary = summarize_forecast(houseb_forecast)
     load_display = list(summary.get("load_series_display") or [])
     assert load_display
-    assert any(str(row.get("key")) == "housea" for row in load_display)
-    assert any(
-        str(row.get("key")) == "class3" and bool(row.get("is_service")) for row in load_display
-    )
+    assert any(str(row.get("label")) == "houseB" for row in load_display)
+    assert all(str(row.get("key")) != "class3" for row in load_display)
+    assert "houseB" in list(summary.get("mapped_raw_columns") or [])
 
     out = evaluate_lot(session=session, lot=lot, forecast=houseb_forecast, persist=False)
     assert float(out["financial_breakdown"]["income"]["served_load_revenue"]) > 0.0
@@ -243,14 +242,16 @@ def test_forecast_display_rows_use_human_labels_and_service_group(app_ctx):
 
     summary = summarize_forecast(forecast)
     display_rows = list(summary.get("load_series_display") or [])
-    class3_row = next(row for row in display_rows if str(row.get("key")) == "class3")
-    assert class3_row["label"] != "class3"
-    assert bool(class3_row["is_service"]) is True
+    labels = {str(row.get("label")) for row in display_rows}
+    assert "load_housea" in labels
+    assert "load_factory" in labels
+    assert "class3" not in labels
 
-    stats_display = list(summary.get("series_stats_display") or [])
-    class3_stats = next(row for row in stats_display if str(row.get("key")) == "class3")
-    assert class3_stats["group"] == "load_service"
-    assert class3_stats["label"] != "class3"
+    stats_display = list(summary.get("mapped_raw_stats_display") or [])
+    stat_labels = {str(row.get("label")) for row in stats_display}
+    assert "load_housea" in stat_labels
+    assert "load_factory" in stat_labels
+    assert "class3" not in stat_labels
 
 
 def test_forecast_value_interpretation_uses_absolute_branches_for_large_values():
@@ -315,7 +316,7 @@ def test_storage_without_real_dispatch_has_no_artificial_positive_value(app_ctx)
     assert float(out["budget_limited_bid"]) == pytest.approx(0.0)
 
 
-def test_test_game_rules_do_not_add_hidden_risk_or_overload_penalties(app_ctx):
+def test_test_game_rules_keep_overload_zero_but_produce_nonzero_risk_signal(app_ctx):
     session = app_ctx["session"]
     forecast = app_ctx["forecast"]
     tmap = {x.code: x for x in db.session.query(ObjectType).all()}
@@ -337,7 +338,7 @@ def test_test_game_rules_do_not_add_hidden_risk_or_overload_penalties(app_ctx):
     losses = out["financial_breakdown"]["losses_and_risks"]
 
     assert float(losses["overload_penalties"]) == pytest.approx(0.0)
-    assert float(losses["risk_total"]) == pytest.approx(0.0)
+    assert float(losses["risk_total"]) > 0.0
 
 
 def test_infrastructure_without_constraint_has_no_artificial_positive_value(app_ctx):
@@ -439,9 +440,9 @@ def test_build_forecast_pack_supports_legacy_load_keys_from_db(app_ctx):
     assert pack["load"]["office"][2] == pytest.approx(3.0)
     assert pack["load"]["class3"][1] == pytest.approx(6.0)
     assert pack["load"]["load_housea"][1] == pytest.approx(4.0)
-    assert "housea" in summary["load_series"]
-    assert "office" in summary["load_series"]
-    assert "load_housea" not in summary["load_series"]
+    assert "housea" in summary["internal_canonical_load_series"]
+    assert "office" in summary["internal_canonical_load_series"]
+    assert summary["mapped_raw_columns"] == []
     assert summary["consumer_averages"]["housea"] == pytest.approx(5.0)
 
 

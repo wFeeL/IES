@@ -20,6 +20,7 @@ from .services.navigation import (
     safe_back_url,
     safe_next_url,
 )
+from .services.formatting import display_or_dash, format_number, format_tick_range
 from .services.ui_text import (
     CATEGORY_LABELS,
     SESSION_TERMS,
@@ -103,6 +104,9 @@ def create_app(config_name: Optional[str] = None) -> Flask:
             "lot_scope_label": lot_scope_label,
             "lot_status_label": lot_status_label,
             "stale_reason_label": stale_reason_label,
+            "fmt_num": format_number,
+            "fmt_tick_range": format_tick_range,
+            "display_or_dash": display_or_dash,
             "category_labels": CATEGORY_LABELS,
             "session_terms": SESSION_TERMS,
             "breadcrumbs": [],

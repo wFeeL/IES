@@ -161,9 +161,10 @@ def test_quick_auction_uses_user_facing_actions_without_debug_block(client):
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
     assert "Технический ответ" not in html
-    assert "Текущая ставка по лоту" in html
+    assert "Цена покупки (рабочая ставка по умолчанию)" in html
     assert f"/lots/item/{lot_a}" in html
     assert "Открыть сравнение" not in html
+    assert "Пересчитать все лоты" in html
 
 
 def test_quick_auction_script_keeps_selected_lot_after_refresh(client):
@@ -178,6 +179,9 @@ def test_quick_auction_script_keeps_selected_lot_after_refresh(client):
     assert "function isHotkeyTarget(event)" in js
     assert "tag === 'input' || tag === 'textarea' || tag === 'select'" in js
     assert "event.preventDefault();" in js
+    assert "async function recalculateAllLots(preferredLotId)" in js
+    assert "await apiFetchJson(`/api/lots/${lotId}/buy`" in js
+    assert "await recalculateAllLots(0);" in js
 
 
 def test_forecast_page_shows_compatibility_block(client):

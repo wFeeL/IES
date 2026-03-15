@@ -1,11 +1,15 @@
 {% set bought_count = portfolio.bought_lots_count if portfolio is defined else (session.lots|selectattr('status', 'equalto', 'bought')|list|length) %}
 {% set remaining = portfolio.remaining_budget if portfolio is defined else session.budget_total %}
+{% set spent = portfolio.spent_total if portfolio is defined else (session.budget_total - remaining) %}
 <section class="hero-card">
   <div>
     <p class="section-kicker">Сессия #{{ session.id }}</p>
     <h1 class="hero-title">{{ session.title }}</h1>
     <p class="hero-subtitle">
-      Стратегия: {{ strategy_label(session.selected_strategy) }} · Бюджет: {{ '%.1f'|format(session.budget_total or 0.0) }} · Остаток: {{ '%.1f'|format(remaining or 0.0) }}
+      Стратегия: {{ strategy_label(session.selected_strategy) }} ·
+      Бюджет: <span data-session-budget-total>{{ fmt_num(session.budget_total, 1) }}</span> ·
+      Потрачено: <span data-session-spent-total>{{ fmt_num(spent, 1) }}</span> ·
+      Остаток: <span data-session-remaining-budget>{{ fmt_num(remaining, 1) }}</span>
     </p>
   </div>
   <div class="hero-badges">

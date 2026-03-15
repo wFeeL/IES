@@ -54,6 +54,7 @@ def test_lots_table_uses_compact_headers_and_actions_menu(client):
     assert 'aria-haspopup="menu"' in html
     assert 'role="menu"' in html
     assert 'title="Очень длинное имя лота для проверки tooltip и ellipsis"' in html
+    assert 'class="text-clamp-2"' in html
     assert 'class="lot-chip-wrap"' in html
     assert html.count('class="lot-chip"') >= 5
     assert f'{type_name["wind"]} ×1' in html

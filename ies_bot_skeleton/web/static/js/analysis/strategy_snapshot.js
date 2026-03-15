@@ -8,11 +8,12 @@
   }
 
   function formatNumber(value, digits) {
-    const numeric = Number(value || 0);
+    const numeric = Number(value);
     if (!Number.isFinite(numeric)) {
-      return Number(0).toFixed(digits);
+      return '0';
     }
-    return numeric.toFixed(digits);
+    const fixed = numeric.toFixed(Math.max(0, Number(digits || 0)));
+    return fixed.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
   }
 
   function escapeHtml(value) {
@@ -25,21 +26,36 @@
   }
 
   function names(row) {
-    const labels = Array.isArray(row?.lot_names) ? row.lot_names : [];
-    return labels.length ? labels.join(' + ') : '—';
+    if (row?.display_title) {
+      return row.display_title;
+    }
+    const lotLabels = Array.isArray(row?.lot_labels) ? row.lot_labels : [];
+    if (lotLabels.length) {
+      return lotLabels.join(' + ');
+    }
+    const lotNames = Array.isArray(row?.lot_names) ? row.lot_names : [];
+    const lotIds = Array.isArray(row?.lot_ids) ? row.lot_ids.map((value) => Number(value || 0)) : [];
+    if (!lotNames.length) {
+      return '—';
+    }
+    return lotNames.map((label, index) => `${label} (${lotIds[index] || 0})`).join(' + ');
   }
 
-  function renderLotBidBreakdown(row) {
+  function renderLotBidBreakdown(row, withProfit) {
     const breakdown = Array.isArray(row?.lot_bid_breakdown) ? row.lot_bid_breakdown : [];
     if (!breakdown.length) {
       return '';
     }
     return breakdown
       .map((item) => {
-        const lotName = item?.lot_name ? escapeHtml(item.lot_name) : `Лот ${Number(item?.lot_id || 0)}`;
-        return `${lotName}: ${formatNumber(item?.allocated_target_bid, 1)} ` +
-          `(лимит ${formatNumber(item?.allocated_hard_ceiling_bid, 1)}, ` +
-          `синергия ${formatNumber(item?.synergy_allocated, 1)})`;
+        const lotLabel = item?.lot_label
+          ? escapeHtml(item.lot_label)
+          : `${escapeHtml(item?.lot_name || 'Лот')} (${Number(item?.lot_id || 0)})`;
+        const purchasePrice = Number(item?.budget_adjusted_bid || item?.allocated_target_bid || 0);
+        const profitPart = withProfit
+          ? `, прибыль: ${formatNumber(item?.allocated_net_profit, 2)}`
+          : '';
+        return `${lotLabel} — цена: ${formatNumber(purchasePrice, 1)}${profitPart}`;
       })
       .join('<br/>');
   }
@@ -50,10 +66,13 @@
     }
     return rows
       .map((row) => {
-        const breakdownHtml = renderLotBidBreakdown(row);
+        const breakdownHtml = renderLotBidBreakdown(row, true);
         return (
           `<li><strong>${escapeHtml(names(row))}</strong><br/>` +
           `<span class="muted">${detailBuilder(row)}</span>` +
+          `<div class="muted mt-1">Рабочая цена: ${formatNumber(row?.working_bid, 1)} · ` +
+          `Осторожная цена: ${formatNumber(row?.cautious_bid, 1)} · ` +
+          `Предельная цена: ${formatNumber(row?.hard_ceiling_bid, 1)}</div>` +
           (breakdownHtml ? `<div class="muted mt-1">${breakdownHtml}</div>` : '') +
           `</li>`
         );
@@ -89,7 +108,9 @@
             ${renderSessionList(
               item.best_singles,
               'Нет доступных одиночных рекомендаций.',
-              (row) => `Прибыль ${formatNumber(row.net_profit_base, 2)}, риск ${formatNumber(row.risk, 2)}`
+              (row) =>
+                `Название группы - ${escapeHtml(names(row))}: ` +
+                `цена: ${formatNumber(row.working_bid, 1)}, прибыль: ${formatNumber(row.net_profit_base, 2)}`
             )}
           </ul>
         </article>
@@ -99,7 +120,11 @@
             ${renderSessionList(
               item.best_pairs,
               'Пары в бюджете не найдены.',
-              (row) => `Синергия ${formatNumber(row.synergy_score, 2)}, прибыль ${formatNumber(row.net_profit_base, 2)}`
+              (row) =>
+                `Название группы - ${escapeHtml(names(row))}: ` +
+                `цена: ${formatNumber(row.working_bid, 1)}, ` +
+                `прибыль: ${formatNumber(row.net_profit_base, 2)}, ` +
+                `синергия: ${formatNumber(row.synergy_score, 2)}`
             )}
           </ul>
         </article>
@@ -109,7 +134,10 @@
             ${renderSessionList(
               item.best_groups,
               'Группы в бюджете не найдены.',
-              (row) => `Цена ${formatNumber(row.total_price, 1)}, прибыль ${formatNumber(row.net_profit_base, 2)}`
+              (row) =>
+                `Название группы - ${escapeHtml(names(row))}: ` +
+                `цена: ${formatNumber(row.working_bid || row.total_price, 1)}, ` +
+                `прибыль: ${formatNumber(row.net_profit_base, 2)}`
             )}
           </ul>
         </article>
@@ -123,7 +151,7 @@
     }
     return rows
       .map((row) => {
-        const breakdown = renderLotBidBreakdown(row);
+        const breakdown = renderLotBidBreakdown(row, true);
         return `
           <tr>
             <td class="col-text">${escapeHtml(names(row))}</td>

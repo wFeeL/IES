@@ -83,6 +83,9 @@ def buy_lot(session: GameSession, lot: Lot, purchase_price: float) -> Dict[str, 
         db.session.add(row)
 
     _mark_portfolio_changed(session)
+    available_lots_count = sum(
+        1 for row in session.lots if str(row.status or "") == "available"
+    )
 
     return {
         "lot_id": int(lot.id),
@@ -92,6 +95,9 @@ def buy_lot(session: GameSession, lot: Lot, purchase_price: float) -> Dict[str, 
         "budget_total": float(session.budget_total or 0.0),
         "spent_total": spent_total(session),
         "remaining_budget": remaining_budget(session),
+        "available_lots_count": int(available_lots_count),
+        "refresh_required": True,
+        "refresh_reason": "portfolio_changed",
     }
 
 
@@ -112,6 +118,9 @@ def undo_lot_purchase(session: GameSession, lot: Lot) -> Dict[str, Any]:
     db.session.add(lot)
 
     _mark_portfolio_changed(session)
+    available_lots_count = sum(
+        1 for row in session.lots if str(row.status or "") == "available"
+    )
 
     return {
         "lot_id": int(lot.id),
@@ -120,6 +129,9 @@ def undo_lot_purchase(session: GameSession, lot: Lot) -> Dict[str, Any]:
         "budget_total": float(session.budget_total or 0.0),
         "spent_total": spent_total(session),
         "remaining_budget": remaining_budget(session),
+        "available_lots_count": int(available_lots_count),
+        "refresh_required": True,
+        "refresh_reason": "portfolio_changed",
     }
 
 

@@ -359,6 +359,7 @@ def _collect_assets(session: GameSession, extra_lots: Sequence[Lot] | None = Non
             continue
         params = dict(obj.object_type.default_parameters_json or {})
         params.update(dict(obj.current_parameters_json or {}))
+        params.setdefault("district", obj.district)
         params["forecast_profile_key"] = obj.object_type.forecast_profile_key or params.get(
             "forecast_profile_key", ""
         )
@@ -420,6 +421,14 @@ def _simulate_scenario(
     factory_penalty_rate = _as_float(fine_cfg.get("factory_rub_per_mw"), 10.0)
     loss_tax = _as_float(net_cfg.get("loss_tax"), 1.0)
     base_loss_rate = 0.05
+    default_connection_point = str(net_cfg.get("default_connection_point") or "A").strip().upper()
+    point_losses_raw = dict(net_cfg.get("connection_loss_pct_by_point") or {})
+    point_loss_by_connection: Dict[str, float] = {
+        str(key).strip().upper(): max(0.0, _as_float(value, 0.0)) / 100.0
+        for key, value in point_losses_raw.items()
+        if str(key).strip()
+    }
+    default_point_loss = float(point_loss_by_connection.get(default_connection_point, 0.0))
     storage_throughput_cost = max(
         0.0,
         _as_float(
@@ -449,7 +458,17 @@ def _simulate_scenario(
         else max(0.0, _as_float(market_sell_cap_raw, 0.0))
     )
 
-    network_loss_rate = base_loss_rate
+    def asset_connection_loss(asset: Asset) -> float:
+        point = str(
+            asset.parameters.get("connection_point")
+            or asset.parameters.get("district")
+            or default_connection_point
+        ).strip().upper()
+        return float(point_loss_by_connection.get(point, default_point_loss))
+
+    all_connection_losses = [asset_connection_loss(asset) for asset in assets] or [default_point_loss]
+    avg_connection_loss = float(sum(all_connection_losses) / len(all_connection_losses))
+    network_loss_rate = max(0.0, base_loss_rate + avg_connection_loss * 0.5)
 
     contracts = sum(
         _as_float(asset.parameters.get("contract_rub_per_tick"), 0.0) * asset.quantity
@@ -513,6 +532,7 @@ def _simulate_scenario(
             profile_value = _profile_value(profile_key, profiles, tick, 1.0)
             if asset.role == "consumer":
                 base_load = _as_float(asset.parameters.get("expected_consumption_mw"), 1.0)
+                connection_loss = asset_connection_loss(asset)
                 load = (
                     _consumer_demand_mw(
                         expected_consumption_mw=base_load,
@@ -520,6 +540,7 @@ def _simulate_scenario(
                         load_scale=scales["load"],
                     )
                     * qty
+                    * (1.0 + connection_loss)
                 )
                 demand_total += load
                 if _norm(asset.code) == "factory":
@@ -527,6 +548,7 @@ def _simulate_scenario(
             elif asset.role == "generator":
                 code = _norm(asset.code)
                 eff = _clamp(_as_float(asset.parameters.get("efficiency"), 1.0), 0.1, 1.2)
+                delivery_factor = max(0.0, 1.0 - asset_connection_loss(asset))
                 generation_mw = (
                     max(0.0, _as_float(asset.parameters.get("generation_mw"), 0.0)) * qty
                 )
@@ -538,6 +560,7 @@ def _simulate_scenario(
                         efficiency=eff,
                         object_defaults=object_defaults,
                     )
+                    supply *= delivery_factor
                     renewable_generation += supply
                     eco_value += (
                         supply
@@ -551,6 +574,7 @@ def _simulate_scenario(
                         generation_mw=generation_mw,
                         efficiency=eff,
                     )
+                    supply *= delivery_factor
                     renewable_generation += supply
                     eco_value += (
                         supply
@@ -560,7 +584,7 @@ def _simulate_scenario(
                 else:
                     thermal_units.append(
                         {
-                            "capacity": generation_mw,
+                            "capacity": generation_mw * delivery_factor,
                             "eta": _clamp(
                                 _as_float(
                                     asset.parameters.get("efficiency"),
@@ -634,6 +658,15 @@ def _simulate_scenario(
                     demand_factory * (deficit / demand_total) * factory_penalty_rate
                 )
 
+        risk_penalty += (
+            max(0.0, losses_mw * market_buy * 0.08)
+            + max(0.0, deficit) * (penalty_rate + factory_penalty_rate) * 0.5
+            + max(0.0, avg_connection_loss)
+            * max(demand_total, renewable_generation)
+            * market_buy
+            * 0.03
+        )
+
         surplus = renewable_surplus
         if surplus > 0 and storage_max > 0 and storage_state < storage_max:
             charge_cap = storage_charge * max(1.0, storage_max / max(storage_capacity, 1.0))
@@ -659,6 +692,7 @@ def _simulate_scenario(
             base_load = _as_float(asset.parameters.get("expected_consumption_mw"), 1.0)
             profile_key = _asset_profile_key(asset)
             profile_value = _profile_value(profile_key, profiles, tick, 1.0)
+            connection_loss = asset_connection_loss(asset)
             demand = (
                 _consumer_demand_mw(
                     expected_consumption_mw=base_load,
@@ -666,6 +700,7 @@ def _simulate_scenario(
                     load_scale=scales["load"],
                 )
                 * qty
+                * (1.0 + connection_loss)
             )
             served = demand * served_ratio
             tariff = _as_float(asset.parameters.get("tariff_rub_per_mw_tick"), 0.0)
@@ -766,19 +801,49 @@ def _human_reasons(delta_obj: DeltaSnapshot, top_k: int = 5) -> List[str]:
     return out
 
 
-def _scenario_comment(*, utility_total: float, net_profit: float, recommended_bid: float) -> str:
+def _scenario_comment(
+    *,
+    scenario: str,
+    utility_total: float,
+    net_profit: float,
+    recommended_bid: float,
+    penalties_total: float,
+    losses_total: float,
+) -> str:
+    scenario_key = _norm(scenario)
     if recommended_bid <= 0.0:
-        return "Сценарий не поддерживает безопасную ставку по этому лоту."
+        if scenario_key == "worst":
+            return (
+                "Worst: сценарий уязвим, безопасная ставка отсутствует; "
+                "дефицит и потери перекрывают эффект лота."
+            )
+        if scenario_key == "best":
+            return (
+                "Best: потенциал высокий, но при текущих параметрах риск всё ещё выше "
+                "допустимого для ставки."
+            )
+        return "Base: при текущих вводных сценарий не поддерживает безопасную ставку."
+    if scenario_key == "worst":
+        return (
+            "Worst: повышенная чувствительность к потерям и штрафам; "
+            f"убытки по рискам {losses_total:.2f}, штрафы {penalties_total:.2f}."
+        )
+    if scenario_key == "best":
+        return (
+            "Best: выраженная синергия генерации и спроса, "
+            "сетевые издержки компенсируются ростом маржи."
+        )
     if utility_total >= 0 and net_profit >= 0:
-        return "Сценарий рабочий: полезность и чистая прибыль положительны."
+        return "Base: рабочий нейтральный сценарий, лот поддерживает устойчивую доходность."
     if utility_total >= 0:
-        return "Полезность положительная, но прибыль чувствительна к цене входа."
-    return "Сценарий слабый: покупка ухудшает результат портфеля."
+        return "Base: полезность положительная, но прибыль чувствительна к цене входа."
+    return "Base: сценарий слабый, требуется более консервативная цена покупки."
 
 
 def _scenario_row(
     *,
     label: str,
+    scenario: str = "base",
     delta_obj: Any,
     current_price: float,
     pwin: float,
@@ -831,9 +896,12 @@ def _scenario_row(
         "bid_ceiling": float(bid_ceiling),
         "recommended_bid": float(recommended_bid),
         "explanation": _scenario_comment(
+            scenario=scenario,
             utility_total=float(utility_total),
             net_profit=float(net_profit),
             recommended_bid=float(recommended_bid),
+            penalties_total=float(penalties_total),
+            losses_total=float(losses_total),
         ),
         # Backward-compatible aliases:
         "income_total": float(income_total),
@@ -841,15 +909,22 @@ def _scenario_row(
         "utility_total": float(utility_total),
         "expected_net_profit_at_current_price": float(net_profit),
         "comment": _scenario_comment(
+            scenario=scenario,
             utility_total=float(utility_total),
             net_profit=float(net_profit),
             recommended_bid=float(recommended_bid),
+            penalties_total=float(penalties_total),
+            losses_total=float(losses_total),
         ),
     }
 
 
 def _financial_breakdown(
-    *, base_delta: Any, current_price: float, hard_bid: float
+    *,
+    base_delta: Any,
+    current_price: float,
+    hard_bid: float,
+    model_risk_premium: float = 0.0,
 ) -> Dict[str, Any]:
     market_delta = float(getattr(base_delta, "delta_market_net", 0.0) or 0.0)
     served_load_revenue = float(
@@ -897,7 +972,10 @@ def _financial_breakdown(
         max(0.0, float(getattr(base_delta, "delta_network_losses_cost", 0.0) or 0.0))
     )
     penalties_total = float(max(0.0, float(getattr(base_delta, "delta_penalties", 0.0) or 0.0)))
-    risk_total = float(max(0.0, float(getattr(base_delta, "delta_risk_penalty", 0.0) or 0.0)))
+    risk_total = float(
+        max(0.0, float(getattr(base_delta, "delta_risk_penalty", 0.0) or 0.0))
+        + max(0.0, float(model_risk_premium or 0.0))
+    )
     total_losses_and_risks = float(network_losses_total + penalties_total + risk_total)
     losses_and_risks = {
         "network_losses": network_losses_total,
@@ -1053,6 +1131,64 @@ def _financial_breakdown(
         "result": result,
         "decomposition": decomposition,
         "ui_rows": ui_rows,
+    }
+
+
+def resolve_working_bid(
+    *,
+    decision_summary: Dict[str, Any],
+    financial_breakdown: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    summary = dict(decision_summary or {})
+    breakdown = dict(financial_breakdown or {})
+    result = dict(breakdown.get("result") or {})
+    losses = dict(breakdown.get("losses_and_risks") or {})
+
+    target_bid = max(0.0, _as_float(summary.get("target_bid"), 0.0))
+    cautious_bid = max(0.0, _as_float(summary.get("cautious_bid"), 0.0))
+    ceiling_bid = max(
+        0.0,
+        _as_float(
+            summary.get("hard_ceiling_bid", summary.get("stop_bid", summary.get("hard_bid", 0.0))),
+            0.0,
+        ),
+    )
+
+    if target_bid > 0.0:
+        return {
+            "working_bid": float(target_bid),
+            "working_bid_source": "target",
+            "working_bid_reason": "Рабочая цена рассчитана по риск-скорректированной оценке.",
+        }
+    if cautious_bid > 0.0:
+        return {
+            "working_bid": float(cautious_bid),
+            "working_bid_source": "cautious",
+            "working_bid_reason": "Использована осторожная цена: целевая ставка недоступна.",
+        }
+    if ceiling_bid > 0.0:
+        return {
+            "working_bid": float(ceiling_bid),
+            "working_bid_source": "ceiling",
+            "working_bid_reason": "Использован предельный потолок: target/cautious не дали положительной цены.",
+        }
+
+    remaining_budget = max(0.0, _as_float(summary.get("budget_remaining"), 0.0))
+    net_profit = _as_float(result.get("net_profit"), 0.0)
+    risk_total = _as_float(losses.get("risk_total"), 0.0)
+
+    if remaining_budget <= 0.0:
+        reason = "Рабочая цена равна 0: бюджет сессии исчерпан."
+    elif net_profit <= 0.0:
+        reason = "Рабочая цена равна 0: ожидаемая чистая прибыль неположительная."
+    elif risk_total > 0.0:
+        reason = "Рабочая цена равна 0: риск-премия перекрывает экономический эффект."
+    else:
+        reason = "Рабочая цена равна 0: лот не формирует допустимую ставку в текущем контексте."
+    return {
+        "working_bid": 0.0,
+        "working_bid_source": "none",
+        "working_bid_reason": reason,
     }
 
 
@@ -1257,6 +1393,7 @@ def evaluate_lot_bundle(
     scenario_breakdown = {
         "worst": _scenario_row(
             label="Worst",
+            scenario="worst",
             delta_obj=d_worst,
             current_price=entry_price_total,
             pwin=pwin,
@@ -1264,6 +1401,7 @@ def evaluate_lot_bundle(
         ),
         "base": _scenario_row(
             label="Base",
+            scenario="base",
             delta_obj=d_base,
             current_price=entry_price_total,
             pwin=pwin,
@@ -1271,6 +1409,7 @@ def evaluate_lot_bundle(
         ),
         "best": _scenario_row(
             label="Best",
+            scenario="best",
             delta_obj=d_best,
             current_price=entry_price_total,
             pwin=pwin,
@@ -1339,6 +1478,7 @@ def evaluate_lot_bundle(
         base_delta=d_base,
         current_price=entry_price_total,
         hard_bid=hard_ceiling_bid,
+        model_risk_premium=risk_premium,
     )
     reasons = _human_reasons(d_base, top_k=5)
     risk_commentary = (
@@ -1407,6 +1547,12 @@ def evaluate_lot_bundle(
         "hard_bid": float(target_bid),
         "stop_bid": float(hard_ceiling_bid),
     }
+    working_bid_payload = resolve_working_bid(
+        decision_summary=decision_summary,
+        financial_breakdown=financial_breakdown,
+    )
+    decision_summary.update(working_bid_payload)
+    metrics["bids"].update(working_bid_payload)
 
     return {
         "summary_score": float(score),
@@ -1437,6 +1583,9 @@ def evaluate_lot_bundle(
         "target_bid": float(target_bid),
         "hard_ceiling_bid": float(hard_ceiling_bid),
         "budget_limited_bid": float(budget_limited_bid),
+        "working_bid": float(working_bid_payload["working_bid"]),
+        "working_bid_source": str(working_bid_payload["working_bid_source"]),
+        "working_bid_reason": str(working_bid_payload["working_bid_reason"]),
     }
 
 

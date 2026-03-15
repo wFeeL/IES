@@ -535,9 +535,15 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_limited_bids(client):
     assert eval_resp.status_code == 200
     item = eval_resp.get_json()["item"]
     assert "budget_limited_bid" in item
+    assert "working_bid" in item
+    assert "working_bid_source" in item
+    assert "working_bid_reason" in item
     assert item["decision_summary"]["budget_limited_bid"] == pytest.approx(
         item["budget_limited_bid"]
     )
+    assert item["decision_summary"]["working_bid"] == pytest.approx(item["working_bid"])
+    assert item["decision_summary"]["working_bid_source"] == item["working_bid_source"]
+    assert item["working_bid_source"] in {"target", "cautious", "ceiling", "none"}
     assert item["decision_summary"]["budget_remaining"] == pytest.approx(
         item["portfolio_context"]["remaining_budget"]
     )
@@ -555,6 +561,8 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_limited_bids(client):
         entry for entry in analytics_resp.get_json()["items"] if int(entry["lot_id"]) == lot_id
     )
     assert row["budget_limited_bid"] == pytest.approx(item["budget_limited_bid"])
+    assert row["working_bid"] == pytest.approx(item["working_bid"])
+    assert row["working_bid_source"] == item["working_bid_source"]
     assert row["target_bid"] == pytest.approx(item["target_bid"])
 
 

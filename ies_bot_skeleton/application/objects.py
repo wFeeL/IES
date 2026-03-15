@@ -11,7 +11,7 @@ def list_session_objects(session_id: int) -> List[ObjectInstance]:
     return (
         db.session.query(ObjectInstance)
         .filter_by(session_id=int(session_id))
-        .order_by(ObjectInstance.id)
+        .order_by(ObjectInstance.created_at.desc(), ObjectInstance.id.desc())
         .all()
     )
 
