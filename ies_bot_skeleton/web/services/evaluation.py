@@ -1296,7 +1296,6 @@ def evaluate_lot_bundle(
     risk_premium = float(valuation_model["risk_premium"])
     reserve_margin = float(valuation_model["reserve_margin"])
     risk_adjusted_net_profit = float(valuation_model["risk_adjusted_net_profit"])
-    scenario_volatility = float(valuation_model["scenario_volatility"])
     synergy_adjustment = 1.0
 
     weights = strategy_weights(rules_cfg, selected_strategy)
