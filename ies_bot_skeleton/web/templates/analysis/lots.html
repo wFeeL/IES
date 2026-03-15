@@ -85,7 +85,18 @@
 
 <section class="card mt-4">
   <div class="table-wrap">
-    <table class="table table-fixed">
+    <table class="table table-fixed table-lots">
+      <colgroup>
+        <col class="lot-name-col" />
+        <col class="lot-structure-col" />
+        <col class="lot-price-col" />
+        <col class="lot-metric-col" />
+        <col class="lot-profit-col" />
+        <col class="lot-risk-col" />
+        <col class="lot-bid-col" />
+        <col class="lot-status-col" />
+        <col class="lot-actions-col" />
+      </colgroup>
       <thead>
         <tr>
           <th class="col-text">Лот</th>
@@ -102,11 +113,11 @@
       <tbody>
         {% for row in lot_rows %}
         <tr>
-          <td class="col-text">
+          <td class="col-text lot-name-cell">
             <strong class="text-clamp-2" title="{{ row.name }}">{{ row.name }}</strong>
             <div class="muted text-ellipsis" title="{{ row.composition_label }}">{{ row.composition_label }}</div>
           </td>
-          <td class="col-text">
+          <td class="col-text lot-structure-cell">
             <div class="lot-chip-wrap" title="{{ row.structure }}">
               {% for item in row.structure_items %}
               <span class="lot-chip">{{ item.label }}</span>
@@ -119,11 +130,17 @@
           <td class="num">{{ fmt_num(row.utility, 2) }}</td>
           <td class="num">{{ fmt_num(row.net_profit, 2) }}</td>
           <td class="num">{{ fmt_num(row.risk, 2) }}</td>
-          <td class="num">
-            {{ fmt_num(row.working_bid, 2) }}
-            <div class="muted">budget-adjusted {{ fmt_num(row.budget_adjusted_bid, 1) }}</div>
+          <td class="num lot-bid-cell">
+            <div class="lot-bid-stack">
+              <strong>{{ fmt_num(row.working_bid, 1) }}</strong>
+              {% if row.working_bid > 0 %}
+              <span class="lot-bid-meta" title="Ставка с учетом бюджета">budget {{ fmt_num(row.budget_adjusted_bid, 1) }}</span>
+              {% else %}
+              <span class="lot-bid-reason" title="{{ row.working_bid_reason }}">{{ row.working_bid_short_reason or 'Нет рабочей цены' }}</span>
+              {% endif %}
+            </div>
           </td>
-          <td class="col-text">
+          <td class="col-text lot-status-cell">
             <span>{{ lot_status_label(row.status) }}</span>
             {% if row.system_check and row.system_check.message %}
             <div class="muted text-clamp-2" title="{{ row.system_check.message }}">{{ row.system_check.message }}</div>

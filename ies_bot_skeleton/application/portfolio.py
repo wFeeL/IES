@@ -5,6 +5,8 @@ from typing import Any, Dict, Mapping
 
 from ..web.extensions import db
 from ..web.models import GameSession, Lot, ObjectInstance
+from ..web.services.analysis_context import resolve_analysis_context
+from ..web.services.evaluation import ForecastCompatibilityError
 from ..web.services.stale import mark_results_stale
 from ..web.services.ui_text import lot_status_label
 
@@ -59,11 +61,21 @@ def _mark_portfolio_changed(session: GameSession) -> None:
     mark_results_stale(list(session.evaluations), reason="portfolio_changed")
 
 
+def _ensure_buy_forecast_compatible(session: GameSession) -> None:
+    analysis_ctx = resolve_analysis_context(session)
+    forecast_summary = dict(analysis_ctx.get("forecast_summary") or {})
+    if bool(forecast_summary.get("is_compatible", True)):
+        return
+    report = dict(forecast_summary.get("compatibility_report") or {})
+    raise ForecastCompatibilityError(report)
+
+
 def buy_lot(session: GameSession, lot: Lot, purchase_price: float) -> Dict[str, Any]:
     if int(lot.session_id) != int(session.id):
         raise ValueError("Лот не принадлежит этой сессии")
     if lot.status != "available":
         raise ValueError("Купить можно только доступный лот")
+    _ensure_buy_forecast_compatible(session)
 
     price = float(purchase_price or 0.0)
     if price <= 0.0:

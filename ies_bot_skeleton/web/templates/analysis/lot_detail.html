@@ -144,7 +144,7 @@
     <div class="key-value"><span>Потери</span><strong>{{ fmt_num(row.losses_total, 2) }}</strong></div>
     <div class="key-value"><span>Чистая прибыль</span><strong>{{ fmt_num(row.net_profit, 2) }}</strong></div>
     <div class="key-value"><span>Полезность</span><strong>{{ fmt_num(row.utility_score, 2) }}</strong></div>
-    <div class="key-value"><span>Рабочая ставка сценария</span><strong>{{ fmt_num(row.recommended_bid, 2) }}</strong></div>
+    <div class="key-value"><span>Сценарный потолок ставки (не цена покупки)</span><strong>{{ fmt_num(row.recommended_bid, 2) }}</strong></div>
     <div class="risk-block mt-3">{{ row.explanation }}</div>
   </article>
   {% endfor %}

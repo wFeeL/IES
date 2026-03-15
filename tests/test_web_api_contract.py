@@ -216,6 +216,64 @@ def test_object_crud_marks_session_evaluations_stale(client, app):
         assert any("object_changed" in (row.stale_reason or "") for row in rows)
 
 
+def test_object_parent_update_blocks_cycle_and_unreachable_chain(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Topology write guard")
+    main_type_id = _type_id_by_code(client, "main_substation")
+    mini_type_id = _type_id_by_code(client, "mini_substation_a")
+    house_type_id = _type_id_by_code(client, "house")
+
+    main = client.post(
+        "/api/objects",
+        json={
+            "session_id": session_id,
+            "object_type_id": main_type_id,
+            "custom_name": "Main",
+            "parent_instance_id": None,
+        },
+    )
+    assert main.status_code == 200
+    main_id = int(main.get_json()["item"]["id"])
+
+    mini = client.post(
+        "/api/objects",
+        json={
+            "session_id": session_id,
+            "object_type_id": mini_type_id,
+            "custom_name": "Mini",
+            "parent_instance_id": main_id,
+        },
+    )
+    assert mini.status_code == 200
+    mini_id = int(mini.get_json()["item"]["id"])
+
+    cycle_update = client.put(
+        f"/api/objects/{main_id}",
+        json={"parent_instance_id": mini_id},
+    )
+    assert cycle_update.status_code == 400
+    assert "цикл" in cycle_update.get_json()["error"]["message"].lower()
+
+    consumer = client.post(
+        "/api/objects",
+        json={
+            "session_id": session_id,
+            "object_type_id": house_type_id,
+            "custom_name": "House",
+            "parent_instance_id": main_id,
+        },
+    )
+    assert consumer.status_code == 200
+    consumer_id = int(consumer.get_json()["item"]["id"])
+
+    detach = client.put(
+        f"/api/objects/{consumer_id}",
+        json={"parent_instance_id": 0},
+    )
+    assert detach.status_code == 400
+    assert "главной подстанции" in detach.get_json()["error"]["message"]
+
+
 def test_unexpected_api_errors_return_json_payload(client, app, monkeypatch):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Internal error contract")
@@ -377,6 +435,30 @@ def test_incompatible_forecast_blocks_evaluation_and_strategy(client):
     strategy_resp = client.get(f"/api/sessions/{session_id}/strategy")
     assert strategy_resp.status_code == 409
     assert strategy_resp.get_json()["error"]["code"] == "forecast_incompatible"
+
+    buy_resp = client.post(f"/api/lots/{lot_id}/buy", json={"purchase_price": 95.0})
+    assert buy_resp.status_code == 409
+    buy_payload = buy_resp.get_json()
+    assert buy_payload["error"]["code"] == "forecast_incompatible"
+    assert "compatibility_report" in buy_payload["error"]["details"]
+    lot_payload = client.get(f"/api/lots/{lot_id}").get_json()["item"]
+    assert lot_payload["status"] == "available"
+    assert lot_payload["purchase_price"] is None
+
+    buy_page = client.get(f"/lots/item/{lot_id}/buy")
+    assert buy_page.status_code == 200
+    csrf = _extract_csrf(buy_page.get_data(as_text=True))
+    ssr_buy_resp = client.post(
+        f"/lots/item/{lot_id}/buy",
+        data={"csrf_token": csrf, "purchase_price": "95"},
+        follow_redirects=True,
+    )
+    assert ssr_buy_resp.status_code == 200
+    ssr_html = ssr_buy_resp.get_data(as_text=True)
+    assert "прогноз" in ssr_html.lower()
+    lot_payload_after_ssr = client.get(f"/api/lots/{lot_id}").get_json()["item"]
+    assert lot_payload_after_ssr["status"] == "available"
+    assert lot_payload_after_ssr["purchase_price"] is None
 
 
 def test_strategy_endpoint_returns_per_lot_bid_breakdown(client):

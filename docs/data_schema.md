@@ -121,6 +121,9 @@
     "hard_ceiling_bid": 58.0,
     "budget_adjusted_bid": 52.0,
     "budget_remaining": 70.0,
+    "expected_net_profit": 64.0,
+    "risk_adjusted_net_profit": 41.5,
+    "model_working_bid": 47.5,
     "portfolio_synergy": 4.2,
     "system_fit_score": 3.6,
     "working_bid": 47.5,
@@ -193,8 +196,9 @@
 - `financial_breakdown.ui_rows` предназначен для UI: содержит только релевантные/ненулевые строки (`abs(value) > 1e-6`) + обязательные `entry_price` и `net_profit`.
 - `working_bid` - основная пользовательская цена для покупки, а не alias `target_bid`.
 - `budget_adjusted_bid` - потолок по бюджету, полученный из `target_bid` и текущего `budget_remaining`.
+- `model_working_bid` - внутренний риск-буфер между `target_bid` и итоговой рабочей ценой; итоговый `working_bid` берётся из него, если budget/экономика не требуют более жёсткого ограничения.
 - `portfolio_synergy` и `system_fit_score` входят в valuation model и влияют на `working_bid`.
-- если `working_bid == 0`, это честно отражается через `working_bid_reason`, а не замещается старым fallback-числом.
+- если `working_bid == 0`, это честно отражается через `working_bid_reason`, а не замещается старым fallback-числом; типичный повод - неположительная взвешенная маржинальная прибыль или исчерпанный бюджет.
 
 ## Forecast canonical schema
 

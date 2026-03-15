@@ -17,6 +17,7 @@ from ies_bot_skeleton.web.services.evaluation import (
     _financial_breakdown,
     _solar_generation_mw,
     _scenario_row,
+    _valuation_model_v3,
     _wind_generation_mw,
     evaluate_lot,
 )
@@ -162,6 +163,50 @@ def test_recommended_bid_is_within_budget(app_ctx):
     assert "message" in out["system_check"]
     if hard > remaining:
         assert budget_adjusted == pytest.approx(remaining)
+
+
+def test_valuation_model_keeps_non_zero_working_bid_for_slim_positive_expected_value():
+    out = _valuation_model_v3(
+        p_worst=-5.0,
+        p_base=30.0,
+        p_best=55.0,
+        p_exp=4.0,
+        horizon_ticks=48,
+        remaining_budget=50.0,
+        evaluation_cfg={},
+        role_profile={
+            "dominant_role": "generator",
+            "multipliers": {"target": 1.08, "cautious": 1.0, "ceiling": 1.06},
+        },
+        portfolio_synergy=0.0,
+        system_fit_score=0.0,
+    )
+
+    assert float(out["target_bid"]) > 0.0
+    assert float(out["budget_adjusted_bid"]) > 0.0
+    assert float(out["working_bid"]) > 0.0
+
+
+def test_valuation_model_zeroes_bids_when_weighted_expected_is_negative():
+    out = _valuation_model_v3(
+        p_worst=-2826.1933439999993,
+        p_base=211.1122560000003,
+        p_best=902.5618560000001,
+        p_exp=-748.2272639999994,
+        horizon_ticks=48,
+        remaining_budget=120.0,
+        evaluation_cfg={},
+        role_profile={
+            "dominant_role": "mixed",
+            "multipliers": {"target": 1.0, "cautious": 1.0, "ceiling": 1.0},
+        },
+        portfolio_synergy=1888.8691200000005,
+        system_fit_score=-12.0,
+    )
+
+    assert float(out["target_bid"]) == pytest.approx(0.0)
+    assert float(out["budget_adjusted_bid"]) == pytest.approx(0.0)
+    assert float(out["working_bid"]) == pytest.approx(0.0)
 
 
 def test_legacy_load_columns_are_mapped_to_canonical_series(app_ctx):

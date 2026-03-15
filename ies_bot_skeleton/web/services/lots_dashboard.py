@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Mapping, Sequence, cast
 
 from ..models import GameSession, Lot, LotItem
-from .ui_text import stale_reason_label
+from .ui_text import stale_reason_label, working_bid_reason_short
 
 
 def _session_lots(session: GameSession) -> Sequence[Lot]:
@@ -131,6 +131,11 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
             or "none"
         ),
         "working_bid_reason": str(
+            evaluation.get("working_bid_reason")
+            or decision_summary.get("working_bid_reason")
+            or ""
+        ),
+        "working_bid_short_reason": working_bid_reason_short(
             evaluation.get("working_bid_reason")
             or decision_summary.get("working_bid_reason")
             or ""

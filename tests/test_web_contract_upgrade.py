@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import io
 import re
+from pathlib import Path
 
 import pytest
 
 from ies_bot_skeleton.web.extensions import db
-from ies_bot_skeleton.web.models import GameSession, ObjectInstance, ObjectType
+from ies_bot_skeleton.web.models import GameSession, ObjectInstance
 from ies_bot_skeleton.web.services.formatting import format_number
 from tests.web_helpers import create_session, login
 
@@ -76,11 +77,15 @@ def test_active_forecast_uses_raw_csv_columns_and_zero_tick_range(client):
     assert forecast_page.status_code == 200
     forecast_html = forecast_page.get_data(as_text=True)
     assert "0–47 (48 периодов)" in forecast_html
+    assert "Горизонт" in forecast_html
+    assert "Периодов" not in forecast_html
     assert "house" in forecast_html
     assert "office" in forecast_html
     assert "factory" in forecast_html
     assert "class3" not in forecast_html
     assert "data-forecast-id=" in forecast_html
+    assert 'class="forecast-columns-grid mt-4"' in forecast_html
+    assert 'class="mapping-list mt-2"' in forecast_html
 
     forecast_js = client.get("/static/js/analysis/forecast_center.js").get_data(as_text=True)
     assert "async function runDiagnostics(forecastId, withChart)" in forecast_js
@@ -104,6 +109,8 @@ def test_active_forecast_uses_raw_csv_columns_and_zero_tick_range(client):
     workbench = client.get(f"/sessions/{session_id}")
     assert workbench.status_code == 200
     workbench_html = workbench.get_data(as_text=True)
+    assert "Горизонт" in workbench_html
+    assert "Периодов" not in workbench_html
     assert "house" in workbench_html
     assert "office" in workbench_html
     assert "factory" in workbench_html
@@ -141,11 +148,20 @@ def test_strategy_snapshot_has_titles_and_per_lot_prices(client):
     assert "full_budget" in item["scenarios"]
     assert "after_purchase" in item["scenarios"]
     assert "after_loss" in item["scenarios"]
+    for scenario_key in ("full_budget", "after_purchase", "after_loss"):
+        scenario = item["scenarios"][scenario_key]
+        for bucket in ("best_singles", "best_pairs", "best_groups"):
+            for row in scenario.get(bucket) or []:
+                assert float(row["working_bid"]) > 0.0
+        if scenario.get("best_combination") is not None:
+            assert float(scenario["best_combination"]["working_bid"]) > 0.0
     strategy_js = client.get("/static/js/analysis/strategy_snapshot.js").get_data(as_text=True)
     assert "— цена:" in strategy_js
     assert "прибыль:" in strategy_js
     assert "Plan B" in strategy_js
     assert "After purchase" in strategy_js
+    assert "formatNumber(row.working_bid, 1)" in strategy_js
+    assert "Название группы -" not in strategy_js
     for row in rows:
         assert re.search(r"\(\d+\)", row["display_title"])
         assert "working_bid" in row
@@ -220,12 +236,14 @@ def test_quick_auction_buys_by_field_price_without_confirm_link(client):
     assert quick.status_code == 200
     quick_html = quick.get_data(as_text=True)
     assert f"/lots/item/{lot_id}/buy" not in quick_html
-    assert "Цена покупки (рабочая ставка по умолчанию)" in quick_html
+    assert "Цена покупки (по умолчанию — рабочая цена)" in quick_html
+    assert 'id="purchasePriceInput"' in quick_html
 
     script = client.get("/static/js/analysis/quick_auction.js").get_data(as_text=True)
     assert "/api/lots/${lotId}/buy" in script
     assert "/api/sessions/${cfg().sessionId}/recalculate" in script
     assert "row.working_bid" in script
+    assert "purchasePriceInput" in script
 
     session_payload = client.get(f"/api/sessions/{session_id}").get_json()["item"]
     budget_before = float(session_payload["budget_total"])
@@ -243,6 +261,46 @@ def test_quick_auction_buys_by_field_price_without_confirm_link(client):
     meta = recalc.get_json()["meta"]
     assert "shortlist_suggested_ids" in meta
     assert lot_id not in list(meta["shortlist_suggested_ids"] or [])
+
+
+def test_quick_auction_evaluate_does_not_mutate_market_bid(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Quick eval no market mutation")
+    tmap = _type_map(client)
+
+    lot = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Quick eval lot",
+            "scope": "normal",
+            "base_bid": 90,
+            "current_bid": 111,
+            "items": [{"object_type_id": tmap["wind"], "quantity": 1}],
+        },
+    )
+    assert lot.status_code == 200
+    lot_id = int(lot.get_json()["item"]["id"])
+    _upload_and_select_forecast(client, session_id)
+
+    before_lot = client.get(f"/api/lots/{lot_id}").get_json()["item"]
+    before_bid = float(before_lot["current_bid"])
+
+    evaluate = client.post(f"/api/lots/{lot_id}/evaluate", json={})
+    assert evaluate.status_code == 200
+
+    after_eval = client.get(f"/api/lots/{lot_id}").get_json()["item"]
+    assert float(after_eval["current_bid"]) == pytest.approx(before_bid)
+
+    buy = client.post(f"/api/lots/{lot_id}/buy", json={"purchase_price": 77.7})
+    assert buy.status_code == 200
+    lot_after_buy = client.get(f"/api/lots/{lot_id}").get_json()["item"]
+    assert float(lot_after_buy["current_bid"]) == pytest.approx(before_bid)
+
+    script = client.get("/static/js/analysis/quick_auction.js").get_data(as_text=True)
+    assert "body: JSON.stringify({current_bid: bid})" not in script
+    assert "apiFetchJson(`/api/lots/${lotId}`, {" not in script
+    assert "function syncPurchasePriceInput" in script
 
 
 def test_system_objects_sorted_latest_first_with_connection_recommendation(client):
@@ -307,6 +365,31 @@ def test_working_price_consistent_between_detail_and_buy_form(client):
     assert float(match.group(1)) == pytest.approx(working)
 
 
+def test_lot_detail_marks_scenario_bid_as_non_operational_metric(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Scenario bid label")
+    tmap = _type_map(client)
+
+    lot = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Scenario label lot",
+            "scope": "normal",
+            "base_bid": 95,
+            "current_bid": 95,
+            "items": [{"object_type_id": tmap["wind"], "quantity": 1}],
+        },
+    )
+    assert lot.status_code == 200
+    lot_id = int(lot.get_json()["item"]["id"])
+    _upload_and_select_forecast(client, session_id)
+
+    html = client.get(f"/lots/item/{lot_id}").get_data(as_text=True)
+    assert "Сценарный потолок ставки (не цена покупки)" in html
+    assert "Рабочая ставка сценария" not in html
+
+
 def test_session_api_exposes_budget_snapshot_and_updates_after_purchase(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Session budget snapshot")
@@ -342,6 +425,41 @@ def test_session_api_exposes_budget_snapshot_and_updates_after_purchase(client):
     assert float(after_item["spent_total"]) == pytest.approx(55.0)
     assert float(after_item["remaining_budget"]) == pytest.approx(float(after_item["budget_total"]) - 55.0)
     assert int(after_item["bought_lots_count"]) == 1
+
+
+def test_workbench_and_forecast_pages_share_current_budget_snapshot_after_purchase(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Budget sync SSR")
+    tmap = _type_map(client)
+
+    created = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Budget sync lot",
+            "scope": "normal",
+            "base_bid": 70,
+            "current_bid": 70,
+            "items": [{"object_type_id": tmap["wind"], "quantity": 1}],
+        },
+    )
+    assert created.status_code == 200
+    lot_id = int(created.get_json()["item"]["id"])
+    _upload_and_select_forecast(client, session_id)
+
+    buy = client.post(f"/api/lots/{lot_id}/buy", json={"purchase_price": 55.0})
+    assert buy.status_code == 200
+    snapshot = buy.get_json()["item"]
+    spent_label = format_number(snapshot["spent_total"], 1)
+    remaining_label = format_number(snapshot["remaining_budget"], 1)
+
+    workbench_html = client.get(f"/sessions/{session_id}").get_data(as_text=True)
+    forecast_html = client.get(f"/forecast/{session_id}").get_data(as_text=True)
+
+    assert f"Потрачено: <span data-session-spent-total>{spent_label}</span>" in workbench_html
+    assert f"Остаток: <span data-session-remaining-budget>{remaining_label}</span>" in workbench_html
+    assert f"Потрачено: <span data-session-spent-total>{spent_label}</span>" in forecast_html
+    assert f"Остаток: <span data-session-remaining-budget>{remaining_label}</span>" in forecast_html
 
 
 def test_recalculate_meta_contains_shortlist_and_multiple_non_zero_working_bids(client):
@@ -416,3 +534,73 @@ def test_connection_recommendation_respects_capacity_limits(client, app):
         or "Точки, которые не проходят по лимитам" in html
         or "Допустимые альтернативы" in html
     )
+
+
+def test_invalid_topology_blocks_system_check_inside_lot_evaluation(client, app):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Topology mismatch guard")
+    tmap = _type_map(client)
+
+    main = client.post(
+        "/api/objects",
+        json={
+            "session_id": session_id,
+            "object_type_id": tmap["main_substation"],
+            "custom_name": "Main",
+            "parent_instance_id": None,
+        },
+    )
+    assert main.status_code == 200
+    main_id = int(main.get_json()["item"]["id"])
+
+    mini = client.post(
+        "/api/objects",
+        json={
+            "session_id": session_id,
+            "object_type_id": tmap["mini_substation_a"],
+            "custom_name": "Mini",
+            "parent_instance_id": main_id,
+        },
+    )
+    assert mini.status_code == 200
+    mini_id = int(mini.get_json()["item"]["id"])
+
+    with app.app_context():
+        row = db.session.get(ObjectInstance, main_id)
+        assert row is not None
+        row.parent_instance_id = mini_id
+        db.session.add(row)
+        db.session.commit()
+
+    lot = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Topology lot",
+            "scope": "normal",
+            "base_bid": 90,
+            "current_bid": 90,
+            "items": [{"object_type_id": tmap["wind"], "quantity": 1}],
+        },
+    )
+    assert lot.status_code == 200
+    lot_id = int(lot.get_json()["item"]["id"])
+    _upload_and_select_forecast(client, session_id)
+
+    evaluation = client.post(f"/api/lots/{lot_id}/evaluate", json={})
+    assert evaluation.status_code == 200
+    payload = evaluation.get_json()["item"]
+    assert payload["system_check"]["status"] == "blocked"
+    assert payload["system_check"]["topology_invalid"] is True
+    assert float(payload["working_bid"]) == pytest.approx(0.0)
+    assert float(payload["decision_summary"]["working_bid"]) == pytest.approx(0.0)
+
+    system_html = client.get(f"/system/{session_id}").get_data(as_text=True)
+    assert "Обнаружен цикл в дереве сети" in system_html
+
+
+def test_readme_mentions_buy_guard_quick_auction_and_topology_write_guard():
+    readme = Path("README.md").read_text(encoding="utf-8")
+    assert "Покупка лота блокируется, если активный прогноз несовместим" in readme
+    assert "Оценка в quick auction не меняет `current_bid`" in readme
+    assert "Циклы и разрывы до главной подстанции блокируются на write-path" in readme

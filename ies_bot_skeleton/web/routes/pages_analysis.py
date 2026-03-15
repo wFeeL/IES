@@ -17,7 +17,6 @@ from ...application.objects import (
 )
 from ...application.portfolio import (
     buy_lot,
-    portfolio_summary,
     reject_lot,
     restore_lot,
     undo_lot_purchase,
@@ -58,6 +57,7 @@ from .page_support import (
     nav,
     parse_json,
     session_analysis_view,
+    session_shell_view,
     session_stale_ctx,
 )
 from .shared import pages_bp
@@ -349,7 +349,7 @@ def _render_object_editor(
         ),
         editor_mode="edit" if obj is not None else "create",
         show_analysis_context=False,
-        **session_analysis_view(session),
+        **session_shell_view(session),
         **ctx,
         **session_stale_ctx(session),
     )
@@ -377,7 +377,7 @@ def _render_lot_editor(*, session: GameSession, form: LotForm, object_types, lot
         editor_mode="edit" if lot is not None else "create",
         show_analysis_context=False,
         forecast_line=_forecast_line(session),
-        **session_analysis_view(session),
+        **session_shell_view(session),
         **ctx,
         **session_stale_ctx(session),
     )
@@ -408,7 +408,7 @@ def system_view(session_id: int):
         object_rows=object_rows,
         connection_recommendations=connection_recommendations,
         show_analysis_context=False,
-        **session_analysis_view(session),
+        **session_shell_view(session),
         **ctx,
         **session_stale_ctx(session),
     )
@@ -560,7 +560,7 @@ def object_delete_confirm_page(object_id: int):
             "source_lot_id": obj.source_lot_id,
         },
         show_analysis_context=False,
-        **session_analysis_view(session),
+        **session_shell_view(session),
         **ctx,
         **session_stale_ctx(session),
     )
@@ -595,6 +595,7 @@ def lots_page(session_id: int):
     rows = filter_lot_rows(rows, request.args)
     sort_key = str(request.args.get("sort", "utility_desc") or "utility_desc")
     rows = sort_lot_rows(rows, sort_key)
+    shell_view = session_shell_view(session, analytics_by_lot=ranking_map)
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -616,7 +617,7 @@ def lots_page(session_id: int):
         forecast_compatibility_report=compatibility_report,
         compatibility_guidance=compatibility_guidance,
         show_analysis_context=False,
-        **analysis_view,
+        **shell_view,
         **ctx,
         **session_stale_ctx(session),
     )
@@ -654,6 +655,7 @@ def lot_detail_page(lot_id: int):
         session=session,
         lot=lot,
     )
+    shell_view = session_shell_view(session)
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -680,7 +682,7 @@ def lot_detail_page(lot_id: int):
         compatibility_guidance=compatibility_guidance,
         forecast_line=_forecast_line(session),
         show_analysis_context=False,
-        **analysis_view,
+        **shell_view,
         **ctx,
         **session_stale_ctx(session),
     )
@@ -731,7 +733,7 @@ def lot_delete_confirm_page(lot_id: int):
         form=form,
         summary=summary,
         show_analysis_context=False,
-        **session_analysis_view(session),
+        **session_shell_view(session),
         **ctx,
         **session_stale_ctx(session),
     )
@@ -768,7 +770,7 @@ def lot_buy_confirm_page(lot_id: int):
         session=session,
         lot=lot,
     )
-    portfolio = portfolio_summary(session)
+    shell_view = session_shell_view(session)
     form = LotPurchaseForm()
     if request.method == "GET":
         form.purchase_price.data = float(
@@ -806,13 +808,12 @@ def lot_buy_confirm_page(lot_id: int):
         lot=lot,
         form=form,
         evaluation=evaluation,
-        portfolio=portfolio,
         forecast_blocked=forecast_blocked,
         forecast_compatibility_report=compatibility_report,
         compatibility_guidance=compatibility_guidance,
         show_analysis_context=False,
         forecast_line=_forecast_line(session),
-        **analysis_view,
+        **shell_view,
         **ctx,
         **session_stale_ctx(session),
     )
@@ -1012,7 +1013,7 @@ def forecast_page(session_id: int):
         .order_by(Forecast.id.desc())
         .all()
     )
-    analysis_ctx = session_analysis_view(session)
+    analysis_ctx = session_shell_view(session)
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -1104,6 +1105,7 @@ def quick_auction_page(session_id: int):
         compatibility_report,
         session=session,
     )
+    shell_view = session_shell_view(session)
     ctx = nav(
         breadcrumb_items=[
             ("Сессии", "pages.dashboard", None),
@@ -1124,7 +1126,7 @@ def quick_auction_page(session_id: int):
         forecast_line=_forecast_line(session),
         buy_form=LotPurchaseForm(),
         show_analysis_context=False,
-        **analysis_view,
+        **shell_view,
         **ctx,
         **session_stale_ctx(session),
     )

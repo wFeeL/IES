@@ -18,6 +18,7 @@ from ..models import (
 from .analysis_context import resolve_analysis_context
 from .connection_advisor import recommend_connection_for_profile
 from .forecast_service import load_bundled_forecast_pack
+from .network import validate_session_network
 from .ruleset import strategy_weights
 from .ui_text import strategy_label
 
@@ -279,6 +280,10 @@ def _lot_connection_outlook(
     session: GameSession,
     lots: Sequence[Lot],
 ) -> Dict[str, Any]:
+    topology_issues = validate_session_network(list(_session_objects(session)))
+    topology_errors = [issue for issue in topology_issues if str(issue.severity or "") == "error"]
+    topology_invalid = bool(topology_errors)
+
     items: List[Dict[str, Any]] = []
     estimated_delta_total = 0.0
     blocked_items_count = 0
@@ -341,7 +346,15 @@ def _lot_connection_outlook(
         - blocked_items_count * 6.0
         - max(0.0, avg_loss_pct - 8.0) * max(1.0, weight_total) * 0.35
     )
-    if blocked_items_count > 0:
+    if topology_invalid:
+        blocked_items_count = max(blocked_items_count, len(topology_errors))
+        system_fit_score -= 50.0 + len(topology_errors) * 10.0
+        message = (
+            "Сетевая топология сессии некорректна: "
+            + "; ".join(str(issue.message) for issue in topology_errors[:3])
+        )
+        status = "blocked"
+    elif blocked_items_count > 0:
         message = (
             "Часть объектов лота не проходит по сетевым лимитам или точкам подключения. "
             "Это снижает рабочую цену."
@@ -370,6 +383,8 @@ def _lot_connection_outlook(
         "feasible_items_count": int(feasible_items_count),
         "avg_recommended_loss_pct": float(avg_loss_pct),
         "system_fit_score": float(system_fit_score),
+        "topology_invalid": bool(topology_invalid),
+        "topology_issues": [issue.to_dict() for issue in topology_issues],
     }
 
 
@@ -1434,22 +1449,55 @@ def resolve_working_bid(
         0.0,
         _as_float(summary.get("budget_adjusted_bid"), 0.0),
     )
+    model_working_bid = max(0.0, _as_float(summary.get("model_working_bid"), 0.0))
     remaining_budget = max(0.0, _as_float(summary.get("budget_remaining"), 0.0))
+    expected_net_profit = _as_float(summary.get("expected_net_profit"), 0.0)
+    risk_adjusted_net_profit = _as_float(summary.get("risk_adjusted_net_profit"), 0.0)
     net_profit = _as_float(result.get("net_profit"), 0.0)
     risk_total = _as_float(losses.get("risk_total"), 0.0)
 
-    if budget_adjusted_bid > 0.0:
-        if budget_adjusted_bid + 1e-9 < target_bid:
-            reason = (
-                "Рабочая цена ограничена бюджетом: целевая ставка выше доступного остатка, "
-                "поэтому в аукцион идёт budget-adjusted цена."
-            )
-            source = "budget_adjusted"
-        else:
-            reason = "Рабочая цена совпадает с целевой ставкой: экономика и бюджет не конфликтуют."
-            source = "target"
+    if remaining_budget <= 0.0:
         return {
-            "working_bid": float(budget_adjusted_bid),
+            "working_bid": 0.0,
+            "working_bid_source": "zero",
+            "working_bid_reason": "Рабочая цена равна 0: бюджет сессии исчерпан.",
+        }
+
+    if expected_net_profit <= 0.0:
+        return {
+            "working_bid": 0.0,
+            "working_bid_source": "zero",
+            "working_bid_reason": (
+                "Рабочая цена равна 0: взвешенная маржинальная прибыль неположительная, "
+                "поэтому лот не даёт честной аукционной цены в текущем портфеле."
+            ),
+        }
+
+    if budget_adjusted_bid > 0.0:
+        chosen_bid = min(budget_adjusted_bid, model_working_bid) if model_working_bid > 0.0 else budget_adjusted_bid
+        if budget_adjusted_bid + 1e-9 < target_bid:
+            source = "budget_adjusted"
+            if chosen_bid + 1e-9 < budget_adjusted_bid:
+                reason = (
+                    "Рабочая цена ограничена бюджетом и дополнительно снижена риск-буфером: "
+                    "целевой bid не помещается в остаток и модель оставляет запас по сценарию."
+                )
+            else:
+                reason = (
+                    "Рабочая цена ограничена бюджетом: целевая ставка выше доступного остатка, "
+                    "поэтому в аукцион идёт budget-adjusted цена."
+                )
+        else:
+            source = "target"
+            if chosen_bid + 1e-9 < target_bid:
+                reason = (
+                    "Рабочая цена ниже target: модель сохраняет риск-буфер между target и рабочей "
+                    "ставкой, чтобы ставка оставалась реалистичной по всем сценариям."
+                )
+            else:
+                reason = "Рабочая цена совпадает с целевой ставкой: экономика и бюджет не конфликтуют."
+        return {
+            "working_bid": float(chosen_bid),
             "working_bid_source": source,
             "working_bid_reason": reason,
         }
@@ -1464,10 +1512,13 @@ def resolve_working_bid(
             ),
         }
 
-    if remaining_budget <= 0.0:
-        reason = "Рабочая цена равна 0: бюджет сессии исчерпан."
-    elif net_profit <= 0.0:
+    if net_profit <= 0.0:
         reason = "Рабочая цена равна 0: ожидаемая чистая прибыль неположительная."
+    elif risk_adjusted_net_profit <= 0.0:
+        reason = (
+            "Рабочая цена равна 0: после учёта риска и резервов лот не оставляет положительной "
+            "маржинальной прибыли."
+        )
     elif hard_ceiling_bid > 0.0 and remaining_budget + 1e-9 < cautious_bid:
         reason = (
             "Рабочая цена равна 0: даже осторожная ставка выше доступного остатка бюджета; "
@@ -1536,7 +1587,9 @@ def _valuation_model_v3(
     synergy_bonus = _clamp(float(portfolio_synergy), -abs(float(p_base)) * 0.25, abs(float(p_base)) * 0.25)
     system_bonus = _clamp(float(system_fit_score), -abs(float(p_base)) * 0.20, abs(float(p_base)) * 0.20)
 
-    positive_expected = max(0.0, float(p_exp) + max(0.0, synergy_bonus) * 0.35 + max(0.0, system_bonus) * 0.25)
+    positive_expected = max(0.0, float(p_exp))
+    positive_base = max(0.0, float(p_base))
+    positive_best = max(0.0, float(p_best))
     payback_value = positive_expected / float(horizon) * float(payback_ticks)
     capped_value = positive_expected * cap_share
     anchor_value = max(0.0, min(payback_value, capped_value))
@@ -1544,24 +1597,38 @@ def _valuation_model_v3(
     reserve_margin = float(max(reserve_margin_abs, reserve_margin_share * positive_expected))
     risk_buffer = float(risk_premium * risk_buffer_map[risk_band])
 
-    cautious_base = max(0.0, min(anchor_value * 0.55, float(p_worst) * cautious_share_map[risk_band]))
+    cautious_base = max(0.0, min(anchor_value * 0.55, max(0.0, float(p_worst)) * cautious_share_map[risk_band]))
     cautious_bid = max(0.0, cautious_base * cautious_multiplier)
 
-    target_candidate = (
-        max(0.0, float(p_exp) - risk_premium - reserve_margin)
-        + max(0.0, synergy_bonus) * 0.45
-        - max(0.0, -synergy_bonus) * 0.55
-        + max(0.0, system_bonus) * 0.35
-        - max(0.0, -system_bonus) * 0.45
-    )
-    target_candidate = min(max(0.0, float(p_base)), max(0.0, target_candidate + anchor_value * 0.20))
+    target_core = max(0.0, positive_expected - risk_premium - reserve_margin)
+    if target_core <= 0.0 and positive_expected > 0.0 and positive_base > 0.0:
+        base_support = max(0.0, positive_base - reserve_margin * 0.35 - risk_premium * 0.10)
+        target_core = min(
+            positive_base,
+            max(0.0, base_support * 0.35 + anchor_value * 0.25 + positive_best * 0.08),
+        )
+
+    if positive_expected > 0.0:
+        target_candidate = (
+            target_core
+            + max(0.0, synergy_bonus) * 0.20
+            - max(0.0, -synergy_bonus) * 0.45
+            + max(0.0, system_bonus) * 0.15
+            - max(0.0, -system_bonus) * 0.40
+        )
+        target_candidate = min(positive_base or target_candidate, max(0.0, target_candidate))
+    else:
+        target_candidate = 0.0
     target_bid = max(cautious_bid, target_candidate * target_multiplier)
 
-    ceiling_candidate = max(
-        target_bid,
-        float(p_base) - 0.10 * reserve_margin + max(0.0, synergy_bonus) * 0.20 + max(0.0, system_bonus) * 0.15,
-    )
-    hard_ceiling_bid = max(target_bid, ceiling_candidate * ceiling_multiplier)
+    if positive_expected > 0.0 and target_bid > 0.0:
+        ceiling_candidate = max(
+            target_bid,
+            positive_base - 0.10 * reserve_margin + max(0.0, synergy_bonus) * 0.12 + max(0.0, system_bonus) * 0.08,
+        )
+        hard_ceiling_bid = max(target_bid, ceiling_candidate * ceiling_multiplier)
+    else:
+        hard_ceiling_bid = 0.0
 
     budget_adjusted_bid = min(target_bid, max(0.0, float(remaining_budget)))
     working_share = float(working_share_map[risk_band])
@@ -1573,6 +1640,13 @@ def _valuation_model_v3(
     risk_adjusted_net_profit = float(
         float(p_exp) - risk_premium - reserve_margin + 0.30 * synergy_bonus + 0.20 * system_bonus
     )
+
+    if positive_expected <= 0.0:
+        cautious_bid = 0.0
+        target_bid = 0.0
+        hard_ceiling_bid = 0.0
+        budget_adjusted_bid = 0.0
+        working_bid = 0.0
 
     return {
         "model": "valuation_model_v3",
@@ -1794,6 +1868,18 @@ def evaluate_lot_bundle(
     risk_premium = float(valuation_model["risk_premium"])
     reserve_margin = float(valuation_model["reserve_margin"])
     risk_adjusted_net_profit = float(valuation_model["risk_adjusted_net_profit"])
+    if bool(system_check.get("topology_invalid")):
+        cautious_bid = 0.0
+        target_bid = 0.0
+        hard_ceiling_bid = 0.0
+        budget_adjusted_bid = 0.0
+        risk_adjusted_net_profit = min(0.0, float(risk_adjusted_net_profit))
+        valuation_model["cautious_bid"] = 0.0
+        valuation_model["target_bid"] = 0.0
+        valuation_model["hard_ceiling_bid"] = 0.0
+        valuation_model["budget_adjusted_bid"] = 0.0
+        valuation_model["working_bid"] = 0.0
+        valuation_model["risk_adjusted_net_profit"] = float(risk_adjusted_net_profit)
 
     weights = strategy_weights(rules_cfg, selected_strategy)
     delta_profit = (
@@ -1820,6 +1906,8 @@ def evaluate_lot_bundle(
         + float(weights["w5_flex"]) * delta_storage_flex
         - float(weights["w6_risk"]) * delta_risk
     )
+    if bool(system_check.get("topology_invalid")):
+        score = 0.0
 
     confidence = _clamp(
         1.0 - min(0.6, abs(d_best.delta_total - d_worst.delta_total) / 1200.0), 0.0, 1.0
@@ -1836,16 +1924,26 @@ def evaluate_lot_bundle(
         if valuation_model["risk_band"] == "low"
         else "Риск повышен: чувствительность к сценариям требует более осторожной ставки."
     )
-    if str(system_check.get("status") or "") == "blocked":
+    if bool(system_check.get("topology_invalid")):
+        risk_commentary = (
+            "Оценка заблокирована: в энергосистеме есть структурные ошибки "
+            "(цикл/недостижимые объекты/критичные лимиты)."
+        )
+    elif str(system_check.get("status") or "") == "blocked":
         risk_commentary = (
             "Риск повышен: часть объектов не проходит по сетевым лимитам, поэтому рабочая цена "
             "дополнительно снижена."
         )
-    strategy_fit_text = (
-        f"{strategy_label(selected_strategy)}: приоритет риск-скорректированной прибыли соблюдается."
-        if target_bid > 0
-        else f"{strategy_label(selected_strategy)}: лот не поддерживает рабочую ставку в текущих условиях."
-    )
+    if bool(system_check.get("topology_invalid")):
+        strategy_fit_text = (
+            f"{strategy_label(selected_strategy)}: расчёт заблокирован из-за некорректной топологии сети."
+        )
+    else:
+        strategy_fit_text = (
+            f"{strategy_label(selected_strategy)}: приоритет риск-скорректированной прибыли соблюдается."
+            if target_bid > 0
+            else f"{strategy_label(selected_strategy)}: лот не поддерживает рабочую ставку в текущих условиях."
+        )
 
     metrics = {
         "delta_score": float(d_base.delta_total),
@@ -1871,6 +1969,7 @@ def evaluate_lot_bundle(
             "budget_adjusted_bid": float(budget_adjusted_bid),
             "budget_remaining": float(remaining_budget),
             "expected_net_profit": float(expected_net_profit),
+            "model_working_bid": float(valuation_model["working_bid"]),
             "risk_premium": float(risk_premium),
             "reserve_margin": float(reserve_margin),
             "portfolio_synergy": float(portfolio_synergy),
@@ -1908,6 +2007,9 @@ def evaluate_lot_bundle(
         "hard_ceiling_bid": float(hard_ceiling_bid),
         "budget_adjusted_bid": float(budget_adjusted_bid),
         "budget_remaining": float(remaining_budget),
+        "expected_net_profit": float(expected_net_profit),
+        "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
+        "model_working_bid": float(valuation_model["working_bid"]),
         "portfolio_synergy": float(portfolio_synergy),
         "system_fit_score": float(system_check.get("system_fit_score", 0.0) or 0.0),
     }

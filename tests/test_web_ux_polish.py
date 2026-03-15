@@ -161,7 +161,8 @@ def test_quick_auction_uses_user_facing_actions_without_debug_block(client):
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
     assert "Технический ответ" not in html
-    assert "Цена покупки (рабочая ставка по умолчанию)" in html
+    assert "Цена покупки (по умолчанию — рабочая цена)" in html
+    assert 'id="purchasePriceInput"' in html
     assert f"/lots/item/{lot_a}" in html
     assert "Открыть сравнение" not in html
     assert "Пересчитать все лоты" in html
@@ -182,6 +183,17 @@ def test_quick_auction_script_keeps_selected_lot_after_refresh(client):
     assert "async function recalculateAllLots(preferredLotId)" in js
     assert "await apiFetchJson(`/api/lots/${lotId}/buy`" in js
     assert "await recalculateAllLots(0);" in js
+    assert "function syncPurchasePriceInput" in js
+    assert "apiFetchJson(`/api/lots/${lotId}`, {" not in js
+    assert "body: JSON.stringify({current_bid: bid})" not in js
+    assert "function syncAuctionListWithRanking(rows)" in js
+    assert "const fragment = document.createDocumentFragment();" in js
+    assert "item = existing || document.createElement('li');" in js
+    assert "list.innerHTML = '';" in js
+    assert "list.appendChild(fragment);" in js
+    assert "state.visibleRanking = filtered;" in js
+    assert "const row = state.visibleRanking[index];" in js
+    assert "const lotId = Number(row?.lot_id || 0);" in js
 
 
 def test_forecast_page_shows_compatibility_block(client):
@@ -194,4 +206,8 @@ def test_forecast_page_shows_compatibility_block(client):
     assert "Совместимость прогноза" in html
     assert "Покрытые типы объектов" in html
     assert "Лишние колонки CSV" in html
+    assert "Горизонт" in html
+    assert "Периодов" not in html
+    assert 'class="forecast-columns-grid mt-4"' in html
+    assert 'class="mapping-list mt-2"' in html
     assert "load_housea" not in html

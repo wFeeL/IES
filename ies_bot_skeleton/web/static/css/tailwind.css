@@ -732,6 +732,7 @@ html[data-theme="dark"] .input {
   flex-wrap: wrap;
   gap: 6px;
   max-width: 100%;
+  align-content: flex-start;
 }
 
 .lot-chip {
@@ -836,6 +837,146 @@ html[data-theme="dark"] .input {
   padding: 16px;
   color: var(--text-muted);
   background: rgba(255, 255, 255, 0.36);
+}
+
+.forecast-columns-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.forecast-columns-grid > .card {
+  min-width: 0;
+  height: 100%;
+}
+
+.mapping-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.mapping-list .key-value {
+  align-items: flex-start;
+}
+
+.mapping-list .key-value span,
+.mapping-list .key-value strong {
+  min-width: 0;
+  max-width: 100%;
+  word-break: break-word;
+}
+
+.mapping-list code {
+  white-space: normal;
+}
+
+.table-lots col.lot-name-col {
+  width: 17%;
+}
+
+.table-lots col.lot-structure-col {
+  width: 24%;
+}
+
+.table-lots col.lot-price-col {
+  width: 7%;
+}
+
+.table-lots col.lot-metric-col,
+.table-lots col.lot-profit-col,
+.table-lots col.lot-risk-col {
+  width: 8%;
+}
+
+.table-lots col.lot-bid-col {
+  width: 12%;
+}
+
+.table-lots col.lot-status-col {
+  width: 12%;
+}
+
+.table-lots col.lot-actions-col {
+  width: 12%;
+}
+
+.table-lots.table-lots-compact col.lot-name-col {
+  width: 19%;
+}
+
+.table-lots.table-lots-compact col.lot-structure-col {
+  width: 28%;
+}
+
+.table-lots.table-lots-compact col.lot-bid-col {
+  width: 13%;
+}
+
+.table-lots .lot-name-cell,
+.table-lots .lot-structure-cell,
+.table-lots .lot-status-cell,
+.table-auction-ranking .col-text {
+  min-width: 0;
+}
+
+.lot-bid-cell {
+  min-width: 0;
+}
+
+.lot-bid-stack {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  min-width: 0;
+}
+
+.lot-bid-stack strong {
+  font-size: 0.96rem;
+  line-height: 1.25;
+}
+
+.lot-bid-meta,
+.lot-bid-reason {
+  display: block;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.lot-bid-reason {
+  white-space: normal;
+  text-align: right;
+}
+
+.table-auction-ranking col.auction-rank-col {
+  width: 5%;
+}
+
+.table-auction-ranking col.auction-name-col {
+  width: 14%;
+}
+
+.table-auction-ranking col.auction-structure-col {
+  width: 24%;
+}
+
+.table-auction-ranking col.auction-metric-col,
+.table-auction-ranking col.auction-profit-col,
+.table-auction-ranking col.auction-risk-col {
+  width: 8%;
+}
+
+.table-auction-ranking col.auction-bid-col {
+  width: 10%;
+}
+
+.table-auction-ranking col.auction-reason-col {
+  width: 17%;
+}
+
+.table-auction-ranking col.auction-actions-col {
+  width: 14%;
 }
 
 .strategy-card,
@@ -1007,6 +1148,7 @@ kbd {
   .glossary-grid,
   .metric-strip,
   .insight-grid,
+  .forecast-columns-grid,
   .cols-2,
   .cols-3,
   .cols-4,

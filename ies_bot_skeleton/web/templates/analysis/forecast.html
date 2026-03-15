@@ -22,8 +22,7 @@
     <h2 class="h2 text-ellipsis" title="{{ active_forecast_summary.name or 'Прогноз тестовой игры' }}">{{ active_forecast_summary.name or 'Прогноз тестовой игры' }}</h2>
     <p class="muted">{{ forecast_context.source_label }}</p>
     <div class="insight-grid mt-3">
-      <div class="metric-card"><span class="metric-label">Такты</span><strong>{{ fmt_tick_range(active_forecast_summary.tick_from, active_forecast_summary.tick_to, periods=active_forecast_summary.count or 0) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Периодов</span><strong>{{ active_forecast_summary.count or 0 }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Горизонт</span><strong>{{ fmt_tick_range(active_forecast_summary.tick_from, active_forecast_summary.tick_to, periods=active_forecast_summary.count or 0) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ fmt_num(active_forecast_summary.avg_wind, 2) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ fmt_num(active_forecast_summary.avg_illumination, 2) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя цена рынка</span><strong>{{ fmt_num(active_forecast_summary.avg_market_price, 2) }}</strong></div>
@@ -32,7 +31,7 @@
       <div class="metric-card"><span class="metric-label">Лишние колонки CSV</span><strong>{{ (active_forecast_summary.unsupported_raw_columns or [])|length }}</strong></div>
     </div>
     <div class="risk-block mt-3">{{ active_forecast_summary.quality.text }}</div>
-    <div class="grid cols-3 gap-4 mt-4">
+    <div class="forecast-columns-grid mt-4">
       <article class="card">
         <p class="section-kicker">Raw CSV columns</p>
         <div class="lot-chip-wrap mt-2">
@@ -45,10 +44,10 @@
       </article>
       <article class="card">
         <p class="section-kicker">Mapping</p>
-        <div class="stack gap-2 mt-2">
+        <div class="mapping-list mt-2">
           {% for row in active_forecast_summary.column_mapping_rows or [] %}
           <div class="key-value">
-            <span>{{ row.raw_name }}</span>
+            <span><code>{{ row.raw_name }}</code></span>
             <strong>{{ row.interpreted_meaning }}</strong>
           </div>
           {% else %}

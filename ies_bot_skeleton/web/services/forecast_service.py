@@ -535,22 +535,6 @@ def _resolved_column_map(
             if canonical and value:
                 out["profiles"][canonical] = str(value)
 
-    # Backward compatibility with legacy upload payload.
-    for factor_key, legacy_key in (
-        ("wind_factor", "wind"),
-        ("solar_factor", "illumination"),
-        ("market_price_buy", "market_price"),
-    ):
-        raw = incoming_map.get(legacy_key)
-        if raw:
-            out["factors"][factor_key] = str(raw)
-    legacy_consumption = incoming_map.get("consumption")
-    if isinstance(legacy_consumption, dict):
-        for profile_key, source_column in legacy_consumption.items():
-            canonical = _canonical_profile_key(str(profile_key))
-            if canonical and source_column:
-                out["profiles"][canonical] = str(source_column)
-
     return out
 
 
@@ -1223,14 +1207,6 @@ def build_forecast_pack(forecast: Forecast) -> Dict[str, Dict[str, Dict[int, flo
         if not series:
             continue
         raw_load_series[legacy_key] = {int(tick): float(value) for tick, value in series.items()}
-
-    # Backward fallback: merge legacy consumption rows if canonical profiles were absent.
-    if not raw_load_series:
-        for period in forecast.periods:
-            for key, value in (period.consumption_json or {}).items():
-                if value is None:
-                    continue
-                raw_load_series.setdefault(_norm(key), {})[int(period.tick)] = float(value)
 
     load_series = _normalize_load_series(raw_load_series)
     if "class3" not in load_series:

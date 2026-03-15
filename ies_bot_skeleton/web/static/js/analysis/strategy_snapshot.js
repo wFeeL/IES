@@ -133,8 +133,8 @@
                 scenario.best_singles,
                 'Нет доступных одиночных рекомендаций.',
                 (row) =>
-                  `Название группы - ${escapeHtml(names(row))}: ` +
-                  `цена: ${formatNumber(row.working_bid, 1)}, прибыль: ${formatNumber(row.total_profit ?? row.net_profit_base, 2)}`
+                  `цена: ${formatNumber(row.working_bid, 1)} · ` +
+                  `прибыль: ${formatNumber(row.total_profit ?? row.net_profit_base, 2)}`
               )}
             </ul>
           </article>
@@ -145,9 +145,8 @@
                 scenario.best_pairs,
                 'Пары в бюджете не найдены.',
                 (row) =>
-                  `Название группы - ${escapeHtml(names(row))}: ` +
-                  `цена: ${formatNumber(row.working_bid, 1)}, ` +
-                  `прибыль: ${formatNumber(row.total_profit ?? row.net_profit_base, 2)}, ` +
+                  `цена: ${formatNumber(row.working_bid, 1)} · ` +
+                  `прибыль: ${formatNumber(row.total_profit ?? row.net_profit_base, 2)} · ` +
                   `синергия: ${formatNumber(row.synergy_score, 2)}`
               )}
             </ul>
@@ -159,8 +158,7 @@
                 scenario.best_groups,
                 'Группы в бюджете не найдены.',
                 (row) =>
-                  `Название группы - ${escapeHtml(names(row))}: ` +
-                  `цена: ${formatNumber(row.working_bid || row.total_price, 1)}, ` +
+                  `цена: ${formatNumber(row.working_bid || row.total_price, 1)} · ` +
                   `прибыль: ${formatNumber(row.total_profit ?? row.net_profit_base, 2)}`
               )}
             </ul>
@@ -213,7 +211,7 @@
             <td class="col-text">${escapeHtml(names(row))}</td>
             <td class="num">${formatNumber(row.synergy_score, 2)}</td>
             <td class="num">${formatNumber(row.net_profit_base, 2)}</td>
-            <td class="num">${formatNumber(row.target_bid, 1)}</td>
+            <td class="num">${formatNumber(row.working_bid, 1)}</td>
             <td class="col-text">${breakdown || '—'}</td>
             <td class="col-text">${escapeHtml(row.reason || '—')}</td>
           </tr>

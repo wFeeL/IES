@@ -42,6 +42,7 @@ from .page_support import (
     nav,
     parse_json,
     session_analysis_view,
+    session_shell_view,
     session_stale_ctx,
 )
 from .shared import pages_bp
@@ -210,7 +211,8 @@ def session_page(session_id: int):
         session=session,
     )
 
-    portfolio = portfolio_summary(session, analytics_by_lot=analytics_by_lot)
+    shell_view = session_shell_view(session, analytics_by_lot=analytics_by_lot)
+    portfolio = shell_view["portfolio"]
     purchased_rows = portfolio_rows(session, analytics_by_lot=analytics_by_lot)
     rows = lot_rows_for_session(session, ranking_map=analytics_by_lot)
     sort_key = str(request.args.get("sort", "utility_desc") or "utility_desc")
@@ -273,7 +275,6 @@ def session_page(session_id: int):
         readiness_cards=readiness_cards,
         forecast_form=forecast_form,
         forecast_card=analysis_ctx["forecast_summary"],
-        portfolio=portfolio,
         available_rows=available_rows,
         purchased_rows=purchased_rows,
         sort_key=sort_key,
@@ -286,7 +287,7 @@ def session_page(session_id: int):
         forecast_blocked=forecast_blocked,
         forecast_compatibility_report=forecast_report,
         compatibility_guidance=compatibility_guidance,
-        **session_analysis_view(session),
+        **shell_view,
         **ctx,
         **stale_ctx,
     )
@@ -326,7 +327,7 @@ def session_delete_confirm_page(session_id: int):
         session=session,
         form=form,
         summary=summary,
-        **session_analysis_view(session),
+        **session_shell_view(session),
         **ctx,
         **session_stale_ctx(session),
     )

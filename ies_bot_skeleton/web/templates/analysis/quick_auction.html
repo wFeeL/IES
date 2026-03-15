@@ -60,7 +60,7 @@
     </div>
     <div class="stack gap-3 mt-3">
       <label class="label">ID текущего лота <input id="currentLotId" class="input" type="number" /></label>
-      <label class="label">Цена покупки (рабочая ставка по умолчанию) <input id="currentBid" class="input" type="number" step="0.1" /></label>
+      <label class="label">Цена покупки (по умолчанию — рабочая цена) <input id="purchasePriceInput" class="input" type="number" step="0.1" /></label>
       <div class="actions">
         <button id="evalCurrent" class="btn btn-primary" type="button" {% if forecast_blocked %}disabled{% endif %}>Оценить</button>
         <button id="refreshRanking" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Пересчитать все лоты</button>
@@ -121,7 +121,18 @@
 
 <section class="card mt-4">
   <div class="table-wrap">
-    <table class="table" id="rankingTable">
+    <table class="table table-fixed table-auction-ranking" id="rankingTable">
+      <colgroup>
+        <col class="auction-rank-col" />
+        <col class="auction-name-col" />
+        <col class="auction-structure-col" />
+        <col class="auction-metric-col" />
+        <col class="auction-profit-col" />
+        <col class="auction-risk-col" />
+        <col class="auction-bid-col" />
+        <col class="auction-reason-col" />
+        <col class="auction-actions-col" />
+      </colgroup>
       <thead>
         <tr>
           <th>#</th>
@@ -144,8 +155,13 @@
           <td>{{ fmt_num(row.summary_score, 2) }}</td>
           <td>{{ fmt_num(row.financial_breakdown.result.net_profit, 2) }}</td>
           <td>{{ fmt_num(row.financial_breakdown.losses_and_risks.risk_total, 2) }}</td>
-          <td>{{ fmt_num(row.working_bid or row.decision_summary.working_bid, 1) }}</td>
-          <td>{{ row.working_bid_reason or ((row.reasons[:2]|join('; ')) if row.reasons else row.risk_commentary) }}</td>
+          <td class="lot-bid-cell">
+            <div class="lot-bid-stack">
+              <strong>{{ fmt_num(row.working_bid or row.decision_summary.working_bid, 1) }}</strong>
+              <span class="lot-bid-meta">budget {{ fmt_num(row.budget_adjusted_bid or row.decision_summary.budget_adjusted_bid, 1) }}</span>
+            </div>
+          </td>
+          <td class="col-text">{{ row.working_bid_reason or ((row.reasons[:2]|join('; ')) if row.reasons else row.risk_commentary) }}</td>
           <td>
             <div class="actions">
               <button class="btn btn-secondary quickEvalRow" data-lot-id="{{ row.lot_id }}" type="button">Оценить</button>

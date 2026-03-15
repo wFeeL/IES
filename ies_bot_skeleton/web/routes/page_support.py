@@ -6,6 +6,7 @@ from typing import Any, Dict, Iterable, List, Tuple
 from flask import url_for
 
 from ..models import GameSession, Lot
+from ...application.portfolio import portfolio_summary
 from ...application.context import (
     resolve_session_analysis_context,
     session_analysis_settings_for_session,
@@ -60,6 +61,17 @@ def session_analysis_view(session: GameSession) -> Dict[str, Any]:
         "forecast_context": analysis_ctx["forecast_context"],
         "analysis_source": analysis_ctx["source"],
         "analysis_source_label": analysis_ctx["source_label"],
+    }
+
+
+def session_shell_view(
+    session: GameSession,
+    *,
+    analytics_by_lot: Dict[int, Any] | None = None,
+) -> Dict[str, Any]:
+    return {
+        **session_analysis_view(session),
+        "portfolio": portfolio_summary(session, analytics_by_lot=analytics_by_lot),
     }
 
 

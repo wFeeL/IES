@@ -60,6 +60,19 @@ def _combo_price(lots: Sequence[Lot]) -> float:
     return float(sum(float(lot.current_bid or 0.0) for lot in lots))
 
 
+def _combo_operational_price(combo: ComboEvaluation) -> float:
+    working = float(combo.working_bid or 0.0)
+    if working > 0.0:
+        return working
+    budget_adjusted = float(combo.budget_adjusted_bid or 0.0)
+    if budget_adjusted > 0.0:
+        return budget_adjusted
+    target = float(combo.target_bid or 0.0)
+    if target > 0.0:
+        return target
+    return 0.0
+
+
 def _objective_key(item: ComboEvaluation) -> Tuple[float, float]:
     return float(item.risk_adjusted_net_profit), float(item.utility_score)
 
@@ -323,8 +336,6 @@ def _build_combo_catalog(
     singles_net_profit: Dict[int, float] = {}
     standalone_bids: Dict[int, Dict[str, Any]] = {}
     for lot in available_lots:
-        if not _within_budget(price=_combo_price([lot]), remaining_budget=remaining_budget):
-            continue
         row = _combo_eval(
             session=session,
             lots=[lot],
@@ -335,6 +346,11 @@ def _build_combo_catalog(
             portfolio_lots=portfolio_lots,
             reserved_spend=reserved_spend,
         )
+        if not _within_budget(
+            price=_combo_operational_price(row),
+            remaining_budget=remaining_budget,
+        ):
+            continue
         singles.append(row)
         singles_net_profit[int(lot.id)] = float(row.net_profit_base)
         standalone_bids[int(lot.id)] = {
@@ -364,10 +380,7 @@ def _build_combo_catalog(
                 if candidate_ids in expanded or candidate_ids in combos:
                     continue
                 candidate_lots = [lot_map[row_id] for row_id in candidate_ids]
-                price = _combo_price(candidate_lots)
-                if not _within_budget(price=price, remaining_budget=remaining_budget):
-                    continue
-                expanded[candidate_ids] = _combo_eval(
+                candidate_eval = _combo_eval(
                     session=session,
                     lots=candidate_lots,
                     strategy=strategy,
@@ -377,6 +390,12 @@ def _build_combo_catalog(
                     portfolio_lots=portfolio_lots,
                     reserved_spend=reserved_spend,
                 )
+                if not _within_budget(
+                    price=_combo_operational_price(candidate_eval),
+                    remaining_budget=remaining_budget,
+                ):
+                    continue
+                expanded[candidate_ids] = candidate_eval
         if not expanded:
             break
         ranked_expanded = sorted(expanded.values(), key=_objective_key, reverse=True)
@@ -402,15 +421,20 @@ def _snapshot_sections(
     scenario_title: str,
     scenario_note: str,
 ) -> Dict[str, Any]:
-    singles = [row for row in rows if len(row.lot_ids) == 1]
-    pairs = [row for row in rows if len(row.lot_ids) == 2]
-    groups = [row for row in rows if len(row.lot_ids) >= 3]
-    best = rows[0] if rows else None
-    alternatives = rows[1:3] if len(rows) > 1 else []
+    actionable_rows = [row for row in rows if float(row.working_bid) > 0.0]
+    singles = [row for row in actionable_rows if len(row.lot_ids) == 1]
+    pairs = [row for row in actionable_rows if len(row.lot_ids) == 2]
+    groups = [row for row in actionable_rows if len(row.lot_ids) >= 3]
+    best = actionable_rows[0] if actionable_rows else None
+    alternatives = actionable_rows[1:3] if len(actionable_rows) > 1 else []
     return {
         "key": scenario_key,
         "title": scenario_title,
-        "note": scenario_note,
+        "note": (
+            scenario_note
+            if actionable_rows
+            else "В этом сценарии нет комбинаций с положительной рабочей ценой."
+        ),
         "best_singles": [
             _combo_to_dict(row, lot_names=lot_names, remaining_budget=remaining_budget)
             for row in singles[:top_n]
@@ -521,7 +545,7 @@ def build_strategy_snapshot(
         scenario_note="Стратегия по текущему портфелю и доступному бюджету.",
     )
 
-    best_current = rows[0] if rows else None
+    best_current = next((row for row in rows if float(row.working_bid) > 0.0), None)
     after_purchase_rows: List[ComboEvaluation] = []
     after_purchase_budget = remaining_budget
     if best_current is not None:
@@ -556,7 +580,10 @@ def build_strategy_snapshot(
         ),
     )
 
-    top_single = next((row for row in rows if len(row.lot_ids) == 1), None)
+    top_single = next(
+        (row for row in rows if len(row.lot_ids) == 1 and float(row.working_bid) > 0.0),
+        None,
+    )
     after_loss_rows: List[ComboEvaluation] = []
     excluded_lot_id = None
     if top_single is not None:

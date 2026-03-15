@@ -21,7 +21,13 @@ from ...application.objects import (
     list_session_objects,
     update_session_object,
 )
-from ...application.portfolio import buy_lot, reject_lot, restore_lot, undo_lot_purchase
+from ...application.portfolio import (
+    buy_lot,
+    portfolio_summary,
+    reject_lot,
+    restore_lot,
+    undo_lot_purchase,
+)
 from ...application.recommendations import recommend_for_session, strategy_fit_for_lot
 from ...application.sessions import create_session_record
 from ..extensions import db
@@ -37,6 +43,7 @@ from ..services.session_io import (
 from ..services.stale import mark_stale_for_session
 from ..services.strategy import build_strategy_snapshot
 from ..services.test_game_preset import TEST_GAME_UPLOAD_FORECAST_DEFAULT_NAME
+from ..services.ui_text import working_bid_reason_short
 from .api_support import (
     ApiError,
     api_error_response,
@@ -469,6 +476,11 @@ def lots_analytics(session_id: int):
                     or (item.get("decision_summary") or {}).get("working_bid_reason")
                     or ""
                 ),
+                "working_bid_short_reason": working_bid_reason_short(
+                    item.get("working_bid_reason")
+                    or (item.get("decision_summary") or {}).get("working_bid_reason")
+                    or ""
+                ),
                 "system_check": dict(item.get("system_check") or {}),
             }
         )
@@ -536,13 +548,7 @@ def recalculate_session_lots(session_id: int):
         ),
         reverse=True,
     )
-    spent_total = float(
-        sum(
-            float(lot.purchase_price or 0.0)
-            for lot in session.lots
-            if str(lot.status or "") == "bought"
-        )
-    )
+    portfolio = portfolio_summary(session)
     return jsonify(
         {
             "ok": True,
@@ -550,7 +556,10 @@ def recalculate_session_lots(session_id: int):
             "strategy": strategy_snapshot,
             "meta": {
                 "count": len(rows),
-                "remaining_budget": max(0.0, float(session.budget_total or 0.0) - spent_total),
+                "budget_total": float(portfolio["budget_total"]),
+                "spent_total": float(portfolio["spent_total"]),
+                "remaining_budget": float(portfolio["remaining_budget"]),
+                "bought_lots_count": int(portfolio["bought_lots_count"]),
                 "available_count": len(available_rows),
                 "non_zero_working_bid_count": len(non_zero_working),
                 "shortlist_suggested_ids": [int(row.get("lot_id") or 0) for row in shortlist[:8]],

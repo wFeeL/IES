@@ -1,6 +1,7 @@
-{% set bought_count = portfolio.bought_lots_count if portfolio is defined else (session.lots|selectattr('status', 'equalto', 'bought')|list|length) %}
-{% set remaining = portfolio.remaining_budget if portfolio is defined else session.budget_total %}
-{% set spent = portfolio.spent_total if portfolio is defined else (session.budget_total - remaining) %}
+{% set bought_lots = session.lots|selectattr('status', 'equalto', 'bought')|list %}
+{% set bought_count = portfolio.bought_lots_count if portfolio is defined else (bought_lots|length) %}
+{% set spent = portfolio.spent_total if portfolio is defined else (bought_lots|sum(attribute='purchase_price')) %}
+{% set remaining = portfolio.remaining_budget if portfolio is defined else (session.budget_total - spent) %}
 <section class="hero-card">
   <div>
     <p class="section-kicker">Сессия #{{ session.id }}</p>

@@ -131,3 +131,31 @@ def forecast_series_label(key: str | None) -> str:
     if code in FORECAST_LOAD_LABELS:
         return FORECAST_LOAD_LABELS[code]
     return code.replace("_", " ")
+
+
+def working_bid_reason_short(reason: str | None) -> str:
+    text = str(reason or "").strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    if "ограничена бюджетом" in lowered:
+        return "Ограничено бюджетом"
+    if "снижена относительно target" in lowered or "снижена относительно target" in lowered:
+        return "Снижен риск-буфером"
+    if "совпадает с целевой ставкой" in lowered:
+        return "Полная рабочая цена"
+    if "бюджет сессии исчерпан" in lowered:
+        return "Бюджет исчерпан"
+    if (
+        "weighted expected" in lowered
+        or "взвешенная маржинальная прибыль" in lowered
+        or "ожидаемая чистая прибыль неположительная" in lowered
+    ):
+        return "Нет маржинальной прибыли"
+    if "осторожная ставка выше доступного остатка бюджета" in lowered:
+        return "Текущий бюджет слишком мал"
+    if "риск-премия перекрывает экономический эффект" in lowered:
+        return "Риск перекрывает эффект"
+    if "допустимую ставку" in lowered:
+        return "Ставка не формируется"
+    return text
