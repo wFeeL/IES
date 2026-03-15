@@ -313,8 +313,11 @@ def test_forecast_compatibility_and_strategy_endpoints(client):
     assert "best_pairs" in strategy_item
     assert "best_groups" in strategy_item
     assert "best_combination" in strategy_item
+    assert "plan_b" in strategy_item
+    assert "plan_c" in strategy_item
+    assert "scenarios" in strategy_item
     if strategy_item["best_singles"]:
-        assert "budget_limited_bid" in strategy_item["best_singles"][0]
+        assert "budget_adjusted_bid" in strategy_item["best_singles"][0]
         assert "lot_bid_breakdown" in strategy_item["best_singles"][0]
 
 
@@ -498,10 +501,10 @@ def test_test_game_solar_storage_profit_is_not_inflated_anymore(client):
     net_profit = float(payload["financial_breakdown"]["result"]["net_profit"])
 
     assert net_profit < 1000.0
-    assert payload["metrics"]["bids"]["valuation_model"]["model"] == "valuation_model_v2"
+    assert payload["metrics"]["bids"]["valuation_model"]["model"] == "valuation_model_v3"
 
 
-def test_evaluate_and_analytics_return_uncapped_and_budget_limited_bids(client):
+def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client):
     login(client, "admin", "admin123")
     ruleset_id = ruleset_id_by_code(client, "ies_2026")
     create_resp = client.post(
@@ -534,33 +537,34 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_limited_bids(client):
     eval_resp = client.post(f"/api/lots/{lot_id}/evaluate", json={})
     assert eval_resp.status_code == 200
     item = eval_resp.get_json()["item"]
-    assert "budget_limited_bid" in item
+    assert "budget_adjusted_bid" in item
     assert "working_bid" in item
     assert "working_bid_source" in item
     assert "working_bid_reason" in item
-    assert item["decision_summary"]["budget_limited_bid"] == pytest.approx(
-        item["budget_limited_bid"]
+    assert item["decision_summary"]["budget_adjusted_bid"] == pytest.approx(
+        item["budget_adjusted_bid"]
     )
     assert item["decision_summary"]["working_bid"] == pytest.approx(item["working_bid"])
     assert item["decision_summary"]["working_bid_source"] == item["working_bid_source"]
-    assert item["working_bid_source"] in {"target", "cautious", "ceiling", "none"}
+    assert item["working_bid_source"] in {"target", "budget_adjusted", "cautious", "zero"}
     assert item["decision_summary"]["budget_remaining"] == pytest.approx(
         item["portfolio_context"]["remaining_budget"]
     )
     assert item["hard_ceiling_bid"] >= item["target_bid"] >= item["cautious_bid"]
-    assert item["budget_limited_bid"] == pytest.approx(
+    assert item["budget_adjusted_bid"] == pytest.approx(
         min(item["target_bid"], item["portfolio_context"]["remaining_budget"])
     )
     assert "ui_rows" in item["financial_breakdown"]
     assert "valuation_model" in item["metrics"]["bids"]
-    assert item["metrics"]["bids"]["valuation_model"]["model"] == "valuation_model_v2"
+    assert item["metrics"]["bids"]["valuation_model"]["model"] == "valuation_model_v3"
+    assert "system_check" in item
 
     analytics_resp = client.get(f"/api/sessions/{session_id}/lots/analytics")
     assert analytics_resp.status_code == 200
     row = next(
         entry for entry in analytics_resp.get_json()["items"] if int(entry["lot_id"]) == lot_id
     )
-    assert row["budget_limited_bid"] == pytest.approx(item["budget_limited_bid"])
+    assert row["budget_adjusted_bid"] == pytest.approx(item["budget_adjusted_bid"])
     assert row["working_bid"] == pytest.approx(item["working_bid"])
     assert row["working_bid_source"] == item["working_bid_source"]
     assert row["target_bid"] == pytest.approx(item["target_bid"])

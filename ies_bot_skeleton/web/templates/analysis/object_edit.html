@@ -40,10 +40,16 @@
         </div>
         <div class="muted mt-1">Нагрузка кандидата: {{ fmt_num(connection_recommendation.expected_power_mw, 2) }} МВт.</div>
         <div class="muted mt-1">
+          Score: {{ fmt_num(connection_recommendation.current_score, 2) }} → {{ fmt_num(connection_recommendation.recommended_score, 2) }} ·
+          Профиль: {{ connection_recommendation.profile_key or '—' }} ·
+          Model: {{ connection_recommendation.forecast_model_type or '—' }}
+        </div>
+        <div class="muted mt-1">Global slot headroom: {{ fmt_num(connection_recommendation.global_slot_headroom, 2) }}</div>
+        <div class="muted mt-1">
           Допустимые альтернативы:
           {% if connection_recommendation.feasible_alternatives %}
           {% for alt in connection_recommendation.feasible_alternatives %}
-            {{ alt.point }} (остаток {{ fmt_num(alt.remaining_capacity_mw, 2) }} МВт){% if not loop.last %}, {% endif %}
+            {{ alt.point }} (остаток {{ fmt_num(alt.remaining_capacity_mw, 2) }} МВт, score {{ fmt_num(alt.score, 2) }}){% if not loop.last %}, {% endif %}
           {% endfor %}
           {% else %}
             нет

@@ -17,6 +17,7 @@
   const state = {
     ranking: [],
     shortlistSuggested: [],
+    strategy: null,
   };
 
   function csrfToken() {
@@ -139,9 +140,6 @@
     return Number(
       row.working_bid ||
       (row.decision_summary || {}).working_bid ||
-      (row.decision_summary || {}).target_bid ||
-      (row.decision_summary || {}).cautious_bid ||
-      (row.decision_summary || {}).hard_ceiling_bid ||
       0
     );
   }
@@ -156,12 +154,73 @@
     );
   }
 
-  function budgetLimitedBid(row) {
+  function budgetAdjustedBid(row) {
     return Number(
-      (row.decision_summary || {}).budget_limited_bid ||
-      row.budget_limited_bid ||
+      (row.decision_summary || {}).budget_adjusted_bid ||
+      row.budget_adjusted_bid ||
       0
     );
+  }
+
+  function strategyNames(row) {
+    if (row?.display_title) return row.display_title;
+    const labels = Array.isArray(row?.lot_labels) ? row.lot_labels : [];
+    if (labels.length) return labels.join(' + ');
+    return '—';
+  }
+
+  function renderStrategyRow(row, title) {
+    if (!row) {
+      return `<div class="muted">${title}: нет доступной альтернативы.</div>`;
+    }
+    const breakdown = Array.isArray(row?.lot_bid_breakdown) ? row.lot_bid_breakdown : [];
+    const lines = breakdown
+      .map((item) => `${item.lot_label} — цена: ${formatNumber(item.price, 1)}, прибыль: ${formatNumber(item.profit, 2)}`)
+      .join('<br/>');
+    return `
+      <article class="card">
+        <p class="section-kicker">${title}</p>
+        <strong>${strategyNames(row)}</strong>
+        <div class="muted mt-2">total price: ${formatNumber(row.working_bid || row.total_price, 1)} · total profit: ${formatNumber(row.total_profit || row.net_profit_base, 2)}</div>
+        <div class="muted">synergy: ${formatNumber(row.synergy_score, 2)} · utility: ${formatNumber(row.utility_score || row.utility, 2)} · budget fit: ${row?.budget_fit?.is_affordable ? 'fit' : 'tight'}</div>
+        <div class="muted mt-2">${row.explanation || row.reason || row.working_bid_reason || ''}</div>
+        ${lines ? `<div class="muted mt-2">${lines}</div>` : ''}
+      </article>
+    `;
+  }
+
+  function renderStrategySnapshot(snapshot) {
+    const content = $('qaStrategyContent');
+    const status = $('qaStrategyStatus');
+    if (!content) return;
+    if (!snapshot) {
+      content.hidden = true;
+      if (status) status.textContent = 'Стратегия пока недоступна.';
+      return;
+    }
+    const scenarios = snapshot.scenarios || {};
+    const blocks = [
+      {title: 'Current best', row: scenarios.full_budget?.best_combination || snapshot.best_combination},
+      {title: 'Plan B', row: scenarios.full_budget?.plan_b || snapshot.plan_b},
+      {title: 'Plan C', row: scenarios.full_budget?.plan_c || snapshot.plan_c},
+      {title: 'After purchase', row: scenarios.after_purchase?.best_combination},
+      {title: 'After loss', row: scenarios.after_loss?.best_combination},
+    ];
+    content.innerHTML = blocks.map((block) => renderStrategyRow(block.row, block.title)).join('');
+    content.hidden = false;
+    if (status) status.hidden = true;
+  }
+
+  async function loadStrategySnapshot() {
+    const url = cfg().strategyUrl;
+    if (!url) return;
+    const data = await apiFetchJson(url, {method: 'GET', headers: {'X-CSRFToken': csrfToken()}});
+    if (!data.ok) {
+      if ($('qaStrategyStatus')) $('qaStrategyStatus').textContent = errorMessage(data);
+      return;
+    }
+    state.strategy = data.item || null;
+    renderStrategySnapshot(state.strategy);
   }
 
   function bySort(a, b, key) {
@@ -234,11 +293,12 @@
     $('qaScore').textContent = formatNumber(item.summary_score, 2);
     $('qaRisk').textContent = formatNumber(riskValue(item), 2);
     $('qaBid').textContent = formatNumber(workingBid(item), 1);
-    if ($('qaBudgetBid')) $('qaBudgetBid').textContent = formatNumber(budgetLimitedBid(item), 1);
+    if ($('qaBudgetBid')) $('qaBudgetBid').textContent = formatNumber(budgetAdjustedBid(item), 1);
     const reasons = Array.isArray(item.reasons) ? item.reasons.slice(0, 3).join('; ') : '';
-    $('qaCommentary').textContent = reasons || workingBidReason(item) || 'Нет комментария.';
+    const systemMessage = String((item.system_check || {}).message || '');
+    $('qaCommentary').textContent = reasons || workingBidReason(item) || systemMessage || 'Нет комментария.';
     if (workingBid(item) <= 0) {
-      $('qaCommentary').textContent = workingBidReason(item) || 'Рабочая цена недоступна для текущего лота.';
+      $('qaCommentary').textContent = workingBidReason(item) || systemMessage || 'Рабочая цена недоступна для текущего лота.';
     }
     const lotId = Number(item.lot_id || 0);
     $('currentLotId').value = String(lotId || '');
@@ -354,7 +414,7 @@
     body.innerHTML = '';
 
     if (!filtered.length) {
-      body.innerHTML = '<tr><td colspan="8" class="muted">Нет строк после фильтрации.</td></tr>';
+      body.innerHTML = '<tr><td colspan="9" class="muted">Нет строк после фильтрации.</td></tr>';
       setStatus('После фильтрации подходящих лотов не осталось.');
       return;
     }
@@ -365,7 +425,8 @@
       tr.dataset.lotId = String(row.lot_id || '');
       tr.innerHTML = `
         <td>${index + 1}</td>
-        <td>${row.lot_id}</td>
+        <td>${row.name || row.lot_id}</td>
+        <td>${row.structure || '—'}</td>
         <td>${formatNumber(row.summary_score, 2)}</td>
         <td>${formatNumber(netProfit(row), 2)}</td>
         <td>${formatNumber(riskValue(row), 2)}</td>
@@ -462,6 +523,10 @@
       updateHeroBudget({
         remaining_budget: recalc?.meta?.remaining_budget,
       });
+      if (recalc?.strategy) {
+        state.strategy = recalc.strategy;
+        renderStrategySnapshot(state.strategy);
+      }
       await refreshRanking(preferredLotId);
       setStatus(`Пересчитано лотов: ${Number(recalc?.meta?.count || 0)}.`);
     } catch (_) {
@@ -539,6 +604,7 @@
     state.ranking = Array.isArray(cfg().initialRanking) ? cfg().initialRanking : [];
     syncAuctionListWithRanking();
     renderRanking(state.ranking);
+    loadStrategySnapshot();
     const initialLotId = Number($('currentLotId')?.value || 0);
     const selected = rankingItemByLotId(initialLotId) || state.ranking[0] || null;
     if (selected) {

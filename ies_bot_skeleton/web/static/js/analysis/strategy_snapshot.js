@@ -7,6 +7,13 @@
     return;
   }
 
+  const PLAN_TITLES = ['Plan B', 'Plan C'];
+  const FALLBACK_SCENARIO_TITLES = {
+    full_budget: 'Полный бюджет',
+    after_purchase: 'After purchase',
+    after_loss: 'After loss',
+  };
+
   function formatNumber(value, digits) {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) {
@@ -80,69 +87,118 @@
       .join('');
   }
 
-  function renderSessionStrategy(item, remainingBudget) {
-    const best = item?.best_combination;
+  function renderScenarioBlock(scenario, remainingBudget, scenarioKey) {
+    const best = scenario?.best_combination;
+    const title = scenario?.title || FALLBACK_SCENARIO_TITLES[scenarioKey] || 'Сценарий';
     if (!best) {
-      return '<div class="muted mt-3">Недостаточно доступных лотов для расчёта стратегии.</div>';
+      return `
+        <article class="card">
+          <p class="section-kicker">${escapeHtml(title)}</p>
+          <div class="muted mt-2">${escapeHtml(scenario?.note || 'Недостаточно данных для расчёта.')}</div>
+        </article>
+      `;
     }
 
     const warning =
-      Number(best.target_bid || 0) > Number(remainingBudget || 0)
+      Number(best.working_bid || 0) > Number(remainingBudget || 0)
         ? '<div class="flash flash-warning mt-3">Экономически оправдано, но не помещается в текущий бюджет.</div>'
         : '';
 
+    const alternatives = [scenario?.plan_b, scenario?.plan_c].filter(Boolean);
+    const alternativesHtml = alternatives.length
+      ? `<ul class="stack gap-1 mt-3">${alternatives
+          .map((row, index) => `<li><strong>${PLAN_TITLES[index] || `Plan ${index + 2}`}:</strong> ${escapeHtml(names(row))} · рабочая цена ${formatNumber(row.working_bid, 1)} · прибыль ${formatNumber(row.total_profit ?? row.net_profit_base, 2)}</li>`)
+          .join('')}</ul>`
+      : '';
+
     return `
-      <div class="insight-grid mt-3">
-        <div class="metric-card"><span class="metric-label">Лучшая комбинация</span><strong>${escapeHtml(names(best))}</strong></div>
-        <div class="metric-card"><span class="metric-label">Риск-скорректированная прибыль</span><strong>${formatNumber(best.risk_adjusted_net_profit, 2)}</strong></div>
-        <div class="metric-card"><span class="metric-label">Чистая прибыль</span><strong>${formatNumber(best.net_profit_base, 2)}</strong></div>
-        <div class="metric-card"><span class="metric-label">Синергия</span><strong>${formatNumber(best.synergy_score, 2)}</strong></div>
-        <div class="metric-card"><span class="metric-label">Рабочая ставка</span><strong>${formatNumber(best.target_bid, 1)}</strong></div>
-        <div class="metric-card"><span class="metric-label">Ставка с учетом бюджета</span><strong>${formatNumber(best.budget_limited_bid, 1)}</strong></div>
-      </div>
-      ${warning}
-      <div class="grid cols-3 gap-4 mt-4">
-        <article class="card">
-          <p class="section-kicker">Лучшие одиночные</p>
-          <ul class="stack gap-2 mt-2">
-            ${renderSessionList(
-              item.best_singles,
-              'Нет доступных одиночных рекомендаций.',
-              (row) =>
-                `Название группы - ${escapeHtml(names(row))}: ` +
-                `цена: ${formatNumber(row.working_bid, 1)}, прибыль: ${formatNumber(row.net_profit_base, 2)}`
-            )}
-          </ul>
-        </article>
-        <article class="card">
-          <p class="section-kicker">Лучшие пары</p>
-          <ul class="stack gap-2 mt-2">
-            ${renderSessionList(
-              item.best_pairs,
-              'Пары в бюджете не найдены.',
-              (row) =>
-                `Название группы - ${escapeHtml(names(row))}: ` +
-                `цена: ${formatNumber(row.working_bid, 1)}, ` +
-                `прибыль: ${formatNumber(row.net_profit_base, 2)}, ` +
-                `синергия: ${formatNumber(row.synergy_score, 2)}`
-            )}
-          </ul>
-        </article>
-        <article class="card">
-          <p class="section-kicker">Лучшие группы</p>
-          <ul class="stack gap-2 mt-2">
-            ${renderSessionList(
-              item.best_groups,
-              'Группы в бюджете не найдены.',
-              (row) =>
-                `Название группы - ${escapeHtml(names(row))}: ` +
-                `цена: ${formatNumber(row.working_bid || row.total_price, 1)}, ` +
-                `прибыль: ${formatNumber(row.net_profit_base, 2)}`
-            )}
-          </ul>
-        </article>
-      </div>
+      <article class="card">
+        <p class="section-kicker">${escapeHtml(title)}</p>
+        <div class="muted mt-2">${escapeHtml(scenario?.note || '')}</div>
+        <div class="insight-grid mt-3">
+          <div class="metric-card"><span class="metric-label">Лучшая комбинация</span><strong>${escapeHtml(names(best))}</strong></div>
+          <div class="metric-card"><span class="metric-label">Риск-скорректированная прибыль</span><strong>${formatNumber(best.risk_adjusted_net_profit, 2)}</strong></div>
+          <div class="metric-card"><span class="metric-label">Чистая прибыль</span><strong>${formatNumber(best.total_profit ?? best.net_profit_base, 2)}</strong></div>
+          <div class="metric-card"><span class="metric-label">Синергия</span><strong>${formatNumber(best.synergy_score, 2)}</strong></div>
+          <div class="metric-card"><span class="metric-label">Рабочая ставка</span><strong>${formatNumber(best.working_bid, 1)}</strong></div>
+          <div class="metric-card"><span class="metric-label">Ставка с учетом бюджета</span><strong>${formatNumber(best.budget_adjusted_bid, 1)}</strong></div>
+        </div>
+        ${warning}
+        ${alternativesHtml}
+        <div class="grid cols-3 gap-4 mt-4">
+          <article class="card">
+            <p class="section-kicker">Лучшие одиночные</p>
+            <ul class="stack gap-2 mt-2">
+              ${renderSessionList(
+                scenario.best_singles,
+                'Нет доступных одиночных рекомендаций.',
+                (row) =>
+                  `Название группы - ${escapeHtml(names(row))}: ` +
+                  `цена: ${formatNumber(row.working_bid, 1)}, прибыль: ${formatNumber(row.total_profit ?? row.net_profit_base, 2)}`
+              )}
+            </ul>
+          </article>
+          <article class="card">
+            <p class="section-kicker">Лучшие пары</p>
+            <ul class="stack gap-2 mt-2">
+              ${renderSessionList(
+                scenario.best_pairs,
+                'Пары в бюджете не найдены.',
+                (row) =>
+                  `Название группы - ${escapeHtml(names(row))}: ` +
+                  `цена: ${formatNumber(row.working_bid, 1)}, ` +
+                  `прибыль: ${formatNumber(row.total_profit ?? row.net_profit_base, 2)}, ` +
+                  `синергия: ${formatNumber(row.synergy_score, 2)}`
+              )}
+            </ul>
+          </article>
+          <article class="card">
+            <p class="section-kicker">Лучшие группы</p>
+            <ul class="stack gap-2 mt-2">
+              ${renderSessionList(
+                scenario.best_groups,
+                'Группы в бюджете не найдены.',
+                (row) =>
+                  `Название группы - ${escapeHtml(names(row))}: ` +
+                  `цена: ${formatNumber(row.working_bid || row.total_price, 1)}, ` +
+                  `прибыль: ${formatNumber(row.total_profit ?? row.net_profit_base, 2)}`
+              )}
+            </ul>
+          </article>
+        </div>
+      </article>
     `;
+  }
+
+  function renderSessionStrategy(item, remainingBudget) {
+    const scenarios = item?.scenarios || {};
+    const blocks = [
+      {key: 'full_budget', scenario: scenarios.full_budget},
+      {key: 'after_purchase', scenario: scenarios.after_purchase},
+      {key: 'after_loss', scenario: scenarios.after_loss},
+    ].filter((entry) => entry.scenario);
+    if (!blocks.length) {
+      const best = item?.best_combination;
+      if (!best) {
+        return '<div class="muted mt-3">Недостаточно доступных лотов для расчёта стратегии.</div>';
+      }
+      blocks.push({
+        key: 'full_budget',
+        scenario: {
+          title: FALLBACK_SCENARIO_TITLES.full_budget,
+          note: 'Стратегия по текущему бюджету.',
+          best_singles: item.best_singles || [],
+          best_pairs: item.best_pairs || [],
+          best_groups: item.best_groups || [],
+          best_combination: best,
+          plan_b: item.plan_b || null,
+          plan_c: item.plan_c || null,
+        },
+      });
+    }
+    return `<div class="stack gap-4 mt-3">${blocks
+      .map((entry) => renderScenarioBlock(entry.scenario, remainingBudget, entry.key))
+      .join('')}</div>`;
   }
 
   function renderLotPairs(rows) {

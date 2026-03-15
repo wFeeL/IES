@@ -65,12 +65,18 @@
                 Лимит: {{ fmt_num(recommendation.recommended_capacity_mw, 2) }} МВт ·
                 Остаток: {{ fmt_num(recommendation.recommended_remaining_capacity_mw, 2) }} МВт
               </span>
+              <span class="muted">
+                Score: {{ fmt_num(recommendation.current_score, 2) }} → {{ fmt_num(recommendation.recommended_score, 2) }} ·
+                Профиль: {{ recommendation.profile_key or '—' }} ·
+                Model: {{ recommendation.forecast_model_type or '—' }}
+              </span>
               <span class="muted">Нагрузка кандидата: {{ fmt_num(recommendation.expected_power_mw, 2) }} МВт</span>
+              <span class="muted">Global slot headroom: {{ fmt_num(recommendation.global_slot_headroom, 2) }}</span>
               <span class="muted">
                 Альтернативы:
                 {% if recommendation.feasible_alternatives %}
                 {% for alt in recommendation.feasible_alternatives %}
-                  {{ alt.point }} (остаток {{ fmt_num(alt.remaining_capacity_mw, 2) }} МВт{% if not loop.last %}, {% endif %}
+                  {{ alt.point }} (остаток {{ fmt_num(alt.remaining_capacity_mw, 2) }} МВт, score {{ fmt_num(alt.score, 2) }}){% if not loop.last %}, {% endif %}
                 {% endfor %}
                 {% else %}
                   нет

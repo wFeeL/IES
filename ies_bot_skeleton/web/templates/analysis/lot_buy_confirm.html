@@ -39,8 +39,9 @@
           <tr><th>Текущая ставка</th><td>{{ fmt_num(lot.current_bid, 1) }}</td></tr>
           <tr><th>Остаток бюджета до покупки</th><td>{{ fmt_num(portfolio.remaining_budget, 1) }}</td></tr>
           <tr><th>Рабочая цена</th><td>{{ fmt_num(evaluation.working_bid or evaluation.decision_summary.working_bid, 1) }}</td></tr>
-          <tr><th>Ставка с учетом бюджета</th><td>{{ fmt_num(evaluation.decision_summary.budget_limited_bid, 1) }}</td></tr>
+          <tr><th>Ставка с учетом бюджета</th><td>{{ fmt_num(evaluation.decision_summary.budget_adjusted_bid, 1) }}</td></tr>
           <tr><th>Ожидаемая чистая прибыль</th><td>{{ fmt_num(evaluation.financial_breakdown.result.net_profit, 2) }}</td></tr>
+          <tr><th>System-check</th><td>{{ evaluation.system_check.message }}</td></tr>
         </tbody>
       </table>
     </div>

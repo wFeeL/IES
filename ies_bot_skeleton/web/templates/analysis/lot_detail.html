@@ -83,7 +83,54 @@
   <article class="kpi-card"><span class="metric-label">Ожидаемая чистая прибыль</span><strong>{{ fmt_num(evaluation.financial_breakdown.result.net_profit, 2) }}</strong></article>
   <article class="kpi-card"><span class="metric-label">Риск</span><strong>{{ fmt_num(evaluation.financial_breakdown.losses_and_risks.risk_total, 2) }}</strong></article>
   <article class="kpi-card"><span class="metric-label">Рабочая цена</span><strong>{{ fmt_num(evaluation.working_bid or evaluation.decision_summary.working_bid, 1) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Ставка с учетом бюджета</span><strong>{{ fmt_num(evaluation.decision_summary.budget_limited_bid, 1) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Ставка с учетом бюджета</span><strong>{{ fmt_num(evaluation.decision_summary.budget_adjusted_bid, 1) }}</strong></article>
+</section>
+
+<section class="grid cols-2 gap-4 mt-4">
+  <article class="card">
+    <p class="section-kicker">Состав лота</p>
+    <h2 class="h2">Что входит и зачем это нужно</h2>
+    <div class="stack gap-2 mt-3">
+      {% for item in lot_summary.structure_items %}
+      <div class="key-value">
+        <span>{{ item.name }} ({{ item.code }}) ×{{ item.quantity }}</span>
+        <strong>{{ lot_summary.composition_label }}</strong>
+      </div>
+      {% else %}
+      <div class="muted">Лот пуст.</div>
+      {% endfor %}
+    </div>
+    <div class="risk-block mt-3">
+      {% if lot_summary.composition == 'generator' %}
+      Лот усиливает генерацию и снижает зависимость от рынка, если сетевые потери не съедают маржу.
+      {% elif lot_summary.composition == 'consumer' %}
+      Лот добавляет полезную нагрузку, но критичен к покрытию спроса и штрафам за дефицит.
+      {% elif lot_summary.composition == 'storage' %}
+      Лот нужен для сглаживания тактов и резервирования, а не для прямой прибыли в каждом сценарии.
+      {% elif lot_summary.composition == 'infrastructure' %}
+      Лот нужен для подключения и снятия ограничений: ценность зависит от текущего портфеля и топологии.
+      {% else %}
+      Лот смешанный: его ценность определяется синергией между генерацией, нагрузкой, накоплением и сетью.
+      {% endif %}
+    </div>
+  </article>
+
+  <article class="card">
+    <p class="section-kicker">Влияние на портфель</p>
+    <h2 class="h2">Бюджет, синергия и system-check</h2>
+    <div class="table-wrap mt-3">
+      <table class="table">
+        <tbody>
+          <tr><th class="col-text">Остаток бюджета</th><td class="num">{{ fmt_num(evaluation.portfolio_context.remaining_budget, 1) }}</td></tr>
+          <tr><th class="col-text">Portfolio synergy</th><td class="num">{{ fmt_num(evaluation.metrics.synergy.score, 2) }}</td></tr>
+          <tr><th class="col-text">System fit score</th><td class="num">{{ fmt_num(evaluation.system_check.system_fit_score, 2) }}</td></tr>
+          <tr><th class="col-text">System-check</th><td>{{ evaluation.system_check.message }}</td></tr>
+          <tr><th class="col-text">Feasible items</th><td>{{ evaluation.system_check.feasible_items_count or 0 }}</td></tr>
+          <tr><th class="col-text">Blocked items</th><td>{{ evaluation.system_check.blocked_items_count or 0 }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </article>
 </section>
 
 <section class="grid cols-3 gap-4 mt-4">
@@ -127,7 +174,7 @@
     <p class="section-kicker">Комментарий аналитики</p>
     <h2 class="h2">Ключевые причины оценки</h2>
     <ul class="stack gap-2 mt-3">
-      {% for reason in evaluation.reasons %}
+          {% for reason in evaluation.reasons %}
       <li>{{ reason }}</li>
       {% else %}
       <li class="muted">Ключевые причины не рассчитаны.</li>
@@ -136,12 +183,14 @@
     <div class="table-wrap mt-3">
       <table class="table">
         <tbody>
-          <tr><th class="col-text">Осторожная цена</th><td class="num">{{ fmt_num(evaluation.decision_summary.cautious_bid or evaluation.decision_summary.soft_bid, 1) }}</td></tr>
+          <tr><th class="col-text">Осторожная цена</th><td class="num">{{ fmt_num(evaluation.decision_summary.cautious_bid, 1) }}</td></tr>
           <tr><th class="col-text">Рабочая цена</th><td class="num">{{ fmt_num(evaluation.working_bid or evaluation.decision_summary.working_bid, 1) }}</td></tr>
-          <tr><th class="col-text">Предельная цена</th><td class="num">{{ fmt_num(evaluation.decision_summary.hard_ceiling_bid or evaluation.decision_summary.stop_bid, 1) }}</td></tr>
-          <tr><th class="col-text">Ставка с учетом бюджета</th><td class="num">{{ fmt_num(evaluation.decision_summary.budget_limited_bid, 1) }}</td></tr>
+          <tr><th class="col-text">Предельная цена</th><td class="num">{{ fmt_num(evaluation.decision_summary.hard_ceiling_bid, 1) }}</td></tr>
+          <tr><th class="col-text">Ставка с учетом бюджета</th><td class="num">{{ fmt_num(evaluation.decision_summary.budget_adjusted_bid, 1) }}</td></tr>
           <tr><th class="col-text">Риск-премия в модели ставки</th><td class="num">{{ fmt_num(evaluation.metrics.bids.risk_premium, 2) }}</td></tr>
           <tr><th class="col-text">Резервный буфер</th><td class="num">{{ fmt_num(evaluation.metrics.bids.reserve_margin, 2) }}</td></tr>
+          <tr><th class="col-text">Portfolio synergy</th><td class="num">{{ fmt_num(evaluation.metrics.synergy.score, 2) }}</td></tr>
+          <tr><th class="col-text">System fit score</th><td class="num">{{ fmt_num(evaluation.system_check.system_fit_score, 2) }}</td></tr>
           <tr><th class="col-text">Соответствие стратегии</th><td>{{ evaluation.strategy_fit_text }}</td></tr>
           <tr><th class="col-text">Комментарий по рискам</th><td>{{ evaluation.risk_commentary }}</td></tr>
           <tr><th class="col-text">Влияние на портфель (чистая прибыль)</th><td>{{ fmt_num(evaluation.metrics.portfolio_delta.net_profit_base, 2) }}</td></tr>
@@ -157,6 +206,40 @@
     {% if lot.note %}<div class="risk-block mt-3">{{ lot.note }}</div>{% endif %}
     {% if lot.status == 'bought' %}<div class="risk-block mt-3">Лот куплен по цене {{ fmt_num(lot.purchase_price, 1) }}.</div>{% endif %}
   </article>
+</section>
+
+<section class="card mt-4">
+  <p class="section-kicker">System-check</p>
+  <h2 class="h2">Рекомендации подключения для объектов лота</h2>
+  <div class="risk-block mt-3">{{ evaluation.system_check.message }}</div>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead>
+        <tr>
+          <th class="col-text">Объект</th>
+          <th class="col-text">Текущая точка</th>
+          <th class="col-text">Рекомендация</th>
+          <th class="col-num">Потери</th>
+          <th class="col-num">Остаток лимита</th>
+          <th class="col-text">Комментарий</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in evaluation.system_check['items'] %}
+        <tr>
+          <td class="col-text">{{ item.object_type_name }} ×{{ item.quantity }}</td>
+          <td class="col-text">{{ item.current_point or '—' }}</td>
+          <td class="col-text">{{ item.recommended_point or '—' }}</td>
+          <td class="num">{{ fmt_num(item.recommended_loss_pct, 1) }}%</td>
+          <td class="num">{{ fmt_num(item.remaining_capacity_mw, 2) }}</td>
+          <td class="col-text">{{ item.message }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted">Для этого лота рекомендации подключения не требуются или пока недоступны.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <section

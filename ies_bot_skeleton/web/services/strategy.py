@@ -20,7 +20,7 @@ class ComboEvaluation:
     cautious_bid: float
     target_bid: float
     hard_ceiling_bid: float
-    budget_limited_bid: float
+    budget_adjusted_bid: float
     working_bid: float
     working_bid_source: str
     working_bid_reason: str
@@ -105,10 +105,17 @@ def _combo_eval(
     forecast: Optional[Forecast],
     singles_net_profit: Dict[int, float],
     standalone_bids: Dict[int, Dict[str, Any]],
+    portfolio_lots: Sequence[Lot] | None = None,
+    reserved_spend: float = 0.0,
 ) -> ComboEvaluation:
     ordered_lots = sorted(lots, key=lambda row: int(row.id))
     payload = evaluate_lot_bundle(
-        session=session, lots=ordered_lots, strategy=strategy, forecast=forecast
+        session=session,
+        lots=ordered_lots,
+        strategy=strategy,
+        forecast=forecast,
+        portfolio_lots=portfolio_lots,
+        reserved_spend=reserved_spend,
     )
     metrics = dict(payload.get("metrics") or {})
     bids = dict(metrics.get("bids") or {})
@@ -172,7 +179,7 @@ def _combo_eval(
     budget_ratio = (
         max(
             0.0,
-            min(1.0, float(bids.get("budget_limited_bid", 0.0) or 0.0) / combo_target_bid),
+            min(1.0, float(bids.get("budget_adjusted_bid", 0.0) or 0.0) / combo_target_bid),
         )
         if combo_target_bid > 0.0
         else 1.0
@@ -226,21 +233,13 @@ def _combo_eval(
         cautious_bid=float(bids.get("cautious_bid", 0.0) or 0.0),
         target_bid=float(bids.get("target_bid", 0.0) or 0.0),
         hard_ceiling_bid=float(bids.get("hard_ceiling_bid", 0.0) or 0.0),
-        budget_limited_bid=float(bids.get("budget_limited_bid", 0.0) or 0.0),
-        working_bid=float(
-            payload.get("working_bid")
-            or decision_summary.get("working_bid")
-            or bids.get("working_bid")
-            or bids.get("target_bid")
-            or bids.get("cautious_bid")
-            or bids.get("hard_ceiling_bid")
-            or 0.0
-        ),
+        budget_adjusted_bid=float(bids.get("budget_adjusted_bid", 0.0) or 0.0),
+        working_bid=float(payload.get("working_bid") or decision_summary.get("working_bid") or 0.0),
         working_bid_source=str(
             payload.get("working_bid_source")
             or decision_summary.get("working_bid_source")
             or bids.get("working_bid_source")
-            or "none"
+            or "zero"
         ),
         working_bid_reason=str(
             payload.get("working_bid_reason")
@@ -258,10 +257,12 @@ def _combo_to_dict(
     combo: ComboEvaluation,
     *,
     lot_names: Dict[int, str],
+    remaining_budget: float,
 ) -> Dict[str, Any]:
     lot_labels = [
         f"{lot_names.get(lot_id, f'Лот {lot_id}')} ({lot_id})" for lot_id in combo.lot_ids
     ]
+    budget_headroom = float(remaining_budget - combo.working_bid)
     return {
         "lot_ids": list(combo.lot_ids),
         "lot_names": [lot_names.get(lot_id, f"Лот {lot_id}") for lot_id in combo.lot_ids],
@@ -269,15 +270,18 @@ def _combo_to_dict(
         "display_title": " + ".join(lot_labels),
         "lots_count": len(combo.lot_ids),
         "total_price": float(combo.total_price),
+        "total_profit": float(combo.net_profit_base),
         "risk_adjusted_net_profit": float(combo.risk_adjusted_net_profit),
         "net_profit_base": float(combo.net_profit_base),
+        "utility": float(combo.utility_score),
         "utility_score": float(combo.utility_score),
         "risk": float(combo.risk_total),
+        "synergy": float(combo.synergy_score),
         "synergy_score": float(combo.synergy_score),
         "cautious_bid": float(combo.cautious_bid),
         "target_bid": float(combo.target_bid),
         "hard_ceiling_bid": float(combo.hard_ceiling_bid),
-        "budget_limited_bid": float(combo.budget_limited_bid),
+        "budget_adjusted_bid": float(combo.budget_adjusted_bid),
         "working_bid": float(combo.working_bid),
         "working_bid_source": str(combo.working_bid_source),
         "working_bid_reason": str(combo.working_bid_reason),
@@ -286,8 +290,15 @@ def _combo_to_dict(
         "forecast_compatibility": dict(
             (combo.payload.get("metrics") or {}).get("forecast_compatibility") or {}
         ),
+        "budget_fit": {
+            "is_affordable": bool(combo.working_bid <= remaining_budget + 1e-9),
+            "remaining_budget": float(remaining_budget),
+            "headroom": float(budget_headroom),
+        },
         "reason": combo.explanation,
+        "explanation": combo.explanation,
         "lot_bid_breakdown": list(combo.lot_bid_breakdown),
+        "system_check": dict((combo.payload.get("metrics") or {}).get("system_check") or {}),
     }
 
 
@@ -304,6 +315,8 @@ def _build_combo_catalog(
     remaining_budget: float,
     beam_width: int,
     max_group_size: int,
+    portfolio_lots: Sequence[Lot] | None = None,
+    reserved_spend: float = 0.0,
 ) -> List[ComboEvaluation]:
     lot_map = {int(lot.id): lot for lot in available_lots}
     singles: List[ComboEvaluation] = []
@@ -319,6 +332,8 @@ def _build_combo_catalog(
             forecast=forecast,
             singles_net_profit={},
             standalone_bids={},
+            portfolio_lots=portfolio_lots,
+            reserved_spend=reserved_spend,
         )
         singles.append(row)
         singles_net_profit[int(lot.id)] = float(row.net_profit_base)
@@ -359,6 +374,8 @@ def _build_combo_catalog(
                     forecast=forecast,
                     singles_net_profit=singles_net_profit,
                     standalone_bids=standalone_bids,
+                    portfolio_lots=portfolio_lots,
+                    reserved_spend=reserved_spend,
                 )
         if not expanded:
             break
@@ -368,6 +385,64 @@ def _build_combo_catalog(
             combos[row.lot_ids] = row
 
     return sorted(combos.values(), key=_objective_key, reverse=True)
+
+
+def _scenario_reserved_spend(*, lots: Sequence[Lot], total_spend: float) -> float:
+    market_price_total = float(sum(float(lot.current_bid or 0.0) for lot in lots))
+    return max(0.0, float(total_spend) - market_price_total)
+
+
+def _snapshot_sections(
+    *,
+    rows: Sequence[ComboEvaluation],
+    lot_names: Dict[int, str],
+    top_n: int,
+    remaining_budget: float,
+    scenario_key: str,
+    scenario_title: str,
+    scenario_note: str,
+) -> Dict[str, Any]:
+    singles = [row for row in rows if len(row.lot_ids) == 1]
+    pairs = [row for row in rows if len(row.lot_ids) == 2]
+    groups = [row for row in rows if len(row.lot_ids) >= 3]
+    best = rows[0] if rows else None
+    alternatives = rows[1:3] if len(rows) > 1 else []
+    return {
+        "key": scenario_key,
+        "title": scenario_title,
+        "note": scenario_note,
+        "best_singles": [
+            _combo_to_dict(row, lot_names=lot_names, remaining_budget=remaining_budget)
+            for row in singles[:top_n]
+        ],
+        "best_pairs": [
+            _combo_to_dict(row, lot_names=lot_names, remaining_budget=remaining_budget)
+            for row in pairs[:top_n]
+        ],
+        "best_groups": [
+            _combo_to_dict(row, lot_names=lot_names, remaining_budget=remaining_budget)
+            for row in groups[:top_n]
+        ],
+        "best_combination": (
+            _combo_to_dict(best, lot_names=lot_names, remaining_budget=remaining_budget)
+            if best is not None
+            else None
+        ),
+        "alternatives": [
+            _combo_to_dict(row, lot_names=lot_names, remaining_budget=remaining_budget)
+            for row in alternatives
+        ],
+        "plan_b": (
+            _combo_to_dict(alternatives[0], lot_names=lot_names, remaining_budget=remaining_budget)
+            if len(alternatives) >= 1
+            else None
+        ),
+        "plan_c": (
+            _combo_to_dict(alternatives[1], lot_names=lot_names, remaining_budget=remaining_budget)
+            if len(alternatives) >= 2
+            else None
+        ),
+    }
 
 
 def build_strategy_snapshot(
@@ -394,6 +469,18 @@ def build_strategy_snapshot(
     remaining_budget = _remaining_budget(session)
 
     if not available_lots:
+        empty_scenario = {
+            "key": "empty",
+            "title": "Нет доступных лотов",
+            "note": "В сессии не осталось доступных лотов для пересчёта стратегии.",
+            "best_singles": [],
+            "best_pairs": [],
+            "best_groups": [],
+            "best_combination": None,
+            "alternatives": [],
+            "plan_b": None,
+            "plan_c": None,
+        }
         return {
             "session_id": int(session.id),
             "strategy": selected_strategy,
@@ -406,6 +493,13 @@ def build_strategy_snapshot(
             "best_pairs": [],
             "best_groups": [],
             "best_combination": None,
+            "plan_b": None,
+            "plan_c": None,
+            "scenarios": {
+                "full_budget": dict(empty_scenario),
+                "after_purchase": dict(empty_scenario),
+                "after_loss": dict(empty_scenario),
+            },
         }
 
     rows = _build_combo_catalog(
@@ -417,10 +511,78 @@ def build_strategy_snapshot(
         beam_width=max(2, int(beam_width)),
         max_group_size=max(3, int(max_group_size)),
     )
-    singles = [row for row in rows if len(row.lot_ids) == 1]
-    pairs = [row for row in rows if len(row.lot_ids) == 2]
-    groups = [row for row in rows if len(row.lot_ids) >= 3]
-    best = rows[0] if rows else None
+    full_budget = _snapshot_sections(
+        rows=rows,
+        lot_names=lot_names,
+        top_n=top_n,
+        remaining_budget=remaining_budget,
+        scenario_key="full_budget",
+        scenario_title="Полный бюджет",
+        scenario_note="Стратегия по текущему портфелю и доступному бюджету.",
+    )
+
+    best_current = rows[0] if rows else None
+    after_purchase_rows: List[ComboEvaluation] = []
+    after_purchase_budget = remaining_budget
+    if best_current is not None:
+        purchased_ids = set(best_current.lot_ids)
+        purchased_lots = [lot for lot in available_lots if int(lot.id) in purchased_ids]
+        after_purchase_budget = max(0.0, remaining_budget - float(best_current.working_bid))
+        after_purchase_rows = _build_combo_catalog(
+            session=session,
+            available_lots=[lot for lot in available_lots if int(lot.id) not in purchased_ids],
+            strategy=selected_strategy,
+            forecast=forecast,
+            remaining_budget=after_purchase_budget,
+            beam_width=max(2, int(beam_width)),
+            max_group_size=max(3, int(max_group_size)),
+            portfolio_lots=purchased_lots,
+            reserved_spend=_scenario_reserved_spend(
+                lots=purchased_lots,
+                total_spend=float(best_current.working_bid),
+            ),
+        )
+    after_purchase = _snapshot_sections(
+        rows=after_purchase_rows,
+        lot_names=lot_names,
+        top_n=top_n,
+        remaining_budget=after_purchase_budget,
+        scenario_key="after_purchase",
+        scenario_title="После покупки лучшей комбинации",
+        scenario_note=(
+            "Показывает, что делать следующим шагом, если лучший план уже реализован."
+            if best_current is not None
+            else "Лучшая комбинация не определена, сценарий не рассчитан."
+        ),
+    )
+
+    top_single = next((row for row in rows if len(row.lot_ids) == 1), None)
+    after_loss_rows: List[ComboEvaluation] = []
+    excluded_lot_id = None
+    if top_single is not None:
+        excluded_lot_id = int(top_single.lot_ids[0])
+        after_loss_rows = _build_combo_catalog(
+            session=session,
+            available_lots=[lot for lot in available_lots if int(lot.id) != excluded_lot_id],
+            strategy=selected_strategy,
+            forecast=forecast,
+            remaining_budget=remaining_budget,
+            beam_width=max(2, int(beam_width)),
+            max_group_size=max(3, int(max_group_size)),
+        )
+    after_loss = _snapshot_sections(
+        rows=after_loss_rows,
+        lot_names=lot_names,
+        top_n=top_n,
+        remaining_budget=remaining_budget,
+        scenario_key="after_loss",
+        scenario_title="После потери лучшего лота",
+        scenario_note=(
+            f"Пересчёт без лота {lot_names.get(excluded_lot_id or 0, f'#{excluded_lot_id}')}"
+            if excluded_lot_id is not None
+            else "Лучший одиночный лот не определён, сценарий не рассчитан."
+        ),
+    )
 
     return {
         "session_id": int(session.id),
@@ -430,10 +592,17 @@ def build_strategy_snapshot(
         "forecast_compatibility": compatibility,
         "portfolio_context": _portfolio_context(session),
         "budget": {"remaining_budget": float(remaining_budget)},
-        "best_singles": [_combo_to_dict(row, lot_names=lot_names) for row in singles[:top_n]],
-        "best_pairs": [_combo_to_dict(row, lot_names=lot_names) for row in pairs[:top_n]],
-        "best_groups": [_combo_to_dict(row, lot_names=lot_names) for row in groups[:top_n]],
-        "best_combination": _combo_to_dict(best, lot_names=lot_names) if best is not None else None,
+        "best_singles": list(full_budget["best_singles"]),
+        "best_pairs": list(full_budget["best_pairs"]),
+        "best_groups": list(full_budget["best_groups"]),
+        "best_combination": full_budget["best_combination"],
+        "plan_b": full_budget["plan_b"],
+        "plan_c": full_budget["plan_c"],
+        "scenarios": {
+            "full_budget": full_budget,
+            "after_purchase": after_purchase,
+            "after_loss": after_loss,
+        },
     }
 
 

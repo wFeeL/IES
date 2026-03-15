@@ -119,17 +119,21 @@
     "cautious_bid": 40.0,
     "target_bid": 52.0,
     "hard_ceiling_bid": 58.0,
-    "soft_bid": 40.0,
-    "hard_bid": 52.0,
-    "stop_bid": 58.0
+    "budget_adjusted_bid": 52.0,
+    "budget_remaining": 70.0,
+    "portfolio_synergy": 4.2,
+    "system_fit_score": 3.6,
+    "working_bid": 47.5,
+    "working_bid_source": "target|budget_adjusted|cautious|zero",
+    "working_bid_reason": "..."
   },
   "metrics": {
     "scenarios": {},
     "decomposition": {},
     "bids": {
       "valuation_model": {
-        "model": "valuation_model_v2",
-        "profile": "balanced",
+        "model": "valuation_model_v3",
+        "profile": "consumer|generator|storage|infrastructure|mixed",
         "risk_band": "low|medium|high",
         "p_worst": 0.0,
         "p_base": 0.0,
@@ -137,23 +141,45 @@
         "p_exp": 0.0,
         "risk_ratio": 0.0,
         "risk_premium": 0.0,
-        "v1": 0.0,
-        "v2": 0.0,
-        "blend": 0.0,
+        "role_multipliers": {
+          "target": 1.0,
+          "cautious": 1.0,
+          "ceiling": 1.0
+        },
+        "portfolio_synergy": 0.0,
+        "system_fit_score": 0.0,
+        "anchor_value": 0.0,
+        "synergy_bonus": 0.0,
+        "system_bonus": 0.0,
         "cautious_bid": 0.0,
         "target_bid": 0.0,
         "hard_ceiling_bid": 0.0,
-        "budget_limited_bid": 0.0
+        "budget_adjusted_bid": 0.0,
+        "working_bid": 0.0
       }
     },
     "portfolio_delta": {},
     "forecast_compatibility": {},
     "role_breakdown": {},
-    "synergy": {}
+    "synergy": {
+      "score": 0.0,
+      "standalone_expected_net_profit": 0.0,
+      "marginal_expected_net_profit": 0.0
+    },
+    "system_check": {
+      "status": "supported|neutral|risky|blocked",
+      "message": "...",
+      "items": []
+    }
   },
   "reasons": [],
   "risk_commentary": "",
   "strategy_fit_text": "",
+  "system_check": {
+    "status": "supported|neutral|risky|blocked",
+    "message": "...",
+    "items": []
+  },
   "is_stale": false,
   "stale_reason": ""
 }
@@ -165,6 +191,10 @@
 - отдельного режима без прогноза и отдельного compare-flow в схеме продукта нет.
 - исторические `evaluations` сохраняются в БД и экспорте, но не отображаются отдельным экраном в основном пользовательском UX.
 - `financial_breakdown.ui_rows` предназначен для UI: содержит только релевантные/ненулевые строки (`abs(value) > 1e-6`) + обязательные `entry_price` и `net_profit`.
+- `working_bid` - основная пользовательская цена для покупки, а не alias `target_bid`.
+- `budget_adjusted_bid` - потолок по бюджету, полученный из `target_bid` и текущего `budget_remaining`.
+- `portfolio_synergy` и `system_fit_score` входят в valuation model и влияют на `working_bid`.
+- если `working_bid == 0`, это честно отражается через `working_bid_reason`, а не замещается старым fallback-числом.
 
 ## Forecast canonical schema
 
@@ -185,22 +215,67 @@
 - `economic_role`
 
 Forecast summary (SSR/API) дополнительно содержит display-слой для UI:
-- `load_series_display[]`:
-  - `key`, `label`, `avg`, `is_service`;
-- `series_stats_display[]`:
-  - `key`, `label`, `group` (`factor|profile|load|load_service`), `stats`.
+- `raw_csv_columns[]` - реальные заголовки CSV;
+- `used_raw_columns[]` - raw-колонки, реально участвующие в модели;
+- `unsupported_raw_columns[]` - raw-колонки, которые не используются;
+- `column_mapping_rows[]`:
+  - `raw_name`
+  - `canonical_key`
+  - `mapped_kind` (`factor|profile`)
+  - `interpreted_meaning`
+- `mapped_raw_stats_display[]`:
+  - статистика именно по использованным raw-колонкам;
+- `object_coverage_rows[]`:
+  - `object_type_code`
+  - `object_type_name`
+  - `status` (`covered|partial|missing`)
+  - `required_profiles`
+  - `required_factors`
+  - `missing_profiles`
+  - `missing_factors`
+  - `partial_profiles`
+  - `partial_factors`
 
-Legacy-поля (`load_series`, `series_stats`) сохранены для backward compatibility.
+UI-правило:
+- в user-facing forecast блоках не должны появляться выдуманные raw-имена;
+- raw и canonical имена показываются только через явный mapping.
 
 ## Strategy payload additions
 
-`GET /api/sessions/<id>/strategy` возвращает прежние поля, плюс аддитивно:
+`GET /api/sessions/<id>/strategy` возвращает каталог комбинаций и сценарные пересчёты:
 
 ```json
 {
+  "plan_b": {},
+  "plan_c": {},
+  "scenarios": {
+    "full_budget": {
+      "title": "Полный бюджет",
+      "best_combination": {}
+    },
+    "after_purchase": {
+      "title": "После покупки лучшей комбинации",
+      "best_combination": {}
+    },
+    "after_loss": {
+      "title": "После потери лучшего лота",
+      "best_combination": {}
+    }
+  },
   "best_pairs": [
     {
       "lot_ids": [1, 2],
+      "display_title": "Лот A (1) + Лот B (2)",
+      "total_price": 19.8,
+      "total_profit": 31.4,
+      "synergy": 3.1,
+      "utility": 27.9,
+      "budget_fit": {
+        "is_affordable": true,
+        "remaining_budget": 70.0,
+        "headroom": 50.2
+      },
+      "explanation": "...",
       "lot_bid_breakdown": [
         {
           "lot_id": 1,
@@ -218,6 +293,12 @@ Legacy-поля (`load_series`, `series_stats`) сохранены для backwa
   ]
 }
 ```
+
+Смысл полей:
+- `best_singles`, `best_pairs`, `best_groups` - лучшие комбинации в текущем сценарии;
+- `plan_b`, `plan_c` - альтернативы, если лучший план недоступен;
+- `scenarios.after_purchase` - стратегия на остаток бюджета после гипотетической покупки лучшей комбинации;
+- `scenarios.after_loss` - стратегия после потери лучшего одиночного лота.
 
 Built-in preset значения:
 - `Ruleset.code = "ies_test_game_2026"`

@@ -191,20 +191,19 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "cautious_bid": 0.0,
             "target_bid": 0.0,
             "hard_ceiling_bid": 0.0,
-            "budget_limited_bid": 0.0,
+            "budget_adjusted_bid": 0.0,
             "budget_remaining": 0.0,
             "working_bid": 0.0,
-            "working_bid_source": "none",
+            "working_bid_source": "zero",
             "working_bid_reason": reason,
-            "soft_bid": 0.0,
-            "hard_bid": 0.0,
-            "stop_bid": 0.0,
+            "portfolio_synergy": 0.0,
+            "system_fit_score": 0.0,
         },
         "reasons": [reason],
         "risk_commentary": reason,
         "strategy_fit_text": "Оценка заблокирована до исправления совместимости прогноза.",
         "working_bid": 0.0,
-        "working_bid_source": "none",
+        "working_bid_source": "zero",
         "working_bid_reason": reason,
         "is_stale": False,
         "stale_reason": "",
@@ -213,13 +212,13 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "scenarios": {},
             "decomposition": {},
             "bids": {
-                "budget_limited_bid": 0.0,
+                "budget_adjusted_bid": 0.0,
                 "budget_remaining": 0.0,
                 "risk_premium": 0.0,
                 "reserve_margin": 0.0,
                 "valuation_model": {
-                    "model": "valuation_model_v2",
-                    "profile": "balanced",
+                    "model": "valuation_model_v3",
+                    "profile": "mixed",
                     "risk_band": "high",
                     "horizon_ticks": 0,
                     "p_worst": 0.0,
@@ -232,19 +231,19 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
                     "risk_premium": 0.0,
                     "payback_ticks": 15,
                     "cap_share": 0.15,
-                    "risk_factor": 0.55,
-                    "v1_payback": 0.0,
-                    "v1_cap": 0.0,
-                    "v1": 0.0,
-                    "v2": 0.0,
-                    "blend": 0.0,
-                    "blend_weights": {"v1": 0.5, "v2": 0.5},
+                    "role_multipliers": {"target": 1.0, "cautious": 1.0, "ceiling": 1.0},
+                    "portfolio_synergy": 0.0,
+                    "system_fit_score": 0.0,
+                    "anchor_value": 0.0,
+                    "synergy_bonus": 0.0,
+                    "system_bonus": 0.0,
                     "reserve_margin": 0.0,
                     "risk_buffer": 0.0,
                     "cautious_bid": 0.0,
                     "target_bid": 0.0,
                     "hard_ceiling_bid": 0.0,
-                    "budget_limited_bid": 0.0,
+                    "budget_adjusted_bid": 0.0,
+                    "working_bid": 0.0,
                     "risk_adjusted_net_profit": 0.0,
                 },
             },
@@ -252,6 +251,26 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "forecast_compatibility": compatibility_report,
             "role_breakdown": {},
             "synergy": {"score": 0.0},
+            "system_check": {
+                "status": "blocked",
+                "message": reason,
+                "items": [],
+                "estimated_delta_total": 0.0,
+                "blocked_items_count": 0,
+                "feasible_items_count": 0,
+                "avg_recommended_loss_pct": 0.0,
+                "system_fit_score": 0.0,
+            },
+        },
+        "system_check": {
+            "status": "blocked",
+            "message": reason,
+            "items": [],
+            "estimated_delta_total": 0.0,
+            "blocked_items_count": 0,
+            "feasible_items_count": 0,
+            "avg_recommended_loss_pct": 0.0,
+            "system_fit_score": 0.0,
         },
     }
 
@@ -755,10 +774,6 @@ def lot_buy_confirm_page(lot_id: int):
         form.purchase_price.data = float(
             evaluation.get("working_bid")
             or (evaluation.get("decision_summary") or {}).get("working_bid")
-            or (evaluation.get("decision_summary") or {}).get("target_bid")
-            or (evaluation.get("decision_summary") or {}).get("cautious_bid")
-            or (evaluation.get("decision_summary") or {}).get("hard_ceiling_bid")
-            or (evaluation.get("decision_summary") or {}).get("hard_bid")
             or lot.current_bid
             or 0.0
         )

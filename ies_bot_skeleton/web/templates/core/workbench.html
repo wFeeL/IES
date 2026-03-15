@@ -81,10 +81,12 @@
       <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ fmt_num(forecast_card.avg_wind, 2) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ fmt_num(forecast_card.avg_illumination, 2) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя цена рынка</span><strong>{{ fmt_num(forecast_card.avg_market_price, 2) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Колонок CSV (mapped)</span><strong>{{ (forecast_card.mapped_raw_columns or [])|length }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Raw CSV columns</span><strong>{{ (forecast_card.raw_csv_columns or [])|length }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Used raw columns</span><strong>{{ (forecast_card.used_raw_columns or [])|length }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Лишние колонки CSV</span><strong>{{ (forecast_card.unsupported_raw_columns or [])|length }}</strong></div>
     </div>
     <details class="mt-3">
-      <summary>Статистика по mapped колонкам CSV</summary>
+      <summary>Raw columns, mapping и статистика</summary>
       <div class="table-wrap mt-2">
         <table class="table">
           <thead>
@@ -114,6 +116,8 @@
         </table>
       </div>
     </details>
+    <div class="muted mt-3">Используемые raw columns: {{ (forecast_card.used_raw_columns or [])|join(', ') or '—' }}</div>
+    <div class="muted mt-1">Лишние колонки CSV: {{ (forecast_card.unsupported_raw_columns or [])|join(', ') or '—' }}</div>
     <div class="risk-block mt-3">{{ forecast_card.quality.text }}</div>
     <div class="table-wrap mt-3">
       <table class="table">

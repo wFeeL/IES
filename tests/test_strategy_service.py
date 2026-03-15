@@ -12,7 +12,18 @@ def test_build_combo_catalog_limits_combination_growth(monkeypatch):
     ]
     calls: list[tuple[int, ...]] = []
 
-    def _fake_combo_eval(*, session, lots, strategy, forecast, singles_net_profit, standalone_bids):
+    def _fake_combo_eval(
+        *,
+        session,
+        lots,
+        strategy,
+        forecast,
+        singles_net_profit,
+        standalone_bids,
+        portfolio_lots=None,
+        reserved_spend=0.0,
+    ):
+        del session, strategy, forecast, singles_net_profit, standalone_bids, portfolio_lots, reserved_spend
         lot_ids = tuple(int(lot.id) for lot in lots)
         calls.append(lot_ids)
         size = len(lot_ids)
@@ -28,7 +39,7 @@ def test_build_combo_catalog_limits_combination_growth(monkeypatch):
             cautious_bid=float(10 * size),
             target_bid=float(10 * size),
             hard_ceiling_bid=float(10 * size),
-            budget_limited_bid=float(10 * size),
+            budget_adjusted_bid=float(10 * size),
             working_bid=float(10 * size),
             working_bid_source="target",
             working_bid_reason="test",

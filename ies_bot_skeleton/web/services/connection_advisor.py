@@ -74,18 +74,21 @@ def _expected_power_from_type(
 ) -> float:
     category = _norm(object_type.category)
     params = dict(parameters or {})
+    qty = max(1.0, _to_float(params.get("qty"), 1.0))
     if category == "consumer":
-        return max(0.0, _to_float(params.get("expected_consumption_mw"), 1.0))
+        return max(0.0, _to_float(params.get("expected_consumption_mw"), 1.0) * qty)
     if category == "generator":
-        return max(0.0, _to_float(params.get("generation_mw"), 0.0))
+        return max(0.0, _to_float(params.get("generation_mw"), 0.0) * qty)
     if category == "storage":
-        return max(0.0, _to_float(params.get("capacity_mw_tick"), 0.0))
+        return max(0.0, _to_float(params.get("capacity_mw_tick"), 0.0) * qty * 0.5)
     if category == "infrastructure":
-        return max(0.0, _to_float(params.get("ports"), 1.0) * 0.5)
+        ports = max(1.0, _to_float(params.get("ports"), 1.0))
+        soft_flow = max(0.0, _to_float(params.get("soft_flow_limit_mw"), 0.0))
+        return max(ports * 0.25, soft_flow * 0.08) * qty
     return max(
         max(0.0, _to_float(params.get("generation_mw"), 0.0)),
         max(0.0, _to_float(params.get("expected_consumption_mw"), 0.0)),
-    )
+    ) * qty
 
 
 def _expected_power_for_object(obj: ObjectInstance) -> float:
@@ -114,10 +117,93 @@ def _usage_load_by_point(
     return usage
 
 
+def _children_count(objects: Sequence[ObjectInstance]) -> Dict[int, int]:
+    counts: Dict[int, int] = {}
+    for obj in objects:
+        if not obj.is_active or not obj.parent_instance_id:
+            continue
+        counts[int(obj.parent_instance_id)] = counts.get(int(obj.parent_instance_id), 0) + 1
+    return counts
+
+
+def _infrastructure_support(
+    objects: Sequence[ObjectInstance],
+    *,
+    default_point: str,
+) -> Dict[str, Dict[str, float]]:
+    child_counts = _children_count(objects)
+    support: Dict[str, Dict[str, float]] = {}
+    for obj in objects:
+        if not obj.is_active or obj.object_type is None:
+            continue
+        if _norm(obj.object_type.category) != "infrastructure":
+            continue
+        params = dict(obj.merged_parameters() or {})
+        point = _resolve_point(
+            default_point=default_point,
+            district=obj.district,
+            parameters=params,
+        )
+        ports = max(0.0, _to_float(params.get("ports"), 0.0))
+        soft_flow = max(0.0, _to_float(params.get("soft_flow_limit_mw"), 0.0))
+        wear = max(0.0, _to_float(params.get("wear_impact"), 0.0))
+        code = _norm(obj.object_type.code)
+        if code in {"main_substation", "main", "main_substation_hq"}:
+            capacity_bonus = soft_flow * 0.35 + ports * 2.0 - wear
+        else:
+            capacity_bonus = soft_flow * 0.20 + ports * 1.5 - wear
+        slots_available = max(0.0, ports - float(child_counts.get(int(obj.id), 0)))
+        bucket = support.setdefault(
+            point,
+            {
+                "capacity_bonus_mw": 0.0,
+                "slot_capacity": 0.0,
+                "slot_remaining": 0.0,
+                "nodes": 0.0,
+            },
+        )
+        bucket["capacity_bonus_mw"] += max(0.0, capacity_bonus)
+        bucket["slot_capacity"] += max(0.0, ports)
+        bucket["slot_remaining"] += slots_available
+        bucket["nodes"] += 1.0
+    return support
+
+
+def _global_slot_headroom(support_by_point: Mapping[str, Mapping[str, float]]) -> float:
+    return float(
+        sum(float((row or {}).get("slot_remaining", 0.0) or 0.0) for row in support_by_point.values())
+    )
+
+
+def _category_mix_by_point(
+    objects: Sequence[ObjectInstance],
+    *,
+    default_point: str,
+) -> Dict[str, Dict[str, int]]:
+    out: Dict[str, Dict[str, int]] = {}
+    for obj in objects:
+        if not obj.is_active or obj.object_type is None:
+            continue
+        point = _resolve_point(
+            default_point=default_point,
+            district=obj.district,
+            parameters=obj.current_parameters_json,
+        )
+        bucket = out.setdefault(
+            point,
+            {"consumer": 0, "generator": 0, "storage": 0, "infrastructure": 0},
+        )
+        category = _norm(obj.object_type.category)
+        if category in bucket:
+            bucket[category] += 1
+    return out
+
+
 def _capacity_map(
     *,
     session: GameSession,
     points: Sequence[str],
+    support_by_point: Mapping[str, Mapping[str, float]] | None = None,
 ) -> Dict[str, float]:
     network_cfg = dict((session.ruleset.config_json or {}).get("network", {}) or {})
     point_capacity_raw = dict(network_cfg.get("connection_capacity_mw_by_point") or {})
@@ -128,6 +214,10 @@ def _capacity_map(
         capacity = _to_float(raw, fallback_capacity)
         if capacity <= 0.0:
             capacity = fallback_capacity
+        capacity += max(
+            0.0,
+            _to_float((support_by_point or {}).get(point, {}).get("capacity_bonus_mw"), 0.0),
+        )
         if capacity <= 0.0:
             capacity = float("inf")
         out[str(point)] = float(capacity)
@@ -166,7 +256,10 @@ def _baseline_value(
     code = _norm(object_type.code)
     if category == "consumer":
         profile_factor = _consumer_profile_factor(object_type, forecast_summary)
-        demand = max(0.0, _to_float(parameters.get("expected_consumption_mw"), 1.0) * profile_factor)
+        demand = max(
+            0.0,
+            _to_float(parameters.get("expected_consumption_mw"), 1.0) * profile_factor,
+        )
         tariff = _to_float(parameters.get("tariff_rub_per_mw_tick"), 0.0)
         value = demand * (tariff - market_price)
         return {"value": value, "exposure": demand, "market_price": market_price}
@@ -192,13 +285,43 @@ def _baseline_value(
     if category == "infrastructure":
         ports = max(1.0, _to_float(parameters.get("ports"), 1.0))
         wear = max(0.0, _to_float(parameters.get("wear_impact"), 0.0))
+        soft_flow = max(0.0, _to_float(parameters.get("soft_flow_limit_mw"), 0.0))
         contract = max(0.0, _to_float(parameters.get("contract_rub_per_tick"), 0.0))
-        value = ports * market_price * 0.4 - wear * market_price * 2.0 - contract
-        return {"value": value, "exposure": ports * 0.8, "market_price": market_price}
+        value = ports * market_price * 0.5 + soft_flow * 0.12 - wear * market_price * 2.0 - contract
+        return {"value": value, "exposure": ports + soft_flow * 0.05, "market_price": market_price}
     return {"value": 0.0, "exposure": 0.0, "market_price": market_price}
 
 
-def _score_point(
+def _profile_key(object_type: ObjectType, parameters: Mapping[str, Any]) -> str:
+    explicit = str(getattr(object_type, "forecast_profile_key", "") or "").strip()
+    if explicit:
+        return explicit
+    fallback = str(parameters.get("profile") or "").strip()
+    return fallback or "—"
+
+
+def _portfolio_match_bonus(
+    *,
+    category: str,
+    mix: Mapping[str, int],
+    market_price: float,
+) -> float:
+    consumer_count = int(mix.get("consumer", 0) or 0)
+    generator_count = int(mix.get("generator", 0) or 0)
+    storage_count = int(mix.get("storage", 0) or 0)
+    infrastructure_count = int(mix.get("infrastructure", 0) or 0)
+    if category == "consumer":
+        return float(generator_count * market_price * 0.25 + storage_count * market_price * 0.10)
+    if category == "generator":
+        return float(consumer_count * market_price * 0.22 + storage_count * market_price * 0.08)
+    if category == "storage":
+        return float((consumer_count + generator_count) * market_price * 0.10)
+    if category == "infrastructure":
+        return float((consumer_count + generator_count + storage_count) * market_price * 0.12)
+    return infrastructure_count * market_price * 0.05
+
+
+def _score_point_details(
     *,
     category: str,
     base_value: float,
@@ -209,12 +332,17 @@ def _score_point(
     used_power_mw: float,
     expected_power_mw: float,
     capacity_mw: float,
-) -> float:
+    slot_headroom: float,
+    point_mix: Mapping[str, int],
+) -> Dict[str, float | bool]:
     loss_share = max(0.0, loss_pct) / 100.0
     if category == "consumer":
         adjusted_value = base_value - exposure * market_price * loss_share
+        loss_cost = exposure * market_price * loss_share
     else:
         adjusted_value = base_value * (1.0 - loss_share)
+        loss_cost = max(0.0, base_value - adjusted_value)
+
     util_after = (
         (max(0.0, float(used_power_mw)) + max(0.0, float(expected_power_mw)))
         / max(1.0, float(capacity_mw))
@@ -226,7 +354,31 @@ def _score_point(
         + max(0.0, float(used_power_mw)) * market_price * 0.02
         + max(0.0, util_after) * max(0.0, float(expected_power_mw)) * market_price * 0.20
     )
-    return float(adjusted_value - congestion_penalty)
+    topology_penalty = 0.0 if slot_headroom > 0 or category == "infrastructure" else market_price * 1.5
+    headroom_ratio = (
+        1.0
+        if not math.isfinite(float(capacity_mw))
+        else max(0.0, min(1.0, (float(capacity_mw) - float(used_power_mw)) / max(1.0, float(capacity_mw))))
+    )
+    risk_penalty = max(0.0, util_after - 0.85) * market_price * max(1.0, expected_power_mw)
+    portfolio_match_bonus = _portfolio_match_bonus(
+        category=category,
+        mix=point_mix,
+        market_price=market_price,
+    )
+    score = adjusted_value + portfolio_match_bonus - congestion_penalty - topology_penalty - risk_penalty
+    return {
+        "score": float(score),
+        "adjusted_value": float(adjusted_value),
+        "loss_cost": float(loss_cost),
+        "congestion_penalty": float(congestion_penalty),
+        "topology_penalty": float(topology_penalty),
+        "risk_penalty": float(risk_penalty),
+        "portfolio_match_bonus": float(portfolio_match_bonus),
+        "line_utilization": float(util_after),
+        "headroom_ratio": float(headroom_ratio),
+        "fits_topology": bool(slot_headroom > 0 or category == "infrastructure"),
+    }
 
 
 def recommend_connection_for_profile(
@@ -252,6 +404,9 @@ def recommend_connection_for_profile(
         objects = [obj for obj in objects if int(obj.id) != int(exclude_object_id)]
     usage = _usage_by_point(objects, default_point=default_point)
     usage_load = _usage_load_by_point(objects, default_point=default_point)
+    support_by_point = _infrastructure_support(objects, default_point=default_point)
+    global_slot_headroom = _global_slot_headroom(support_by_point)
+    mix_by_point = _category_mix_by_point(objects, default_point=default_point)
 
     analysis_ctx = resolve_analysis_context(session)
     forecast_summary = dict(analysis_ctx.get("forecast_summary") or {})
@@ -266,7 +421,11 @@ def recommend_connection_for_profile(
     if current_point not in point_loss:
         point_loss[current_point] = point_loss.get(default_point, 0.0)
         candidates = sorted(set([*candidates, current_point]))
-    capacity_by_point = _capacity_map(session=session, points=candidates)
+    capacity_by_point = _capacity_map(
+        session=session,
+        points=candidates,
+        support_by_point=support_by_point,
+    )
 
     ranked: list[Dict[str, Any]] = []
     rejected_points: list[Dict[str, Any]] = []
@@ -282,24 +441,10 @@ def recommend_connection_for_profile(
             (not math.isfinite(capacity_mw))
             or (remaining_capacity_mw + 1e-9 >= max(0.0, float(expected_power_mw)))
         )
-        if not fits_capacity:
-            rejected_points.append(
-                {
-                    "point": point,
-                    "loss_pct": float(point_loss.get(point, 0.0)),
-                    "usage_count": int(usage.get(point, 0)),
-                    "used_power_mw": float(used_power_mw),
-                    "capacity_mw": float(capacity_mw),
-                    "remaining_capacity_mw": float(remaining_capacity_mw),
-                    "reason": (
-                        "capacity_exceeded: "
-                        f"занято {used_power_mw:.2f} МВт из {capacity_mw:.2f}, "
-                        f"кандидат требует {expected_power_mw:.2f} МВт."
-                    ),
-                }
-            )
-            continue
-        score = _score_point(
+        point_support = dict(support_by_point.get(point) or {})
+        slot_headroom = float(point_support.get("slot_remaining", 0.0) or 0.0)
+        point_mix = dict(mix_by_point.get(point) or {})
+        score_details = _score_point_details(
             category=category,
             base_value=baseline["value"],
             exposure=baseline["exposure"],
@@ -309,7 +454,36 @@ def recommend_connection_for_profile(
             used_power_mw=used_power_mw,
             expected_power_mw=expected_power_mw,
             capacity_mw=capacity_mw,
+            slot_headroom=global_slot_headroom if category != "infrastructure" else slot_headroom + 1.0,
+            point_mix=point_mix,
         )
+        fits_topology = bool(score_details["fits_topology"])
+        if not fits_capacity or not fits_topology:
+            reasons: list[str] = []
+            if not fits_capacity:
+                reasons.append(
+                    "capacity_exceeded: "
+                    f"занято {used_power_mw:.2f} МВт из {capacity_mw:.2f}, "
+                    f"кандидат требует {expected_power_mw:.2f} МВт"
+                )
+            if not fits_topology:
+                reasons.append(
+                    "topology_slots_exhausted: "
+                    "в сети не осталось свободных инфраструктурных портов для нового подключения"
+                )
+            rejected_points.append(
+                {
+                    "point": point,
+                    "loss_pct": float(point_loss.get(point, 0.0)),
+                    "usage_count": int(usage.get(point, 0)),
+                    "used_power_mw": float(used_power_mw),
+                    "capacity_mw": float(capacity_mw),
+                    "remaining_capacity_mw": float(remaining_capacity_mw),
+                    "slot_remaining": float(slot_headroom),
+                    "reason": "; ".join(reasons),
+                }
+            )
+            continue
         ranked.append(
             {
                 "point": point,
@@ -318,8 +492,23 @@ def recommend_connection_for_profile(
                 "used_power_mw": float(used_power_mw),
                 "capacity_mw": float(capacity_mw),
                 "remaining_capacity_mw": float(remaining_capacity_mw),
+                "slot_remaining": float(slot_headroom),
                 "fits_capacity": True,
-                "score": float(score),
+                "fits_topology": True,
+                "score": float(score_details["score"]),
+                "adjusted_value": float(score_details["adjusted_value"]),
+                "loss_cost": float(score_details["loss_cost"]),
+                "congestion_penalty": float(score_details["congestion_penalty"]),
+                "topology_penalty": float(score_details["topology_penalty"]),
+                "risk_penalty": float(score_details["risk_penalty"]),
+                "portfolio_match_bonus": float(score_details["portfolio_match_bonus"]),
+                "line_utilization": float(score_details["line_utilization"]),
+                "headroom_ratio": float(score_details["headroom_ratio"]),
+                "explanation": (
+                    f"потери {float(point_loss.get(point, 0.0)):.1f}%, "
+                    f"остаток лимита {remaining_capacity_mw:.2f} МВт, "
+                    f"согласование с портфелем {float(score_details['portfolio_match_bonus']):+.2f}"
+                ),
             }
         )
     ranked.sort(key=lambda row: row["score"], reverse=True)
@@ -334,8 +523,8 @@ def recommend_connection_for_profile(
             else max(0.0, float(current_capacity - current_used))
         )
         message = (
-            "Эффективная точка подключения не найдена: "
-            "по допустимым лимитам мощности нет подходящих подключений."
+            "Подключение не рекомендовано: "
+            "не найдено точки, которая одновременно проходит по лимитам, потерям и сетевой связности."
         )
         return {
             "current_point": current_point,
@@ -350,11 +539,18 @@ def recommend_connection_for_profile(
             "recommended_remaining_capacity_mw": current_remaining,
             "expected_power_mw": float(expected_power_mw),
             "estimated_delta": 0.0,
+            "current_score": float("-inf"),
+            "recommended_score": float("-inf"),
             "is_efficient": False,
+            "profile_key": _profile_key(object_type, merged_params),
+            "forecast_model_type": str(getattr(object_type, "forecast_model_type", "") or ""),
+            "resource_dependencies": list(getattr(object_type, "resource_dependencies_json", []) or []),
+            "economic_role": str(getattr(object_type, "economic_role", "") or ""),
             "message": message,
             "ranked_points": [],
             "feasible_alternatives": [],
             "rejected_points": rejected_points,
+            "global_slot_headroom": float(global_slot_headroom),
         }
 
     best = ranked[0]
@@ -375,39 +571,42 @@ def recommend_connection_for_profile(
                     - float(usage_load.get(current_point, 0.0)),
                 )
             ),
+            "slot_remaining": 0.0,
             "fits_capacity": False,
+            "fits_topology": False,
             "score": float("-inf"),
         }
-    delta = float(best["score"] - current["score"]) if math.isfinite(float(current["score"])) else float(best["score"])
+    delta = (
+        float(best["score"] - current["score"])
+        if math.isfinite(float(current["score"]))
+        else float(best["score"])
+    )
     is_efficient = bool(abs(delta) <= 0.1 and current.get("fits_capacity", False))
     if float(best["score"]) <= 0.0:
         message = (
-            "Эффективная точка подключения не найдена: "
-            "при текущем профиле издержки превышают ожидаемую отдачу."
+            "Подключение формально возможно, но экономически слабое: "
+            "издержки по потерям и загрузке сети выше ожидаемой отдачи."
         )
         is_efficient = False
     elif not bool(current.get("fits_capacity", False)):
         message = (
             f"Текущая точка {current_point} не проходит по лимитам. "
-            f"Рекомендуем точку {best['point']}: потери {best['loss_pct']:.1f}%, "
+            f"Лучше {best['point']}: потери {best['loss_pct']:.1f}%, "
             f"остаток лимита {best['remaining_capacity_mw']:.2f} МВт."
         )
     elif is_efficient:
         message = (
-            f"Текущее подключение {current_point} уже близко к оптимальному "
-            f"(потери {current['loss_pct']:.1f}%)."
+            f"Текущее подключение {current_point} уже близко к оптимальному: "
+            f"потери {current['loss_pct']:.1f}%, ограничений по лимиту нет."
         )
     else:
         message = (
             f"Рекомендуем точку {best['point']} вместо {current_point}: "
-            f"ожидаемый прирост {delta:.2f} за тик, потери {best['loss_pct']:.1f}%."
+            f"выигрыш {delta:.2f} за тик, потери {best['loss_pct']:.1f}%, "
+            f"остаток лимита {best['remaining_capacity_mw']:.2f} МВт."
         )
 
-    feasible_alternatives = [
-        row
-        for row in ranked
-        if row["point"] != str(best["point"])
-    ][:3]
+    feasible_alternatives = [row for row in ranked if row["point"] != str(best["point"])][:3]
 
     return {
         "current_point": current_point,
@@ -422,11 +621,18 @@ def recommend_connection_for_profile(
         "recommended_remaining_capacity_mw": float(best["remaining_capacity_mw"]),
         "expected_power_mw": float(expected_power_mw),
         "estimated_delta": delta,
+        "current_score": float(current["score"]),
+        "recommended_score": float(best["score"]),
         "is_efficient": is_efficient,
+        "profile_key": _profile_key(object_type, merged_params),
+        "forecast_model_type": str(getattr(object_type, "forecast_model_type", "") or ""),
+        "resource_dependencies": list(getattr(object_type, "resource_dependencies_json", []) or []),
+        "economic_role": str(getattr(object_type, "economic_role", "") or ""),
         "message": message,
         "ranked_points": ranked,
         "feasible_alternatives": feasible_alternatives,
         "rejected_points": rejected_points,
+        "global_slot_headroom": float(global_slot_headroom),
     }
 
 

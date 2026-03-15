@@ -37,6 +37,17 @@
     const problems = (payload.quality?.problem_columns || []).join(', ');
     const empty = (payload.quality?.empty_columns || []).join(', ');
     const tickRange = payload.mapped_tick_range_label || `${payload.tick_from ?? '—'}–${payload.tick_to ?? '—'}`;
+    const rawColumns = Array.isArray(payload.raw_csv_columns) ? payload.raw_csv_columns : [];
+    const usedRawColumns = Array.isArray(payload.used_raw_columns) ? payload.used_raw_columns : [];
+    const unsupportedColumns = Array.isArray(payload.unsupported_raw_columns) ? payload.unsupported_raw_columns : [];
+    const mappings = Array.isArray(payload.column_mapping_rows) ? payload.column_mapping_rows : [];
+    const coverageRows = Array.isArray(payload.object_coverage_rows) ? payload.object_coverage_rows : [];
+    const mappingHtml = mappings.length
+      ? mappings.map((row) => `<li><code>${row.raw_name}</code> → ${row.interpreted_meaning || row.canonical_key || '—'}</li>`).join('')
+      : '<li class="muted">Явный mapping не требуется или пока не рассчитан.</li>';
+    const coverageHtml = coverageRows.length
+      ? coverageRows.map((row) => `<tr><td>${row.object_type_name || row.object_type_code || '—'}</td><td>${row.status || '—'}</td><td>${(row.required_profiles || []).join(', ') || '—'}</td><td>${(row.missing_profiles || []).join(', ') || '—'}</td></tr>`).join('')
+      : '<tr><td colspan="4" class="muted">Покрытие по объектам пока недоступно.</td></tr>';
 
     target.innerHTML = `
       <div class="risk-block">
@@ -47,15 +58,38 @@
         <div>Средний ветер: ${formatNum(payload.avg_wind, 2)}</div>
         <div>Средняя освещённость: ${formatNum(payload.avg_illumination, 2)}</div>
         <div>Средняя цена рынка: ${formatNum(payload.avg_market_price, 2)}</div>
+        <div>Raw CSV columns: ${rawColumns.length}</div>
+        <div>Used raw columns: ${usedRawColumns.length}</div>
+        <div>Лишние колонки CSV: ${unsupportedColumns.length}</div>
         <div class="mt-3">${payload.quality?.text || ''}</div>
         ${problems ? `<div class="mt-2">Проблемные ряды: ${problems}</div>` : ''}
         ${empty ? `<div class="mt-2">Пустые колонки: ${empty}</div>` : ''}
         ${warnings ? `<ul class="stack gap-1 mt-3">${warnings}</ul>` : ''}
       </div>
+      <div class="grid cols-3 gap-3">
+        <article class="card">
+          <p class="section-kicker">Raw CSV</p>
+          <div class="muted mt-2">${rawColumns.length ? rawColumns.join(', ') : 'Для встроенного прогноза raw CSV columns не используются.'}</div>
+        </article>
+        <article class="card">
+          <p class="section-kicker">Mapping</p>
+          <ul class="stack gap-1 mt-2">${mappingHtml}</ul>
+        </article>
+        <article class="card">
+          <p class="section-kicker">Unsupported</p>
+          <div class="muted mt-2">${unsupportedColumns.length ? unsupportedColumns.join(', ') : 'Лишних raw-колонок нет.'}</div>
+        </article>
+      </div>
       <div class="table-wrap">
         <table class="table">
           <thead><tr><th>Ряд</th><th>Минимум</th><th>Максимум</th><th>Среднее</th><th>Медиана</th></tr></thead>
           <tbody>${seriesRows || '<tr><td colspan="5" class="muted">Статистика пока недоступна.</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Object type</th><th>Coverage</th><th>Required</th><th>Missing</th></tr></thead>
+          <tbody>${coverageHtml}</tbody>
         </table>
       </div>
     `;

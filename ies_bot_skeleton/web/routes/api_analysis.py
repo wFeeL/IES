@@ -451,27 +451,25 @@ def lots_analytics(session_id: int):
                 "hard_ceiling_bid": float(
                     (item.get("decision_summary") or {}).get("hard_ceiling_bid", 0.0) or 0.0
                 ),
-                "budget_limited_bid": float(
-                    (item.get("decision_summary") or {}).get("budget_limited_bid", 0.0) or 0.0
+                "budget_adjusted_bid": float(
+                    (item.get("decision_summary") or {}).get("budget_adjusted_bid", 0.0) or 0.0
                 ),
                 "working_bid": float(
                     item.get("working_bid")
                     or (item.get("decision_summary") or {}).get("working_bid")
-                    or (item.get("decision_summary") or {}).get("target_bid")
-                    or (item.get("decision_summary") or {}).get("cautious_bid")
-                    or (item.get("decision_summary") or {}).get("hard_ceiling_bid")
                     or 0.0
                 ),
                 "working_bid_source": str(
                     item.get("working_bid_source")
                     or (item.get("decision_summary") or {}).get("working_bid_source")
-                    or "none"
+                    or "zero"
                 ),
                 "working_bid_reason": str(
                     item.get("working_bid_reason")
                     or (item.get("decision_summary") or {}).get("working_bid_reason")
                     or ""
                 ),
+                "system_check": dict(item.get("system_check") or {}),
             }
         )
 
@@ -496,14 +494,7 @@ def lots_analytics(session_id: int):
         enriched.sort(key=lambda row: row["risk"])
     elif sort_key == "bid_desc":
         enriched.sort(
-            key=lambda row: float(
-                row.get("working_bid")
-                or row.get("target_bid")
-                or (row.get("decision_summary") or {}).get("working_bid", 0.0)
-                or (row.get("decision_summary") or {}).get("target_bid", 0.0)
-                or (row.get("decision_summary") or {}).get("cautious_bid", 0.0)
-                or (row.get("decision_summary") or {}).get("hard_bid", 0.0)
-            ),
+            key=lambda row: float(row.get("working_bid") or row.get("target_bid") or 0.0),
             reverse=True,
         )
     elif sort_key == "price_asc":
@@ -521,6 +512,7 @@ def lots_analytics(session_id: int):
 def recalculate_session_lots(session_id: int):
     session = get_session_or_404(session_id)
     rows = rank_session_lots(session=session, lots=session.lots, persist=True)
+    strategy_snapshot = build_strategy_snapshot(session=session)
     available_lot_ids = {
         int(lot.id) for lot in session.lots if str(lot.status or "") == "available"
     }
@@ -528,12 +520,7 @@ def recalculate_session_lots(session_id: int):
     non_zero_working = [
         row
         for row in available_rows
-        if float(
-            row.get("working_bid")
-            or (row.get("decision_summary") or {}).get("working_bid")
-            or (row.get("decision_summary") or {}).get("target_bid")
-            or 0.0
-        )
+        if float(row.get("working_bid") or (row.get("decision_summary") or {}).get("working_bid") or 0.0)
         > 0.0
     ]
     shortlist = sorted(
@@ -560,6 +547,7 @@ def recalculate_session_lots(session_id: int):
         {
             "ok": True,
             "items": rows,
+            "strategy": strategy_snapshot,
             "meta": {
                 "count": len(rows),
                 "remaining_budget": max(0.0, float(session.budget_total or 0.0) - spent_total),
@@ -699,10 +687,6 @@ def buy_lot_endpoint(lot_id: int):
         purchase_price = float(
             evaluation.get("working_bid")
             or (evaluation.get("decision_summary") or {}).get("working_bid")
-            or (evaluation.get("decision_summary") or {}).get("target_bid")
-            or (evaluation.get("decision_summary") or {}).get("cautious_bid")
-            or (evaluation.get("decision_summary") or {}).get("hard_ceiling_bid")
-            or (evaluation.get("decision_summary") or {}).get("hard_bid")
             or 0.0
         )
     else:

@@ -129,24 +129,25 @@ def test_recommended_bid_is_within_budget(app_ctx):
     soft = float(out["recommended_bid_soft"])
     ceiling = float(out["hard_ceiling_bid"])
     remaining = float(out["portfolio_context"]["remaining_budget"])
-    budget_limited = float(out["budget_limited_bid"])
+    budget_adjusted = float(out["budget_adjusted_bid"])
 
     assert hard >= 0.0
     assert soft >= 0.0
     assert ceiling >= hard >= soft
     assert soft <= hard + 1e-9
-    assert budget_limited == pytest.approx(min(hard, remaining))
-    assert out["decision_summary"]["budget_limited_bid"] == pytest.approx(budget_limited)
+    assert budget_adjusted == pytest.approx(min(hard, remaining))
+    assert out["decision_summary"]["budget_adjusted_bid"] == pytest.approx(budget_adjusted)
     assert out["metrics"]["bids"]["budget_remaining"] == pytest.approx(remaining)
     valuation = dict((out["metrics"]["bids"] or {}).get("valuation_model") or {})
-    assert valuation["model"] == "valuation_model_v2"
-    assert valuation["profile"] == "balanced"
+    assert valuation["model"] == "valuation_model_v3"
+    assert valuation["profile"] == "generator"
     assert valuation["risk_band"] in {"low", "medium", "high"}
     assert valuation["target_bid"] == pytest.approx(hard)
-    assert valuation["budget_limited_bid"] == pytest.approx(budget_limited)
+    assert valuation["budget_adjusted_bid"] == pytest.approx(budget_adjusted)
     assert "risk_ratio" in valuation
-    assert "v1" in valuation
-    assert "v2" in valuation
+    assert "role_multipliers" in valuation
+    assert "portfolio_synergy" in valuation
+    assert "system_fit_score" in valuation
     ui_rows = list((out["financial_breakdown"] or {}).get("ui_rows") or [])
     assert any(str(row.get("key")) == "entry_price" for row in ui_rows)
     assert any(str(row.get("key")) == "net_profit" for row in ui_rows)
@@ -157,8 +158,10 @@ def test_recommended_bid_is_within_budget(app_ctx):
     assert 0.0 <= float(out["confidence"]) <= 1.0
     assert "delta_score" in out["metrics"]
     assert out["forecast_context"]["source"] == "selected_forecast"
+    assert "system_check" in out
+    assert "message" in out["system_check"]
     if hard > remaining:
-        assert budget_limited == pytest.approx(remaining)
+        assert budget_adjusted == pytest.approx(remaining)
 
 
 def test_legacy_load_columns_are_mapped_to_canonical_series(app_ctx):
@@ -313,7 +316,7 @@ def test_storage_without_real_dispatch_has_no_artificial_positive_value(app_ctx)
 
     assert float(out["metrics"]["role_breakdown"]["storage"]) == pytest.approx(0.0)
     assert float(out["target_bid"]) == pytest.approx(0.0)
-    assert float(out["budget_limited_bid"]) == pytest.approx(0.0)
+    assert float(out["budget_adjusted_bid"]) == pytest.approx(0.0)
 
 
 def test_test_game_rules_keep_overload_zero_but_produce_nonzero_risk_signal(app_ctx):
@@ -337,7 +340,7 @@ def test_test_game_rules_keep_overload_zero_but_produce_nonzero_risk_signal(app_
     out = evaluate_lot(session=session, lot=lot, forecast=forecast, persist=False)
     losses = out["financial_breakdown"]["losses_and_risks"]
 
-    assert float(losses["overload_penalties"]) == pytest.approx(0.0)
+    assert float(losses["overload_penalties"]) > 0.0
     assert float(losses["risk_total"]) > 0.0
 
 

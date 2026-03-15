@@ -317,6 +317,25 @@ def _build_mapped_raw_stats_display(
     return rows
 
 
+def _column_mapping_rows(mapped_columns: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for column in mapped_columns:
+        canonical_key = str(column.get("canonical_key") or "").strip()
+        raw_name = str(column.get("raw_name") or "").strip()
+        mapped_kind = str(column.get("mapped_kind") or "").strip()
+        if not canonical_key or not raw_name:
+            continue
+        rows.append(
+            {
+                "raw_name": raw_name,
+                "canonical_key": canonical_key,
+                "mapped_kind": mapped_kind,
+                "interpreted_meaning": forecast_series_label(canonical_key),
+            }
+        )
+    return rows
+
+
 def _build_mapped_load_series_display(
     *,
     mapped_columns: List[Dict[str, str]],
@@ -944,6 +963,10 @@ def bundled_forecast_summary() -> Dict[str, Any]:
         "load_series": sorted(load_rows.keys()),
         "load_series_display": load_series_display,
         "load_series_raw": sorted(load_rows.keys()),
+        "raw_csv_columns": [],
+        "used_raw_columns": [],
+        "unsupported_raw_columns": [],
+        "column_mapping_rows": [],
         "mapped_raw_columns": [],
         "mapped_raw_stats_display": [],
         "mapped_tick_range_label": format_tick_range(
@@ -967,6 +990,7 @@ def bundled_forecast_summary() -> Dict[str, Any]:
             "unused_columns": [],
             "normalization_map": {},
         },
+        "object_coverage_rows": [],
         "quality": _quality_summary(
             headers=[*CANONICAL_FACTOR_KEYS, *CANONICAL_PROFILE_KEYS],
             warnings=[],
@@ -1263,6 +1287,10 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
             "load_series": [],
             "load_series_display": [],
             "load_series_raw": [],
+            "raw_csv_columns": [],
+            "used_raw_columns": [],
+            "unsupported_raw_columns": [],
+            "column_mapping_rows": [],
             "mapped_raw_columns": [],
             "mapped_raw_stats_display": [],
             "mapped_tick_range_label": format_tick_range(None, None, periods=0),
@@ -1274,6 +1302,9 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
             "column_display_labels": {},
             "resolved_column_map": {},
             "compatibility_report": dict(forecast.compatibility_report_json or {}),
+            "object_coverage_rows": list(
+                (forecast.compatibility_report_json or {}).get("rows") or []
+            ),
             "quality": {
                 "warnings": warnings,
                 "problem_columns": ["wind_factor", "solar_factor", "market_price_buy"],
@@ -1297,10 +1328,16 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
     display_labels = _display_labels_from_column_map(resolved_map)
     headers = list(normalization_map.get("headers") or [])
     mapped_columns = _ordered_mapped_columns(headers=headers, resolved_map=resolved_map)
+    column_mapping_rows = _column_mapping_rows(mapped_columns)
     mapped_raw_columns = [
         str(row.get("raw_name"))
         for row in mapped_columns
         if str(row.get("raw_name") or "").strip()
+    ]
+    unsupported_raw_columns = [
+        str(column)
+        for column in normalization_map.get("unused_columns") or []
+        if str(column).strip()
     ]
 
     load_rows: Dict[str, Dict[int, float]] = {}
@@ -1354,6 +1391,10 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
         "load_series": [str(row.get("label") or row.get("key") or "") for row in load_series_display],
         "load_series_display": load_series_display,
         "load_series_raw": list(mapped_raw_columns),
+        "raw_csv_columns": [str(header) for header in headers if str(header).strip()],
+        "used_raw_columns": list(mapped_raw_columns),
+        "unsupported_raw_columns": list(unsupported_raw_columns),
+        "column_mapping_rows": list(column_mapping_rows),
         "mapped_raw_columns": list(mapped_raw_columns),
         "mapped_raw_stats_display": list(mapped_raw_stats_display),
         "mapped_tick_range_label": format_tick_range(
@@ -1369,6 +1410,7 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
         "column_display_labels": display_labels,
         "resolved_column_map": resolved_map,
         "compatibility_report": compatibility_report,
+        "object_coverage_rows": list(compatibility_report.get("rows") or []),
         "is_compatible": bool(forecast.is_compatible),
         "incompatibility_reason": forecast.incompatibility_reason or "",
         "quality": _quality_summary(

@@ -28,6 +28,8 @@ def format_number(
     number = _to_decimal(value)
     if number is None:
         return dash
+    if not number.is_finite():
+        return dash
 
     precision = max(0, int(digits))
     quant = Decimal("1").scaleb(-precision)
@@ -56,4 +58,3 @@ def format_tick_range(
     if periods is not None and int(periods or 0) > 0:
         return f"{base} ({int(periods)} периодов)"
     return base
-

@@ -80,6 +80,21 @@
 </section>
 
 <section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Auction strategy</p>
+      <h2 class="h2">Следующий ход после покупки и после потери лучшего лота</h2>
+    </div>
+  </div>
+  {% if forecast_blocked %}
+  <div class="risk-block mt-3">Стратегия недоступна до исправления совместимости прогноза.</div>
+  {% else %}
+  <div id="qaStrategyStatus" class="muted mt-3">Загружаю стратегию...</div>
+  <div id="qaStrategyContent" class="stack gap-3 mt-3" hidden></div>
+  {% endif %}
+</section>
+
+<section class="card mt-4">
   <div class="grid cols-4 gap-3">
     <label class="label">Сортировка
       <select id="qaSort" class="input">
@@ -111,6 +126,7 @@
         <tr>
           <th>#</th>
           <th>Лот</th>
+          <th>Состав</th>
           <th>Полезность</th>
           <th>Чистая прибыль</th>
           <th>Риск</th>
@@ -123,7 +139,8 @@
         {% for row in ranking %}
         <tr data-lot-id="{{ row.lot_id }}">
           <td>{{ loop.index }}</td>
-          <td>{{ row.lot_id }}</td>
+          <td>{{ row.name }}</td>
+          <td>{{ row.structure }}</td>
           <td>{{ fmt_num(row.summary_score, 2) }}</td>
           <td>{{ fmt_num(row.financial_breakdown.result.net_profit, 2) }}</td>
           <td>{{ fmt_num(row.financial_breakdown.losses_and_risks.risk_total, 2) }}</td>
@@ -138,7 +155,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="muted">Нет данных для ранжирования.</td></tr>
+        <tr><td colspan="9" class="muted">Нет данных для ранжирования.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -149,7 +166,8 @@
 window.IES_QUICK_AUCTION = {
   sessionId: {{ session.id }},
   csrfToken: "{{ csrf_token() }}",
-  initialRanking: {{ ranking|tojson }}
+  initialRanking: {{ ranking|tojson }},
+  strategyUrl: "{{ url_for('api.strategy_snapshot', session_id=session.id) }}"
 };
 </script>
 <script defer src="{{ url_for('static', filename='js/analysis/quick_auction.js') }}"></script>

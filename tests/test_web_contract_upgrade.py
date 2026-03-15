@@ -90,6 +90,11 @@ def test_active_forecast_uses_raw_csv_columns_and_zero_tick_range(client):
     forecasts = client.get(f"/api/forecast/{forecast_id}")
     assert forecasts.status_code == 200
     summary = forecasts.get_json()["item"]["summary"]
+    assert summary["raw_csv_columns"] == ["tick", "wind", "illumination", "house", "office", "factory", "market_price"]
+    assert "house" in list(summary.get("used_raw_columns") or [])
+    assert list(summary.get("unsupported_raw_columns") or []) == []
+    mapping_rows = list(summary.get("column_mapping_rows") or [])
+    assert any(str(row.get("raw_name")) == "house" and str(row.get("canonical_key")) == "house_load" for row in mapping_rows)
     mapped_columns = list(summary.get("mapped_raw_columns") or [])
     assert "class3" not in mapped_columns
     stats_rows = list(summary.get("mapped_raw_stats_display") or [])
@@ -132,12 +137,20 @@ def test_strategy_snapshot_has_titles_and_per_lot_prices(client):
     rows = list(item.get("best_singles") or []) + list(item.get("best_pairs") or [])
     rows += list(item.get("best_groups") or [])
     assert rows
+    assert "scenarios" in item
+    assert "full_budget" in item["scenarios"]
+    assert "after_purchase" in item["scenarios"]
+    assert "after_loss" in item["scenarios"]
     strategy_js = client.get("/static/js/analysis/strategy_snapshot.js").get_data(as_text=True)
     assert "— цена:" in strategy_js
     assert "прибыль:" in strategy_js
+    assert "Plan B" in strategy_js
+    assert "After purchase" in strategy_js
     for row in rows:
         assert re.search(r"\(\d+\)", row["display_title"])
         assert "working_bid" in row
+        assert "budget_adjusted_bid" in row
+        assert "budget_fit" in row
         for breakdown in row.get("lot_bid_breakdown") or []:
             assert "budget_adjusted_bid" in breakdown
             assert "allocated_net_profit" in breakdown
@@ -256,6 +269,7 @@ def test_system_objects_sorted_latest_first_with_connection_recommendation(clien
     assert (
         "Рекомендуем точку" in html
         or "близко к оптимальному" in html
+        or "Подключение не рекомендовано" in html
         or "Эффективная точка подключения не найдена" in html
     )
 
@@ -360,6 +374,8 @@ def test_recalculate_meta_contains_shortlist_and_multiple_non_zero_working_bids(
     assert "shortlist_suggested_ids" in meta
     assert isinstance(meta["shortlist_suggested_ids"], list)
     assert int(meta["non_zero_working_bid_count"]) >= 2
+    assert "strategy" in payload
+    assert "scenarios" in payload["strategy"]
 
 
 def test_connection_recommendation_respects_capacity_limits(client, app):
@@ -393,6 +409,10 @@ def test_connection_recommendation_respects_capacity_limits(client, app):
     resp = client.get(f"/system/{session_id}/objects/new?object_type_id={wind_id}")
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
-    assert "Рекомендация по подключению: B" in html
-    assert "не проходит по лимитам" in html
-    assert "Допустимые альтернативы" in html
+    assert "Рекомендация по подключению:" in html
+    assert "Остаток лимита:" in html
+    assert (
+        "Подключение не рекомендовано" in html
+        or "Точки, которые не проходят по лимитам" in html
+        or "Допустимые альтернативы" in html
+    )

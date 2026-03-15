@@ -104,15 +104,7 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
     result = dict(financial.get("result") or {})
     losses = dict(financial.get("losses_and_risks") or {})
     decision_summary = dict(evaluation.get("decision_summary") or {})
-    working_bid = float(
-        evaluation.get("working_bid")
-        or decision_summary.get("working_bid")
-        or decision_summary.get("target_bid")
-        or decision_summary.get("cautious_bid")
-        or decision_summary.get("hard_ceiling_bid")
-        or decision_summary.get("hard_bid")
-        or 0.0
-    )
+    working_bid = float(evaluation.get("working_bid") or decision_summary.get("working_bid") or 0.0)
     stale_reason_raw = str(evaluation.get("stale_reason") or "")
     return {
         "lot": lot,
@@ -144,13 +136,12 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
             or ""
         ),
         "target_bid": float(
-            decision_summary.get("target_bid", 0.0)
-            or decision_summary.get("hard_bid", 0.0)
-            or 0.0
+            decision_summary.get("target_bid", 0.0) or 0.0
         ),
-        "budget_limited_bid": float(
-            decision_summary.get("budget_limited_bid", 0.0) or 0.0
+        "budget_adjusted_bid": float(
+            decision_summary.get("budget_adjusted_bid", 0.0) or 0.0
         ),
+        "system_check": dict(evaluation.get("system_check") or {}),
         "status": lot.status,
         "is_stale": bool(evaluation.get("is_stale")),
         "stale_reason": stale_reason_raw,

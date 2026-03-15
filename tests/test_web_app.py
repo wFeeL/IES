@@ -291,7 +291,8 @@ def test_admin_end_to_end_flow(client, app):
     assert eval_json["ok"] is True
     assert "summary_score" in eval_json["item"]
     assert "recommended_bid_hard" in eval_json["item"]
-    assert "budget_limited_bid" in eval_json["item"]
+    assert "budget_adjusted_bid" in eval_json["item"]
+    assert "system_check" in eval_json["item"]
     assert eval_json["item"]["forecast_context"]["source"] == "selected_forecast"
 
     analytics_resp = client.get(

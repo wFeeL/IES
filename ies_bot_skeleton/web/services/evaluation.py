@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 from statistics import pstdev
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, cast
@@ -15,6 +16,7 @@ from ..models import (
     ObjectInstance,
 )
 from .analysis_context import resolve_analysis_context
+from .connection_advisor import recommend_connection_for_profile
 from .forecast_service import load_bundled_forecast_pack
 from .ruleset import strategy_weights
 from .ui_text import strategy_label
@@ -135,19 +137,52 @@ def _spent_total(session: GameSession) -> float:
     )
 
 
-def _remaining_budget(session: GameSession) -> float:
-    return max(0.0, float(session.budget_total or 0.0) - _spent_total(session))
+def _lot_reference_price(lot: Lot) -> float:
+    if str(lot.status or "") == "bought" and lot.purchase_price is not None:
+        return float(lot.purchase_price or 0.0)
+    return float(lot.current_bid or 0.0)
 
 
-def _portfolio_context(session: GameSession) -> Dict[str, Any]:
-    spent_total = _spent_total(session)
+def _reserved_lot_spend(lots: Sequence[Lot] | None) -> float:
+    total = 0.0
+    for lot in lots or []:
+        if str(lot.status or "") == "bought":
+            continue
+        total += _lot_reference_price(lot)
+    return float(total)
+
+
+def _count_lot_objects(lots: Sequence[Lot] | None) -> int:
+    total = 0
+    for lot in lots or []:
+        for item in _lot_items(lot):
+            total += max(1, int(item.quantity or 1))
+    return total
+
+
+def _remaining_budget(session: GameSession, *, reserved_spend: float = 0.0) -> float:
+    return max(
+        0.0,
+        float(session.budget_total or 0.0) - _spent_total(session) - max(0.0, float(reserved_spend)),
+    )
+
+
+def _portfolio_context(
+    session: GameSession,
+    *,
+    reserved_spend: float = 0.0,
+    extra_portfolio_lots: Sequence[Lot] | None = None,
+) -> Dict[str, Any]:
+    spent_total = _spent_total(session) + max(0.0, float(reserved_spend))
     return {
         "bought_lots_count": sum(
             1 for lot in _session_lots(session) if str(lot.status or "") == "bought"
-        ),
+        )
+        + len(list(extra_portfolio_lots or [])),
         "spent_total": spent_total,
         "remaining_budget": max(0.0, float(session.budget_total or 0.0) - spent_total),
-        "owned_objects_count": sum(1 for obj in _session_objects(session) if obj.is_active),
+        "owned_objects_count": sum(1 for obj in _session_objects(session) if obj.is_active)
+        + _count_lot_objects(extra_portfolio_lots),
     }
 
 
@@ -159,6 +194,183 @@ def _asset_role(category: str, economic_role: str) -> str:
     if category_norm in {"consumer", "generator", "storage", "infrastructure"}:
         return category_norm
     return "mixed"
+
+
+def _collect_lot_assets(lots: Sequence[Lot] | None = None) -> List[Asset]:
+    assets: List[Asset] = []
+    for lot in lots or []:
+        for item in _lot_items(lot):
+            if item.object_type is None:
+                continue
+            params = dict(item.object_type.default_parameters_json or {})
+            params.update(dict(item.overrides_json or {}))
+            params["forecast_profile_key"] = item.object_type.forecast_profile_key or params.get(
+                "forecast_profile_key", ""
+            )
+            params["resource_dependencies"] = list(item.object_type.resource_dependencies_json or [])
+            params.setdefault("qty", max(1, int(item.quantity or 1)))
+            role = _asset_role(item.object_type.category, item.object_type.economic_role)
+            assets.append(
+                Asset(
+                    role=role,
+                    code=item.object_type.code,
+                    quantity=max(1, int(item.quantity or 1)),
+                    parameters=params,
+                )
+            )
+    return assets
+
+
+def _simulate_assets(
+    *,
+    assets: List[Asset],
+    factors: Dict[str, Dict[int, float]],
+    profiles: Dict[str, Dict[int, float]],
+    ticks: List[int],
+    cfg: Dict[str, Any],
+) -> Dict[str, ScenarioSnapshot]:
+    return {
+        "base": _simulate_scenario(
+            assets=assets, factors=factors, profiles=profiles, ticks=ticks, cfg=cfg, scenario="base"
+        ),
+        "worst": _simulate_scenario(
+            assets=assets, factors=factors, profiles=profiles, ticks=ticks, cfg=cfg, scenario="worst"
+        ),
+        "best": _simulate_scenario(
+            assets=assets, factors=factors, profiles=profiles, ticks=ticks, cfg=cfg, scenario="best"
+        ),
+    }
+
+
+def _lot_role_profile(lots: Sequence[Lot]) -> Dict[str, Any]:
+    role_counts = {
+        "consumer": 0,
+        "generator": 0,
+        "storage": 0,
+        "infrastructure": 0,
+        "mixed": 0,
+    }
+    total_units = 0
+    for asset in _collect_lot_assets(lots):
+        qty = max(1, int(asset.quantity or 1))
+        role = asset.role if asset.role in role_counts else "mixed"
+        role_counts[role] += qty
+        total_units += qty
+    dominant_role = max(role_counts.items(), key=lambda row: row[1])[0] if total_units else "mixed"
+    if sum(1 for value in role_counts.values() if value > 0) > 1:
+        dominant_role = "mixed"
+    role_multipliers = {
+        "consumer": {"target": 0.92, "cautious": 1.05, "ceiling": 0.88},
+        "generator": {"target": 1.08, "cautious": 1.00, "ceiling": 1.06},
+        "storage": {"target": 0.98, "cautious": 1.10, "ceiling": 0.94},
+        "infrastructure": {"target": 0.86, "cautious": 1.15, "ceiling": 0.80},
+        "mixed": {"target": 1.00, "cautious": 1.00, "ceiling": 1.00},
+    }
+    return {
+        "counts": role_counts,
+        "dominant_role": dominant_role,
+        "total_units": total_units,
+        "multipliers": role_multipliers[dominant_role],
+    }
+
+
+def _lot_connection_outlook(
+    *,
+    session: GameSession,
+    lots: Sequence[Lot],
+) -> Dict[str, Any]:
+    items: List[Dict[str, Any]] = []
+    estimated_delta_total = 0.0
+    blocked_items_count = 0
+    feasible_items_count = 0
+    weighted_loss_total = 0.0
+    weight_total = 0.0
+
+    for lot in lots:
+        for item in _lot_items(lot):
+            if item.object_type is None:
+                continue
+            qty = max(1, int(item.quantity or 1))
+            params = dict(item.object_type.default_parameters_json or {})
+            params.update(dict(item.overrides_json or {}))
+            params.setdefault("qty", qty)
+            rec = recommend_connection_for_profile(
+                session=session,
+                object_type=item.object_type,
+                parameters=params,
+                district=params.get("district"),
+                existing_objects=list(session.objects),
+            )
+            estimated_delta = float(rec.get("estimated_delta", 0.0) or 0.0) * qty
+            ranked_points = list(rec.get("ranked_points") or [])
+            recommended_loss_pct = float(rec.get("recommended_loss_pct", 0.0) or 0.0)
+            feasible = bool(ranked_points) and math.isfinite(float(rec.get("recommended_score", 0.0)))
+            if feasible:
+                feasible_items_count += qty
+            else:
+                blocked_items_count += qty
+            estimated_delta_total += estimated_delta
+            weighted_loss_total += recommended_loss_pct * qty
+            weight_total += qty
+            items.append(
+                {
+                    "lot_id": int(lot.id),
+                    "lot_name": lot.name,
+                    "object_type_code": item.object_type.code,
+                    "object_type_name": item.object_type.name,
+                    "category": item.object_type.category,
+                    "quantity": qty,
+                    "current_point": rec.get("current_point"),
+                    "recommended_point": rec.get("recommended_point"),
+                    "recommended_loss_pct": recommended_loss_pct,
+                    "remaining_capacity_mw": float(
+                        rec.get("recommended_remaining_capacity_mw", 0.0) or 0.0
+                    ),
+                    "estimated_delta": float(estimated_delta),
+                    "profile_key": rec.get("profile_key") or item.object_type.forecast_profile_key or "",
+                    "resource_dependencies": list(rec.get("resource_dependencies") or []),
+                    "forecast_model_type": rec.get("forecast_model_type") or "",
+                    "message": rec.get("message") or "",
+                    "is_feasible": feasible,
+                }
+            )
+
+    avg_loss_pct = float(weighted_loss_total / weight_total) if weight_total > 0 else 0.0
+    system_fit_score = float(
+        estimated_delta_total
+        - blocked_items_count * 6.0
+        - max(0.0, avg_loss_pct - 8.0) * max(1.0, weight_total) * 0.35
+    )
+    if blocked_items_count > 0:
+        message = (
+            "Часть объектов лота не проходит по сетевым лимитам или точкам подключения. "
+            "Это снижает рабочую цену."
+        )
+        status = "blocked"
+    elif estimated_delta_total > 0.25:
+        message = (
+            "Подключение усиливает лот: найдены точки с меньшими потерями и достаточным запасом "
+            "по мощности."
+        )
+        status = "supported"
+    elif estimated_delta_total < -0.25:
+        message = (
+            "Сетевой fit слабый: даже лучшая точка подключения даёт мало экономической отдачи."
+        )
+        status = "risky"
+    else:
+        message = "Подключение нейтрально: сетевые ограничения не критичны, но явного бонуса нет."
+        status = "neutral"
+    return {
+        "status": status,
+        "message": message,
+        "items": items,
+        "estimated_delta_total": float(estimated_delta_total),
+        "blocked_items_count": int(blocked_items_count),
+        "feasible_items_count": int(feasible_items_count),
+        "avg_recommended_loss_pct": float(avg_loss_pct),
+        "system_fit_score": float(system_fit_score),
+    }
 
 
 def _period_series(
@@ -373,27 +585,7 @@ def _collect_assets(session: GameSession, extra_lots: Sequence[Lot] | None = Non
                 parameters=params,
             )
         )
-    for lot in extra_lots or []:
-        for item in _lot_items(lot):
-            if item.object_type is None:
-                continue
-            params = dict(item.object_type.default_parameters_json or {})
-            params.update(dict(item.overrides_json or {}))
-            params["forecast_profile_key"] = item.object_type.forecast_profile_key or params.get(
-                "forecast_profile_key", ""
-            )
-            params["resource_dependencies"] = list(
-                item.object_type.resource_dependencies_json or []
-            )
-            role = _asset_role(item.object_type.category, item.object_type.economic_role)
-            assets.append(
-                Asset(
-                    role=role,
-                    code=item.object_type.code,
-                    quantity=max(1, int(item.quantity or 1)),
-                    parameters=params,
-                )
-            )
+    assets.extend(_collect_lot_assets(extra_lots))
     return assets
 
 
@@ -458,17 +650,72 @@ def _simulate_scenario(
         else max(0.0, _as_float(market_sell_cap_raw, 0.0))
     )
 
-    def asset_connection_loss(asset: Asset) -> float:
-        point = str(
+    point_capacity_raw = dict(net_cfg.get("connection_capacity_mw_by_point") or {})
+    line_capacity_default = max(0.0, _as_float(net_cfg.get("line_max_power_mw"), 0.0))
+
+    def asset_connection_point(asset: Asset) -> str:
+        return str(
             asset.parameters.get("connection_point")
             or asset.parameters.get("district")
             or default_connection_point
-        ).strip().upper()
+        ).strip().upper() or default_connection_point
+
+    def asset_connection_loss(asset: Asset) -> float:
+        point = asset_connection_point(asset)
         return float(point_loss_by_connection.get(point, default_point_loss))
+
+    infrastructure_support_by_point: Dict[str, Dict[str, float]] = {}
+    infrastructure_capacity_bonus_total = 0.0
+    infrastructure_loss_reduction_total = 0.0
+    for asset in assets:
+        if asset.role != "infrastructure":
+            continue
+        qty = max(1, int(asset.quantity or 1))
+        point = asset_connection_point(asset)
+        ports = max(0.0, _as_float(asset.parameters.get("ports"), 0.0)) * qty
+        soft_flow = max(0.0, _as_float(asset.parameters.get("soft_flow_limit_mw"), 0.0)) * qty
+        wear = max(0.0, _as_float(asset.parameters.get("wear_impact"), 0.0)) * qty
+        capacity_bonus = max(0.0, soft_flow * 0.25 + ports * 1.5 - wear)
+        loss_reduction = min(0.04, ports * 0.004 + soft_flow * 0.0005)
+        bucket = infrastructure_support_by_point.setdefault(
+            point,
+            {"capacity_bonus_mw": 0.0, "loss_reduction": 0.0},
+        )
+        bucket["capacity_bonus_mw"] += capacity_bonus
+        bucket["loss_reduction"] += loss_reduction
+        infrastructure_capacity_bonus_total += capacity_bonus
+        infrastructure_loss_reduction_total += loss_reduction
+
+    point_capacity_by_connection: Dict[str, float] = {}
+    for point in set(
+        [
+            *point_loss_by_connection.keys(),
+            *point_capacity_raw.keys(),
+            *(asset_connection_point(asset) for asset in assets),
+            default_connection_point,
+        ]
+    ):
+        base_capacity = max(0.0, _as_float(point_capacity_raw.get(point), line_capacity_default))
+        support_bonus = max(
+            0.0,
+            _as_float(
+                (infrastructure_support_by_point.get(point) or {}).get("capacity_bonus_mw"),
+                0.0,
+            ),
+        )
+        capacity = base_capacity + support_bonus
+        if capacity <= 0.0:
+            capacity = float("inf")
+        point_capacity_by_connection[point] = float(capacity)
 
     all_connection_losses = [asset_connection_loss(asset) for asset in assets] or [default_point_loss]
     avg_connection_loss = float(sum(all_connection_losses) / len(all_connection_losses))
-    network_loss_rate = max(0.0, base_loss_rate + avg_connection_loss * 0.5)
+    network_loss_rate = max(
+        0.0,
+        base_loss_rate
+        + avg_connection_loss * 0.5
+        - min(0.03, infrastructure_loss_reduction_total * 0.5),
+    )
 
     contracts = sum(
         _as_float(asset.parameters.get("contract_rub_per_tick"), 0.0) * asset.quantity
@@ -524,12 +771,14 @@ def _simulate_scenario(
         demand_total = 0.0
         demand_factory = 0.0
         renewable_generation = 0.0
-        thermal_units: List[Dict[str, float]] = []
+        thermal_units: List[Dict[str, Any]] = []
+        point_usage_mw: Dict[str, float] = {}
 
         for asset in assets:
             qty = max(1, int(asset.quantity))
             profile_key = _asset_profile_key(asset)
             profile_value = _profile_value(profile_key, profiles, tick, 1.0)
+            point = asset_connection_point(asset)
             if asset.role == "consumer":
                 base_load = _as_float(asset.parameters.get("expected_consumption_mw"), 1.0)
                 connection_loss = asset_connection_loss(asset)
@@ -543,6 +792,7 @@ def _simulate_scenario(
                     * (1.0 + connection_loss)
                 )
                 demand_total += load
+                point_usage_mw[point] = point_usage_mw.get(point, 0.0) + load
                 if _norm(asset.code) == "factory":
                     demand_factory += load
             elif asset.role == "generator":
@@ -562,6 +812,7 @@ def _simulate_scenario(
                     )
                     supply *= delivery_factor
                     renewable_generation += supply
+                    point_usage_mw[point] = point_usage_mw.get(point, 0.0) + supply
                     eco_value += (
                         supply
                         * _as_float(eco_cfg.get("wind_points_per_mw_tick"), 1.0)
@@ -576,6 +827,7 @@ def _simulate_scenario(
                     )
                     supply *= delivery_factor
                     renewable_generation += supply
+                    point_usage_mw[point] = point_usage_mw.get(point, 0.0) + supply
                     eco_value += (
                         supply
                         * _as_float(eco_cfg.get("solar_points_per_mw_tick"), 1.0)
@@ -584,6 +836,7 @@ def _simulate_scenario(
                 else:
                     thermal_units.append(
                         {
+                            "point": point,
                             "capacity": generation_mw * delivery_factor,
                             "eta": _clamp(
                                 _as_float(
@@ -599,6 +852,8 @@ def _simulate_scenario(
                             ),
                         }
                     )
+            elif asset.role == "infrastructure":
+                continue
 
         if storage_state > 0 and storage_leak > 0:
             storage_state = max(0.0, storage_state * (1.0 - storage_leak))
@@ -622,6 +877,9 @@ def _simulate_scenario(
             storage_state -= discharge
             storage_discharge_total += discharge
             deficit = max(0.0, deficit - discharge)
+            point_usage_mw[default_connection_point] = (
+                point_usage_mw.get(default_connection_point, 0.0) + discharge
+            )
             avoided_market_purchase_value += discharge * market_buy
             role_breakdown["storage"] += discharge * market_buy
             eco_value += (
@@ -641,6 +899,9 @@ def _simulate_scenario(
                 continue
             deficit -= dispatch
             fuel_and_taxes += dispatch * variable_cost
+            point_usage_mw[str(unit.get("point") or default_connection_point)] = (
+                point_usage_mw.get(str(unit.get("point") or default_connection_point), 0.0) + dispatch
+            )
             avoided_market_purchase_value += dispatch * market_buy
             role_breakdown["generator"] += dispatch * market_buy - dispatch * variable_cost
 
@@ -658,6 +919,17 @@ def _simulate_scenario(
                     demand_factory * (deficit / demand_total) * factory_penalty_rate
                 )
 
+        for point, used_mw in point_usage_mw.items():
+            capacity = float(point_capacity_by_connection.get(point, float("inf")))
+            if math.isfinite(capacity) and used_mw > capacity:
+                overload = max(0.0, used_mw - capacity)
+                overload_penalties += overload * market_buy * 0.60
+                risk_penalty += overload * market_buy * 0.30
+                role_breakdown["infrastructure"] += min(
+                    overload * market_buy * 0.20,
+                    infrastructure_capacity_bonus_total * market_buy * 0.05,
+                )
+
         risk_penalty += (
             max(0.0, losses_mw * market_buy * 0.08)
             + max(0.0, deficit) * (penalty_rate + factory_penalty_rate) * 0.5
@@ -666,6 +938,14 @@ def _simulate_scenario(
             * market_buy
             * 0.03
         )
+        infra_relief = min(
+            risk_penalty,
+            (infrastructure_capacity_bonus_total * 0.01 + infrastructure_loss_reduction_total * 10.0)
+            * market_buy
+            * 0.10,
+        )
+        risk_penalty = max(0.0, risk_penalty - infra_relief)
+        role_breakdown["infrastructure"] += float(max(0.0, infra_relief))
 
         surplus = renewable_surplus
         if surplus > 0 and storage_max > 0 and storage_state < storage_max:
@@ -674,6 +954,9 @@ def _simulate_scenario(
             storage_state += charge
             surplus -= charge
             storage_charge_total += charge
+            point_usage_mw[default_connection_point] = (
+                point_usage_mw.get(default_connection_point, 0.0) + charge
+            )
 
         if surplus > 0:
             exported = min(surplus, market_sell_capacity)
@@ -1144,55 +1427,64 @@ def resolve_working_bid(
     result = dict(breakdown.get("result") or {})
     losses = dict(breakdown.get("losses_and_risks") or {})
 
-    target_bid = max(0.0, _as_float(summary.get("target_bid"), 0.0))
     cautious_bid = max(0.0, _as_float(summary.get("cautious_bid"), 0.0))
-    ceiling_bid = max(
+    target_bid = max(0.0, _as_float(summary.get("target_bid"), 0.0))
+    hard_ceiling_bid = max(0.0, _as_float(summary.get("hard_ceiling_bid"), 0.0))
+    budget_adjusted_bid = max(
         0.0,
-        _as_float(
-            summary.get("hard_ceiling_bid", summary.get("stop_bid", summary.get("hard_bid", 0.0))),
-            0.0,
-        ),
+        _as_float(summary.get("budget_adjusted_bid"), 0.0),
     )
-
-    if target_bid > 0.0:
-        return {
-            "working_bid": float(target_bid),
-            "working_bid_source": "target",
-            "working_bid_reason": "Рабочая цена рассчитана по риск-скорректированной оценке.",
-        }
-    if cautious_bid > 0.0:
-        return {
-            "working_bid": float(cautious_bid),
-            "working_bid_source": "cautious",
-            "working_bid_reason": "Использована осторожная цена: целевая ставка недоступна.",
-        }
-    if ceiling_bid > 0.0:
-        return {
-            "working_bid": float(ceiling_bid),
-            "working_bid_source": "ceiling",
-            "working_bid_reason": "Использован предельный потолок: target/cautious не дали положительной цены.",
-        }
-
     remaining_budget = max(0.0, _as_float(summary.get("budget_remaining"), 0.0))
     net_profit = _as_float(result.get("net_profit"), 0.0)
     risk_total = _as_float(losses.get("risk_total"), 0.0)
+
+    if budget_adjusted_bid > 0.0:
+        if budget_adjusted_bid + 1e-9 < target_bid:
+            reason = (
+                "Рабочая цена ограничена бюджетом: целевая ставка выше доступного остатка, "
+                "поэтому в аукцион идёт budget-adjusted цена."
+            )
+            source = "budget_adjusted"
+        else:
+            reason = "Рабочая цена совпадает с целевой ставкой: экономика и бюджет не конфликтуют."
+            source = "target"
+        return {
+            "working_bid": float(budget_adjusted_bid),
+            "working_bid_source": source,
+            "working_bid_reason": reason,
+        }
+
+    if cautious_bid > 0.0 and remaining_budget + 1e-9 >= cautious_bid:
+        return {
+            "working_bid": float(cautious_bid),
+            "working_bid_source": "cautious",
+            "working_bid_reason": (
+                "Рабочая цена переведена на осторожный уровень: target недоступен после учёта "
+                "риска, синергии или бюджета."
+            ),
+        }
 
     if remaining_budget <= 0.0:
         reason = "Рабочая цена равна 0: бюджет сессии исчерпан."
     elif net_profit <= 0.0:
         reason = "Рабочая цена равна 0: ожидаемая чистая прибыль неположительная."
+    elif hard_ceiling_bid > 0.0 and remaining_budget + 1e-9 < cautious_bid:
+        reason = (
+            "Рабочая цена равна 0: даже осторожная ставка выше доступного остатка бюджета; "
+            "лот можно только пропустить."
+        )
     elif risk_total > 0.0:
         reason = "Рабочая цена равна 0: риск-премия перекрывает экономический эффект."
     else:
         reason = "Рабочая цена равна 0: лот не формирует допустимую ставку в текущем контексте."
     return {
         "working_bid": 0.0,
-        "working_bid_source": "none",
+        "working_bid_source": "zero",
         "working_bid_reason": reason,
     }
 
 
-def _valuation_model_v2(
+def _valuation_model_v3(
     *,
     p_worst: float,
     p_base: float,
@@ -1201,6 +1493,9 @@ def _valuation_model_v2(
     horizon_ticks: int,
     remaining_budget: float,
     evaluation_cfg: Dict[str, Any],
+    role_profile: Dict[str, Any] | None = None,
+    portfolio_synergy: float = 0.0,
+    system_fit_score: float = 0.0,
 ) -> Dict[str, Any]:
     horizon = max(1, int(horizon_ticks or 1))
     risk_lambda = float(evaluation_cfg.get("risk_lambda", 0.25))
@@ -1225,53 +1520,63 @@ def _valuation_model_v2(
         risk_band = "low"
 
     payback_ticks_map = {"low": 25, "medium": 20, "high": 15}
-    cap_share_map = {"low": 0.25, "medium": 0.20, "high": 0.15}
-    risk_factor_map = {"low": 0.35, "medium": 0.45, "high": 0.55}
-    blend_weights_map = {"low": (0.70, 0.30), "medium": (0.60, 0.40), "high": (0.50, 0.50)}
-    cautious_share_map = {"low": 0.35, "medium": 0.30, "high": 0.25}
-    risk_buffer_map = {"low": 0.35, "medium": 0.60, "high": 0.85}
+    cap_share_map = {"low": 0.30, "medium": 0.24, "high": 0.18}
+    cautious_share_map = {"low": 0.40, "medium": 0.32, "high": 0.24}
+    risk_buffer_map = {"low": 0.30, "medium": 0.55, "high": 0.85}
+    working_share_map = {"low": 1.00, "medium": 0.88, "high": 0.70}
+
+    role_payload = dict(role_profile or {})
+    role_multipliers = dict(role_payload.get("multipliers") or {})
+    target_multiplier = float(role_multipliers.get("target", 1.0) or 1.0)
+    cautious_multiplier = float(role_multipliers.get("cautious", 1.0) or 1.0)
+    ceiling_multiplier = float(role_multipliers.get("ceiling", 1.0) or 1.0)
 
     payback_ticks = int(payback_ticks_map[risk_band])
     cap_share = float(cap_share_map[risk_band])
-    risk_factor = float(risk_factor_map[risk_band])
-    blend_v1_w, blend_v2_w = blend_weights_map[risk_band]
+    synergy_bonus = _clamp(float(portfolio_synergy), -abs(float(p_base)) * 0.25, abs(float(p_base)) * 0.25)
+    system_bonus = _clamp(float(system_fit_score), -abs(float(p_base)) * 0.20, abs(float(p_base)) * 0.20)
 
-    positive_expected = max(0.0, float(p_exp))
-    v1_payback = positive_expected / float(horizon) * float(payback_ticks)
-    v1_cap = positive_expected * cap_share
-    v1 = max(0.0, min(v1_payback, v1_cap))
-    v2 = positive_expected * 0.10 * risk_factor
-    blend = float(blend_v1_w * v1 + blend_v2_w * v2)
+    positive_expected = max(0.0, float(p_exp) + max(0.0, synergy_bonus) * 0.35 + max(0.0, system_bonus) * 0.25)
+    payback_value = positive_expected / float(horizon) * float(payback_ticks)
+    capped_value = positive_expected * cap_share
+    anchor_value = max(0.0, min(payback_value, capped_value))
 
     reserve_margin = float(max(reserve_margin_abs, reserve_margin_share * positive_expected))
     risk_buffer = float(risk_premium * risk_buffer_map[risk_band])
 
-    if float(p_worst) <= 0.0:
-        cautious_bid = 0.0
+    cautious_base = max(0.0, min(anchor_value * 0.55, float(p_worst) * cautious_share_map[risk_band]))
+    cautious_bid = max(0.0, cautious_base * cautious_multiplier)
+
+    target_candidate = (
+        max(0.0, float(p_exp) - risk_premium - reserve_margin)
+        + max(0.0, synergy_bonus) * 0.45
+        - max(0.0, -synergy_bonus) * 0.55
+        + max(0.0, system_bonus) * 0.35
+        - max(0.0, -system_bonus) * 0.45
+    )
+    target_candidate = min(max(0.0, float(p_base)), max(0.0, target_candidate + anchor_value * 0.20))
+    target_bid = max(cautious_bid, target_candidate * target_multiplier)
+
+    ceiling_candidate = max(
+        target_bid,
+        float(p_base) - 0.10 * reserve_margin + max(0.0, synergy_bonus) * 0.20 + max(0.0, system_bonus) * 0.15,
+    )
+    hard_ceiling_bid = max(target_bid, ceiling_candidate * ceiling_multiplier)
+
+    budget_adjusted_bid = min(target_bid, max(0.0, float(remaining_budget)))
+    working_share = float(working_share_map[risk_band])
+    if budget_adjusted_bid > cautious_bid:
+        working_candidate = cautious_bid + (budget_adjusted_bid - cautious_bid) * working_share
     else:
-        cautious_bid = max(
-            0.0,
-            min(v2, float(p_worst) * float(cautious_share_map[risk_band])),
-        )
-
-    target_candidate = max(0.0, blend - 0.50 * reserve_margin - risk_buffer)
-    target_bid = max(cautious_bid, target_candidate)
-
-    hard_base_cap = max(0.0, float(p_base) - 0.20 * reserve_margin)
-    hard_candidate = max(target_bid, blend + 0.20 * positive_expected, v1_cap)
-    if hard_base_cap > 0.0:
-        hard_ceiling_bid = max(target_bid, min(hard_candidate, hard_base_cap))
-    else:
-        hard_ceiling_bid = max(target_bid, hard_candidate)
-    if hard_ceiling_bid < target_bid:
-        hard_ceiling_bid = target_bid
-
-    budget_limited_bid = min(target_bid, max(0.0, float(remaining_budget)))
-    risk_adjusted_net_profit = float(float(p_exp) - risk_premium - reserve_margin)
+        working_candidate = budget_adjusted_bid
+    working_bid = max(0.0, min(budget_adjusted_bid, working_candidate))
+    risk_adjusted_net_profit = float(
+        float(p_exp) - risk_premium - reserve_margin + 0.30 * synergy_bonus + 0.20 * system_bonus
+    )
 
     return {
-        "model": "valuation_model_v2",
-        "profile": "balanced",
+        "model": "valuation_model_v3",
+        "profile": str(role_payload.get("dominant_role") or "mixed"),
         "risk_band": risk_band,
         "horizon_ticks": int(horizon),
         "p_worst": float(p_worst),
@@ -1284,19 +1589,23 @@ def _valuation_model_v2(
         "risk_premium": float(risk_premium),
         "payback_ticks": int(payback_ticks),
         "cap_share": float(cap_share),
-        "risk_factor": float(risk_factor),
-        "v1_payback": float(v1_payback),
-        "v1_cap": float(v1_cap),
-        "v1": float(v1),
-        "v2": float(v2),
-        "blend": float(blend),
-        "blend_weights": {"v1": float(blend_v1_w), "v2": float(blend_v2_w)},
+        "role_multipliers": {
+            "target": float(target_multiplier),
+            "cautious": float(cautious_multiplier),
+            "ceiling": float(ceiling_multiplier),
+        },
+        "portfolio_synergy": float(portfolio_synergy),
+        "system_fit_score": float(system_fit_score),
+        "anchor_value": float(anchor_value),
+        "synergy_bonus": float(synergy_bonus),
+        "system_bonus": float(system_bonus),
         "reserve_margin": float(reserve_margin),
         "risk_buffer": float(risk_buffer),
         "cautious_bid": float(cautious_bid),
         "target_bid": float(target_bid),
         "hard_ceiling_bid": float(hard_ceiling_bid),
-        "budget_limited_bid": float(budget_limited_bid),
+        "budget_adjusted_bid": float(budget_adjusted_bid),
+        "working_bid": float(working_bid),
         "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
     }
 
@@ -1319,6 +1628,7 @@ def _simulate_portfolio_with_lots(
     lots: Sequence[Lot],
     forecast: Optional[Forecast],
     cfg: Dict[str, Any],
+    portfolio_lots: Sequence[Lot] | None = None,
 ) -> Tuple[
     Dict[str, ScenarioSnapshot], List[int], Dict[str, Dict[int, float]], Dict[str, Dict[int, float]]
 ]:
@@ -1326,7 +1636,8 @@ def _simulate_portfolio_with_lots(
         factors, profiles, ticks = _period_series(list(forecast.periods))
     else:
         factors, profiles, ticks = _bundled_series()
-    assets = _collect_assets(session, lots)
+    simulated_lots = [*list(portfolio_lots or []), *list(lots)]
+    assets = _collect_assets(session, simulated_lots)
     snapshots = {
         "base": _simulate_scenario(
             assets=assets, factors=factors, profiles=profiles, ticks=ticks, cfg=cfg, scenario="base"
@@ -1362,6 +1673,8 @@ def evaluate_lot_bundle(
     lots: Sequence[Lot],
     strategy: Optional[str] = None,
     forecast: Optional[Forecast] = None,
+    portfolio_lots: Sequence[Lot] | None = None,
+    reserved_spend: float = 0.0,
 ) -> Dict[str, Any]:
     rules_cfg = dict(session.ruleset.config_json or {})
     selected_strategy = strategy or session.selected_strategy
@@ -1374,11 +1687,24 @@ def evaluate_lot_bundle(
     if not bool(forecast_summary.get("is_compatible", True)):
         raise ForecastCompatibilityError(compatibility)
 
-    base_state, ticks, _, _ = _simulate_portfolio_with_lots(
-        session=session, lots=[], forecast=forecast, cfg=rules_cfg
+    portfolio_lots = list(portfolio_lots or [])
+    candidate_lots = list(lots)
+    portfolio_reserved_spend = _reserved_lot_spend(portfolio_lots)
+    total_reserved_spend = float(max(0.0, reserved_spend) + portfolio_reserved_spend)
+
+    base_state, ticks, factors, profiles = _simulate_portfolio_with_lots(
+        session=session,
+        lots=[],
+        forecast=forecast,
+        cfg=rules_cfg,
+        portfolio_lots=portfolio_lots,
     )
     with_state, _, _, _ = _simulate_portfolio_with_lots(
-        session=session, lots=list(lots), forecast=forecast, cfg=rules_cfg
+        session=session,
+        lots=candidate_lots,
+        forecast=forecast,
+        cfg=rules_cfg,
+        portfolio_lots=portfolio_lots,
     )
     deltas = _build_delta_pack(base_state, with_state)
 
@@ -1386,8 +1712,19 @@ def evaluate_lot_bundle(
     d_worst = deltas["worst"]
     d_best = deltas["best"]
 
-    remaining_budget = _remaining_budget(session)
-    entry_price_total = float(sum(float(lot.current_bid or 0.0) for lot in lots))
+    remaining_budget = _remaining_budget(session, reserved_spend=total_reserved_spend)
+    entry_price_total = float(sum(_lot_reference_price(lot) for lot in candidate_lots))
+
+    lot_assets = _collect_lot_assets(candidate_lots)
+    standalone_state = _simulate_assets(
+        assets=lot_assets,
+        factors=factors,
+        profiles=profiles,
+        ticks=ticks,
+        cfg=rules_cfg,
+    )
+    role_profile = _lot_role_profile(candidate_lots)
+    system_check = _lot_connection_outlook(session=session, lots=candidate_lots)
 
     pwin = float(((rules_cfg.get("auction", {}) or {}).get("pwin_default", 0.35)))
     scenario_breakdown = {
@@ -1426,8 +1763,19 @@ def evaluate_lot_bundle(
         worst=net_profit_worst,
         best=net_profit_best,
     )
+    standalone_net_profit_base = float(standalone_state["base"].utility_score - entry_price_total)
+    standalone_net_profit_worst = float(standalone_state["worst"].utility_score - entry_price_total)
+    standalone_net_profit_best = float(standalone_state["best"].utility_score - entry_price_total)
+    standalone_expected_net_profit = _weighted_expected(
+        rules_cfg,
+        base=standalone_net_profit_base,
+        worst=standalone_net_profit_worst,
+        best=standalone_net_profit_best,
+    )
+    portfolio_synergy = float(expected_net_profit - standalone_expected_net_profit)
+
     evaluation_cfg = dict(rules_cfg.get("evaluation", {}) or {})
-    valuation_model = _valuation_model_v2(
+    valuation_model = _valuation_model_v3(
         p_worst=float(net_profit_worst),
         p_base=float(net_profit_base),
         p_best=float(net_profit_best),
@@ -1435,15 +1783,17 @@ def evaluate_lot_bundle(
         horizon_ticks=len(ticks),
         remaining_budget=float(remaining_budget),
         evaluation_cfg=evaluation_cfg,
+        role_profile=role_profile,
+        portfolio_synergy=portfolio_synergy,
+        system_fit_score=float(system_check.get("system_fit_score", 0.0) or 0.0),
     )
     cautious_bid = float(valuation_model["cautious_bid"])
     target_bid = float(valuation_model["target_bid"])
     hard_ceiling_bid = float(valuation_model["hard_ceiling_bid"])
-    budget_limited_bid = float(valuation_model["budget_limited_bid"])
+    budget_adjusted_bid = float(valuation_model["budget_adjusted_bid"])
     risk_premium = float(valuation_model["risk_premium"])
     reserve_margin = float(valuation_model["reserve_margin"])
     risk_adjusted_net_profit = float(valuation_model["risk_adjusted_net_profit"])
-    synergy_adjustment = 1.0
 
     weights = strategy_weights(rules_cfg, selected_strategy)
     delta_profit = (
@@ -1486,6 +1836,11 @@ def evaluate_lot_bundle(
         if valuation_model["risk_band"] == "low"
         else "Риск повышен: чувствительность к сценариям требует более осторожной ставки."
     )
+    if str(system_check.get("status") or "") == "blocked":
+        risk_commentary = (
+            "Риск повышен: часть объектов не проходит по сетевым лимитам, поэтому рабочая цена "
+            "дополнительно снижена."
+        )
     strategy_fit_text = (
         f"{strategy_label(selected_strategy)}: приоритет риск-скорректированной прибыли соблюдается."
         if target_bid > 0
@@ -1513,12 +1868,13 @@ def evaluate_lot_bundle(
             "cautious_bid": float(cautious_bid),
             "target_bid": float(target_bid),
             "hard_ceiling_bid": float(hard_ceiling_bid),
-            "budget_limited_bid": float(budget_limited_bid),
+            "budget_adjusted_bid": float(budget_adjusted_bid),
             "budget_remaining": float(remaining_budget),
             "expected_net_profit": float(expected_net_profit),
             "risk_premium": float(risk_premium),
             "reserve_margin": float(reserve_margin),
-            "synergy_adjustment": float(synergy_adjustment),
+            "portfolio_synergy": float(portfolio_synergy),
+            "system_fit_score": float(system_check.get("system_fit_score", 0.0) or 0.0),
             "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
             "valuation_basis": "fair_value",
             "valuation_model": valuation_model,
@@ -1527,25 +1883,33 @@ def evaluate_lot_bundle(
             "net_profit_base": float(net_profit_base),
             "net_profit_worst": float(net_profit_worst),
             "net_profit_best": float(net_profit_best),
+            "standalone_net_profit_base": float(standalone_net_profit_base),
+            "standalone_net_profit_worst": float(standalone_net_profit_worst),
+            "standalone_net_profit_best": float(standalone_net_profit_best),
+            "standalone_expected_net_profit": float(standalone_expected_net_profit),
             "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
             "utility_base": float(d_base.delta_total),
             "horizon_ticks": int(len(ticks)),
         },
         "forecast_compatibility": compatibility,
         "role_breakdown": dict(d_base.role_breakdown),
-        "synergy": {"score": 0.0},
+        "synergy": {
+            "score": float(portfolio_synergy),
+            "standalone_expected_net_profit": float(standalone_expected_net_profit),
+            "marginal_expected_net_profit": float(expected_net_profit),
+        },
+        "system_check": dict(system_check),
+        "role_profile": dict(role_profile),
     }
 
     decision_summary = {
         "cautious_bid": float(cautious_bid),
         "target_bid": float(target_bid),
         "hard_ceiling_bid": float(hard_ceiling_bid),
-        "budget_limited_bid": float(budget_limited_bid),
+        "budget_adjusted_bid": float(budget_adjusted_bid),
         "budget_remaining": float(remaining_budget),
-        # Backward aliases
-        "soft_bid": float(cautious_bid),
-        "hard_bid": float(target_bid),
-        "stop_bid": float(hard_ceiling_bid),
+        "portfolio_synergy": float(portfolio_synergy),
+        "system_fit_score": float(system_check.get("system_fit_score", 0.0) or 0.0),
     }
     working_bid_payload = resolve_working_bid(
         decision_summary=decision_summary,
@@ -1565,6 +1929,8 @@ def evaluate_lot_bundle(
         "strategy_fit_text": strategy_fit_text,
         "confidence": float(confidence),
         "metrics": metrics,
+        "system_check": dict(system_check),
+        "role_profile": dict(role_profile),
         "forecast_context": dict(analysis_ctx["forecast_context"]),
         "forecast_summary": forecast_summary,
         "analysis_context": {
@@ -1576,13 +1942,17 @@ def evaluate_lot_bundle(
             "forecast_name": analysis_ctx["forecast_context"]["forecast_name"],
         },
         "forecast_compatibility": compatibility,
-        "portfolio_context": _portfolio_context(session),
+        "portfolio_context": _portfolio_context(
+            session,
+            reserved_spend=total_reserved_spend,
+            extra_portfolio_lots=portfolio_lots,
+        ),
         "recommended_bid_soft": float(cautious_bid),
         "recommended_bid_hard": float(target_bid),
         "cautious_bid": float(cautious_bid),
         "target_bid": float(target_bid),
         "hard_ceiling_bid": float(hard_ceiling_bid),
-        "budget_limited_bid": float(budget_limited_bid),
+        "budget_adjusted_bid": float(budget_adjusted_bid),
         "working_bid": float(working_bid_payload["working_bid"]),
         "working_bid_source": str(working_bid_payload["working_bid_source"]),
         "working_bid_reason": str(working_bid_payload["working_bid_reason"]),
@@ -1709,12 +2079,12 @@ def recommend_best_lot(
     strategy_name = strategy_label(strategy or session.selected_strategy)
     text = (
         f"Лучший доступный лот для стратегии «{strategy_name}»: "
-        f"полезность {best['summary_score']:.1f}, рабочая ставка {best['decision_summary']['target_bid']:.1f}."
+        f"полезность {best['summary_score']:.1f}, рабочая ставка {best['working_bid']:.1f}."
     )
     return {
         "best": best,
         "alternatives": alternatives,
-        "recommended_bid": best["decision_summary"]["target_bid"],
+        "recommended_bid": best["working_bid"],
         "decision_summary": best["decision_summary"],
         "strategy": strategy or session.selected_strategy,
         "text": text,

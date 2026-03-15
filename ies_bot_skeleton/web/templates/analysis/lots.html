@@ -119,9 +119,15 @@
           <td class="num">{{ fmt_num(row.utility, 2) }}</td>
           <td class="num">{{ fmt_num(row.net_profit, 2) }}</td>
           <td class="num">{{ fmt_num(row.risk, 2) }}</td>
-          <td class="num">{{ fmt_num(row.working_bid, 2) }}</td>
+          <td class="num">
+            {{ fmt_num(row.working_bid, 2) }}
+            <div class="muted">budget-adjusted {{ fmt_num(row.budget_adjusted_bid, 1) }}</div>
+          </td>
           <td class="col-text">
             <span>{{ lot_status_label(row.status) }}</span>
+            {% if row.system_check and row.system_check.message %}
+            <div class="muted text-clamp-2" title="{{ row.system_check.message }}">{{ row.system_check.message }}</div>
+            {% endif %}
             {% if row.is_stale %}<div><span class="status-badge status-stale" title="{{ row.stale_reason_label or row.stale_reason }}">Оценка устарела</span></div>{% endif %}
           </td>
           <td class="actions-col">

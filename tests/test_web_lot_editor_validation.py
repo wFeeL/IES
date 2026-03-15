@@ -218,8 +218,8 @@ def test_forecast_only_evaluation_uses_bundled_fallback_and_returns_explanation(
     assert item["summary_score"] != 0
     assert item["forecast_context"]["source"] == "bundled_forecast"
     assert item["recommended_bid_hard"] >= 0
-    assert item["budget_limited_bid"] <= item["portfolio_context"]["remaining_budget"] + 1e-9
-    assert item["metrics"]["bids"]["valuation_model"]["model"] == "valuation_model_v2"
+    assert item["budget_adjusted_bid"] <= item["portfolio_context"]["remaining_budget"] + 1e-9
+    assert item["metrics"]["bids"]["valuation_model"]["model"] == "valuation_model_v3"
     assert item["metrics"]["delta_score"] != 0
     assert item["risk_commentary"]
     assert item["explanation"]
