@@ -62,7 +62,11 @@ def _sorted_active_rulesets() -> List[Ruleset]:
     rows = db.session.query(Ruleset).filter_by(is_active=True).all()
     return sorted(
         rows,
-        key=lambda row: (0 if is_test_game_ruleset(row) else 1, str(row.name or "").lower(), row.id),
+        key=lambda row: (
+            0 if is_test_game_ruleset(row) else 1,
+            str(row.name or "").lower(),
+            row.id,
+        ),
     )
 
 

@@ -5,7 +5,15 @@ from statistics import pstdev
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, cast
 
 from ..extensions import db
-from ..models import EvaluationResult, Forecast, ForecastPeriod, GameSession, Lot, LotItem, ObjectInstance
+from ..models import (
+    EvaluationResult,
+    Forecast,
+    ForecastPeriod,
+    GameSession,
+    Lot,
+    LotItem,
+    ObjectInstance,
+)
 from .analysis_context import resolve_analysis_context
 from .forecast_service import load_bundled_forecast_pack
 from .ruleset import strategy_weights

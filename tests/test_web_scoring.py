@@ -224,7 +224,9 @@ def test_houseb_alias_forecast_profile_is_supported(app_ctx):
     load_display = list(summary.get("load_series_display") or [])
     assert load_display
     assert any(str(row.get("key")) == "housea" for row in load_display)
-    assert any(str(row.get("key")) == "class3" and bool(row.get("is_service")) for row in load_display)
+    assert any(
+        str(row.get("key")) == "class3" and bool(row.get("is_service")) for row in load_display
+    )
 
     out = evaluate_lot(session=session, lot=lot, forecast=houseb_forecast, persist=False)
     assert float(out["financial_breakdown"]["income"]["served_load_revenue"]) > 0.0
@@ -253,8 +255,12 @@ def test_forecast_display_rows_use_human_labels_and_service_group(app_ctx):
 
 def test_forecast_value_interpretation_uses_absolute_branches_for_large_values():
     # Consumer: >1.5 means absolute demand in MW, not multiplier.
-    assert _consumer_demand_mw(expected_consumption_mw=5.0, profile_value=1.2, load_scale=1.0) == pytest.approx(6.0)
-    assert _consumer_demand_mw(expected_consumption_mw=5.0, profile_value=8.0, load_scale=1.0) == pytest.approx(8.0)
+    assert _consumer_demand_mw(
+        expected_consumption_mw=5.0, profile_value=1.2, load_scale=1.0
+    ) == pytest.approx(6.0)
+    assert _consumer_demand_mw(
+        expected_consumption_mw=5.0, profile_value=8.0, load_scale=1.0
+    ) == pytest.approx(8.0)
 
     # Generation: large values are capped by installed generation in absolute branch.
     wind_mw = _wind_generation_mw(

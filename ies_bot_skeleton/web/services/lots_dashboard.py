@@ -38,7 +38,9 @@ def lot_summary(lot: Lot) -> Dict[str, Any]:
         category = (item.object_type.category if item.object_type else "other") or "other"
         counts[category] = counts.get(category, 0) + qty
         object_name = item.object_type.name if item.object_type is not None else "Неизвестный тип"
-        object_code = item.object_type.code if item.object_type is not None else str(item.object_type_id)
+        object_code = (
+            item.object_type.code if item.object_type is not None else str(item.object_type_id)
+        )
         structure_items.append(
             {
                 "object_type_id": int(item.object_type_id),
@@ -88,7 +90,11 @@ def lot_summary(lot: Lot) -> Dict[str, Any]:
             "infrastructure": "Инфраструктурный",
             "storage": "Накопительный",
         }.get(composition, "Смешанный"),
-        "structure": ", ".join(item["label"] for item in structure_items) if structure_items else "Пустой лот",
+        "structure": (
+            ", ".join(item["label"] for item in structure_items)
+            if structure_items
+            else "Пустой лот"
+        ),
         "structure_items": structure_items,
     }
 

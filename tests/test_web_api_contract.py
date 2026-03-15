@@ -399,8 +399,10 @@ def test_strategy_endpoint_returns_per_lot_bid_breakdown(client):
     assert strategy.status_code == 200
     item = strategy.get_json()["item"]
 
-    rows = list(item.get("best_singles") or []) + list(item.get("best_pairs") or []) + list(
-        item.get("best_groups") or []
+    rows = (
+        list(item.get("best_singles") or [])
+        + list(item.get("best_pairs") or [])
+        + list(item.get("best_groups") or [])
     )
     if item.get("best_combination"):
         rows.append(item["best_combination"])

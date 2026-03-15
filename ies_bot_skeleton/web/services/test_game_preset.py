@@ -229,7 +229,9 @@ def bootstrap_test_game_session(
     report["lot_items_created"] = int(lot_report.get("lot_items_created", 0) or 0)
     skipped = list(lot_report.get("skipped") or [])
     if skipped:
-        raise ValueError("Не удалось полностью инициализировать тестовую игру: " + "; ".join(skipped))
+        raise ValueError(
+            "Не удалось полностью инициализировать тестовую игру: " + "; ".join(skipped)
+        )
     expected_lots = len(payloads)
     if report["lots_created"] != expected_lots:
         raise ValueError(

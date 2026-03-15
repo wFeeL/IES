@@ -6,7 +6,11 @@ from typing import Any, Dict
 
 from ..extensions import db
 from ..models import GameSession, ObjectInstance, ObjectType
-from .test_game_preset import LOT_KIND_TO_OBJECT_CODE, add_lot_payloads_to_session, load_lot_payloads_from_dir
+from .test_game_preset import (
+    LOT_KIND_TO_OBJECT_CODE,
+    add_lot_payloads_to_session,
+    load_lot_payloads_from_dir,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_STATE_PATH = ROOT / "resources" / "legacy_import" / "state.json"

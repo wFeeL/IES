@@ -8,8 +8,7 @@ from ies_bot_skeleton.web.services import strategy as strategy_service
 
 def test_build_combo_catalog_limits_combination_growth(monkeypatch):
     available_lots = [
-        SimpleNamespace(id=index, current_bid=10.0, name=f"Lot {index}")
-        for index in range(1, 13)
+        SimpleNamespace(id=index, current_bid=10.0, name=f"Lot {index}") for index in range(1, 13)
     ]
     calls: list[tuple[int, ...]] = []
 

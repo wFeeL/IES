@@ -438,11 +438,7 @@ def _ensure_start_pack_template(
     description: str,
     items_seed: List[Dict[str, Any]],
 ) -> StartPackTemplate:
-    template = (
-        db.session.query(StartPackTemplate)
-        .filter_by(code=code)
-        .one_or_none()
-    )
+    template = db.session.query(StartPackTemplate).filter_by(code=code).one_or_none()
     if template is None:
         template = StartPackTemplate(
             code=code,
