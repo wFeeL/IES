@@ -291,10 +291,10 @@
     const filtered = rows
       .filter((row) => Array.isArray(row?.lot_ids) && row.lot_ids.map(Number).includes(lotId))
       .sort((left, right) => {
-        const leftSynergy = Number(left?.synergy_score || 0);
-        const rightSynergy = Number(right?.synergy_score || 0);
-        if (rightSynergy !== leftSynergy) {
-          return rightSynergy - leftSynergy;
+        const leftProfit = Number(left?.net_profit_base ?? left?.total_profit ?? 0);
+        const rightProfit = Number(right?.net_profit_base ?? right?.total_profit ?? 0);
+        if (rightProfit !== leftProfit) {
+          return rightProfit - leftProfit;
         }
         return Number(right?.risk_adjusted_net_profit || 0) - Number(left?.risk_adjusted_net_profit || 0);
       })

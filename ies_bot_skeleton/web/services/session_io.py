@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import datetime
 from typing import Any, Dict, Tuple
 
 from ..extensions import db
@@ -130,6 +131,22 @@ def _object_type_lookup() -> Tuple[Dict[int, ObjectType], Dict[str, ObjectType]]
     return by_id, by_code
 
 
+def _parse_iso_datetime(raw: Any) -> datetime | None:
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, datetime):
+        return raw
+    text = str(raw).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
 def import_session_payload(payload: Dict[str, Any]) -> GameSession:
     if not isinstance(payload, dict):
         raise ValueError("Ожидается JSON-объект")
@@ -154,6 +171,7 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
 
     type_by_id, type_by_code = _object_type_lookup()
     old_to_new_object_id: Dict[int, int] = {}
+    pending_object_source_lot_links: list[tuple[int, int]] = []
 
     for row in payload.get("objects", []) or []:
         src_type_id = row.get("object_type_id")
@@ -180,6 +198,9 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
         db.session.flush()
         if row.get("id"):
             old_to_new_object_id[int(row["id"])] = item.id
+        old_source_lot_id = row.get("source_lot_id")
+        if old_source_lot_id not in (None, "", 0, "0"):
+            pending_object_source_lot_links.append((int(item.id), int(old_source_lot_id)))
 
     for row in payload.get("objects", []) or []:
         old_id = row.get("id")
@@ -195,6 +216,7 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
 
     old_to_new_lot_id: Dict[int, int] = {}
     for row in payload.get("lots", []) or []:
+        purchased_at = _parse_iso_datetime(row.get("purchased_at"))
         lot = Lot(
             session_id=out_session.id,
             name=str(row.get("name", "Imported lot")),
@@ -207,7 +229,7 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
                 if row.get("purchase_price") not in (None, "")
                 else None
             ),
-            purchased_at=None,
+            purchased_at=purchased_at,
             note=str(row.get("note", "")),
             available_round=int(row.get("available_round", 1) or 1),
         )
@@ -233,6 +255,16 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
                 overrides_json=dict(it.get("overrides") or {}),
             )
             db.session.add(item)
+
+    for new_object_id, old_source_lot_id in pending_object_source_lot_links:
+        new_object = db.session.get(ObjectInstance, int(new_object_id))
+        if new_object is None:
+            continue
+        new_source_lot_id = old_to_new_lot_id.get(int(old_source_lot_id))
+        if new_source_lot_id is None:
+            continue
+        new_object.source_lot_id = int(new_source_lot_id)
+        db.session.add(new_object)
 
     imported_forecasts_by_old_id: Dict[int, int] = {}
     for fc in payload.get("forecasts", []) or []:

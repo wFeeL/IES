@@ -90,6 +90,14 @@ def _objective_key(item: ComboEvaluation) -> Tuple[float, float]:
     return float(item.risk_adjusted_net_profit), float(item.utility_score)
 
 
+def _presentation_key(item: ComboEvaluation) -> Tuple[float, float, float]:
+    return (
+        float(item.net_profit_base),
+        float(item.risk_adjusted_net_profit),
+        float(item.utility_score),
+    )
+
+
 def _stringify_reasons(payload: Dict[str, Any], *, synergy_score: float) -> str:
     reasons = list(payload.get("reasons") or [])
     metrics = dict(payload.get("metrics") or {})
@@ -490,7 +498,10 @@ def _snapshot_sections(
     scenario_title: str,
     scenario_note: str,
 ) -> Dict[str, Any]:
-    actionable_rows = [row for row in rows if float(row.working_bid) > 0.0]
+    actionable_rows = [
+        row for row in rows if float(row.working_bid) > 0.0
+    ]
+    actionable_rows.sort(key=_presentation_key, reverse=True)
     singles = [row for row in actionable_rows if len(row.lot_ids) == 1]
     pairs = [row for row in actionable_rows if len(row.lot_ids) == 2]
     groups = [row for row in actionable_rows if len(row.lot_ids) >= 3]
@@ -723,8 +734,9 @@ def best_pairs_for_lot(
         rows.append(dict(row))
     rows.sort(
         key=lambda item: (
-            float(item.get("synergy_score", 0.0) or 0.0),
+            float(item.get("net_profit_base", item.get("total_profit", 0.0)) or 0.0),
             float(item.get("risk_adjusted_net_profit", 0.0) or 0.0),
+            float(item.get("utility_score", item.get("utility", 0.0)) or 0.0),
         ),
         reverse=True,
     )

@@ -11,6 +11,7 @@ from ...application.context import (
     resolve_session_analysis_context,
     session_analysis_settings_for_session,
 )
+from ..services.network_readiness import network_readiness_summary
 from ..services.navigation import build_breadcrumbs, safe_back_url
 from ..services.stale import stale_summary_for_session
 
@@ -72,6 +73,7 @@ def session_shell_view(
     return {
         **session_analysis_view(session),
         "portfolio": portfolio_summary(session, analytics_by_lot=analytics_by_lot),
+        "network_readiness": network_readiness_summary(session),
     }
 
 

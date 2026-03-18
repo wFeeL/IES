@@ -141,6 +141,8 @@ def _session_recalculation_payload(
             "meta": {
                 "count": 0,
                 "budget_total": float(portfolio["budget_total"]),
+                "purchase_spent": float(portfolio["purchase_spent"]),
+                "allpay_spent": float(portfolio["allpay_spent"]),
                 "spent_total": float(portfolio["spent_total"]),
                 "remaining_budget": float(portfolio["remaining_budget"]),
                 "bought_lots_count": int(portfolio["bought_lots_count"]),
@@ -185,6 +187,8 @@ def _session_recalculation_payload(
         "meta": {
             "count": len(rows),
             "budget_total": float(portfolio["budget_total"]),
+            "purchase_spent": float(portfolio["purchase_spent"]),
+            "allpay_spent": float(portfolio["allpay_spent"]),
             "spent_total": float(portfolio["spent_total"]),
             "remaining_budget": float(portfolio["remaining_budget"]),
             "bought_lots_count": int(portfolio["bought_lots_count"]),

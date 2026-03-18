@@ -47,3 +47,9 @@ def test_pyproject_is_web_only():
 def test_legacy_runtime_paths_removed():
     missing = [path for path in LEGACY_PATHS if path.exists()]
     assert missing == []
+
+
+def test_gitignore_excludes_macos_appledouble_artifacts():
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert "._*" in gitignore
+    assert "__MACOSX/" in gitignore

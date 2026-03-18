@@ -28,7 +28,6 @@ class LotForm(FlaskForm):
     )
     base_bid = FloatField("Стартовая цена", validators=[DataRequired(), NumberRange(min=0.0)])
     current_bid = FloatField("Текущая ставка", validators=[Optional(), NumberRange(min=0.0)])
-    available_round = IntegerField("Раунд", validators=[Optional(), NumberRange(min=1)])
     note = TextAreaField("Заметки", validators=[Optional()])
     items_state_json = HiddenField("Состав (визуальный редактор)", validators=[Optional()])
     items_json = HiddenField("Состав JSON", validators=[Optional()])

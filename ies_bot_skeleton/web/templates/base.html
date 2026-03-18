@@ -10,6 +10,7 @@
     </script>
     <script src="{{ url_for('static', filename='js/api_client.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/theme.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/dismissible_alert.js') }}"></script>
     <script defer src="{{ url_for('static', filename='vendor/chart.min.js') }}"></script>
     <script defer src="{{ url_for('static', filename='vendor/plotly.min.js') }}"></script>
     {% block head_extra %}{% endblock %}
@@ -161,6 +162,28 @@
           <section class="flash-stack">
             <div class="flash flash-warning">
               Обнаружены устаревшие оценки ({{ stale_warning.stale_count }}). Причина: {{ stale_reason_label(stale_warning.last_reason) or 'изменились исходные данные расчёта' }}.
+            </div>
+          </section>
+          {% endif %}
+
+          {% if network_readiness and network_readiness.action_required %}
+          {% set dismiss_id = 'network-readiness-' ~ (session.id if session is defined and session else 'global') %}
+          <section class="flash-stack" data-dismissible-alert data-alert-id="{{ dismiss_id }}">
+            <div class="flash flash-warning">
+              <div class="actions" style="justify-content: space-between; width: 100%;">
+                <div>
+                  <strong>Нужно подключить новые объекты в энергосистеме.</strong>
+                  <div class="mt-2">{{ network_readiness.message }}</div>
+                  <div class="mt-2 muted">
+                    Неподключённых объектов: {{ network_readiness.unconnected_purchased_objects_count or 0 }} ·
+                    затронуто купленных лотов: {{ network_readiness.unconnected_lots_count or 0 }}.
+                  </div>
+                  {% if session is defined and session %}
+                  <div class="mt-2"><a class="btn btn-secondary" href="{{ url_for('pages.system_view', session_id=session.id) }}">Перейти в энергосистему</a></div>
+                  {% endif %}
+                </div>
+                <button type="button" class="btn btn-ghost" data-dismiss-alert aria-label="Скрыть предупреждение">Скрыть</button>
+              </div>
             </div>
           </section>
           {% endif %}

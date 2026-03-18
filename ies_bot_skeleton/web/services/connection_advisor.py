@@ -42,10 +42,36 @@ def _resolve_point(
     default_point: str,
     district: Any = None,
     parameters: Mapping[str, Any] | None = None,
+    allowed_points: Sequence[str] | None = None,
 ) -> str:
     params = dict(parameters or {})
-    raw = params.get("connection_point") or district or params.get("district") or default_point
-    out = str(raw or default_point).strip().upper()
+    explicit = (
+        params.get("connection_point")
+        or params.get("point")
+        or params.get("cell")
+        or params.get("slot")
+    )
+    if explicit:
+        out = str(explicit).strip().upper()
+        return out or default_point
+
+    allowed = {
+        str(point or "").strip().upper()
+        for point in list(allowed_points or [])
+        if str(point or "").strip()
+    }
+    allowed.add(str(default_point or "").strip().upper() or "A")
+
+    # Backward compatibility: legacy datasets sometimes stored "A/B/C"
+    # in district. Use it only when it exactly matches known points.
+    district_candidate = str(district or "").strip().upper()
+    if district_candidate and district_candidate in allowed:
+        return district_candidate
+    params_district = str(params.get("district") or "").strip().upper()
+    if params_district and params_district in allowed:
+        return params_district
+
+    out = str(default_point or "A").strip().upper()
     return out or default_point
 
 
@@ -53,6 +79,7 @@ def _usage_by_point(
     objects: Sequence[ObjectInstance],
     *,
     default_point: str,
+    allowed_points: Sequence[str] | None = None,
 ) -> Dict[str, int]:
     usage: Dict[str, int] = {}
     for obj in objects:
@@ -62,6 +89,7 @@ def _usage_by_point(
             default_point=default_point,
             district=obj.district,
             parameters=obj.current_parameters_json,
+            allowed_points=allowed_points,
         )
         usage[point] = usage.get(point, 0) + 1
     return usage
@@ -103,6 +131,7 @@ def _usage_load_by_point(
     objects: Sequence[ObjectInstance],
     *,
     default_point: str,
+    allowed_points: Sequence[str] | None = None,
 ) -> Dict[str, float]:
     usage: Dict[str, float] = {}
     for obj in objects:
@@ -112,6 +141,7 @@ def _usage_load_by_point(
             default_point=default_point,
             district=obj.district,
             parameters=obj.current_parameters_json,
+            allowed_points=allowed_points,
         )
         usage[point] = usage.get(point, 0.0) + _expected_power_for_object(obj)
     return usage
@@ -130,6 +160,7 @@ def _infrastructure_support(
     objects: Sequence[ObjectInstance],
     *,
     default_point: str,
+    allowed_points: Sequence[str] | None = None,
 ) -> Dict[str, Dict[str, float]]:
     child_counts = _children_count(objects)
     support: Dict[str, Dict[str, float]] = {}
@@ -143,6 +174,7 @@ def _infrastructure_support(
             default_point=default_point,
             district=obj.district,
             parameters=params,
+            allowed_points=allowed_points,
         )
         ports = max(0.0, _to_float(params.get("ports"), 0.0))
         soft_flow = max(0.0, _to_float(params.get("soft_flow_limit_mw"), 0.0))
@@ -179,6 +211,7 @@ def _category_mix_by_point(
     objects: Sequence[ObjectInstance],
     *,
     default_point: str,
+    allowed_points: Sequence[str] | None = None,
 ) -> Dict[str, Dict[str, int]]:
     out: Dict[str, Dict[str, int]] = {}
     for obj in objects:
@@ -188,6 +221,7 @@ def _category_mix_by_point(
             default_point=default_point,
             district=obj.district,
             parameters=obj.current_parameters_json,
+            allowed_points=allowed_points,
         )
         bucket = out.setdefault(
             point,
@@ -398,15 +432,32 @@ def recommend_connection_for_profile(
     candidates = sorted(point_loss.keys())
     if not candidates:
         candidates = [default_point]
+    allowed_points = sorted(set([*candidates, default_point]))
 
     objects = list(existing_objects or session.objects)
     if exclude_object_id is not None:
         objects = [obj for obj in objects if int(obj.id) != int(exclude_object_id)]
-    usage = _usage_by_point(objects, default_point=default_point)
-    usage_load = _usage_load_by_point(objects, default_point=default_point)
-    support_by_point = _infrastructure_support(objects, default_point=default_point)
+    usage = _usage_by_point(
+        objects,
+        default_point=default_point,
+        allowed_points=allowed_points,
+    )
+    usage_load = _usage_load_by_point(
+        objects,
+        default_point=default_point,
+        allowed_points=allowed_points,
+    )
+    support_by_point = _infrastructure_support(
+        objects,
+        default_point=default_point,
+        allowed_points=allowed_points,
+    )
     global_slot_headroom = _global_slot_headroom(support_by_point)
-    mix_by_point = _category_mix_by_point(objects, default_point=default_point)
+    mix_by_point = _category_mix_by_point(
+        objects,
+        default_point=default_point,
+        allowed_points=allowed_points,
+    )
 
     analysis_ctx = resolve_analysis_context(session)
     forecast_summary = dict(analysis_ctx.get("forecast_summary") or {})
@@ -417,7 +468,12 @@ def recommend_connection_for_profile(
     )
     category = _norm(object_type.category)
     expected_power_mw = _expected_power_from_type(object_type=object_type, parameters=merged_params)
-    current_point = _resolve_point(default_point=default_point, district=district, parameters=merged_params)
+    current_point = _resolve_point(
+        default_point=default_point,
+        district=district,
+        parameters=merged_params,
+        allowed_points=allowed_points,
+    )
     if current_point not in point_loss:
         point_loss[current_point] = point_loss.get(default_point, 0.0)
         candidates = sorted(set([*candidates, current_point]))

@@ -17,15 +17,19 @@
     <div><span class="metric-label">Связанных объектов</span><strong>{{ summary.generated_objects_count }}</strong></div>
   </div>
 
-  {% if summary.generated_objects_count %}
+  {% if lot.status == 'bought' %}
+  <div class="flash flash-warning mt-3">
+    Лот уже куплен. Удаление заблокировано: сначала отмените покупку, чтобы удалить связанные объекты корректно.
+  </div>
+  {% elif summary.generated_objects_count %}
   <div class="risk-block mt-3">
-    У лота есть связанные объекты в энергосистеме. При удалении лота связь с ними будет снята, сами объекты останутся в сессии.
+    У лота есть связанные объекты в энергосистеме. Удаление заблокировано до очистки этих связей.
   </div>
   {% endif %}
 
   <form method="post" class="mt-4 actions">
     {{ form.hidden_tag() }}
-    <button class="btn btn-danger" type="submit">Удалить лот</button>
+    <button class="btn btn-danger" type="submit" {% if lot.status == 'bought' or summary.generated_objects_count %}disabled{% endif %}>Удалить лот</button>
     <a class="btn btn-secondary" href="{{ cancel_url or url_for('pages.lots_page', session_id=session.id) }}">Отмена</a>
   </form>
 </section>

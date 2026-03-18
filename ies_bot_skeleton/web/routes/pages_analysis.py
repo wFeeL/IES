@@ -311,6 +311,8 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
                 "feasible_items_count": 0,
                 "avg_recommended_loss_pct": 0.0,
                 "system_fit_score": 0.0,
+                "recommended_points": [],
+                "connection_block_reasons_count": 0,
             },
         },
         "system_check": {
@@ -322,6 +324,8 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "feasible_items_count": 0,
             "avg_recommended_loss_pct": 0.0,
             "system_fit_score": 0.0,
+            "recommended_points": [],
+            "connection_block_reasons_count": 0,
         },
     }
 
@@ -959,7 +963,7 @@ def lots_edit(session_id: int):
             base_bid=float(form.base_bid.data or 0.0),
             current_bid=float(form.current_bid.data or 0.0),
             note=form.note.data or "",
-            available_round=int(form.available_round.data or 1),
+            available_round=1,
         )
         db.session.add(lot)
         db.session.flush()
@@ -1018,7 +1022,6 @@ def lot_edit_page(lot_id: int):
         form.scope.data = lot.scope
         form.base_bid.data = lot.base_bid
         form.current_bid.data = lot.current_bid
-        form.available_round.data = lot.available_round
         form.note.data = lot.note
         items_payload = _lot_items_payload(lot)
         form.items_state_json.data = json.dumps(items_payload, ensure_ascii=False)
@@ -1029,7 +1032,6 @@ def lot_edit_page(lot_id: int):
         lot.scope = form.scope.data
         lot.base_bid = float(form.base_bid.data or 0.0)
         lot.current_bid = float(form.current_bid.data or 0.0)
-        lot.available_round = int(form.available_round.data or 1)
         lot.note = form.note.data or ""
 
         source = (form.items_state_json.data or "").strip() or (form.items_json.data or "").strip()

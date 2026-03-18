@@ -262,12 +262,18 @@ def test_lot_evaluation_accounts_for_connection_sectors_when_points_differ(clien
     assert float(row_a["financial_breakdown"]["losses_and_risks"]["risk_total"]) >= 0.0
     assert float(row_b["financial_breakdown"]["losses_and_risks"]["risk_total"]) >= 0.0
     assert float(row_a["system_check"]["system_fit_score"]) >= float(row_b["system_check"]["system_fit_score"])
+    assert "recommended_points" in row_a["system_check"]
+    assert "recommended_points" in row_b["system_check"]
+    assert "connection_block_reasons_count" in row_a["system_check"]
+    assert "connection_block_reasons_count" in row_b["system_check"]
     assert "A/B/C" not in str(row_a["system_check"]["message"])
     assert "A/B/C" not in str(row_b["system_check"]["message"])
     for row in (row_a, row_b):
         for item in row["system_check"]["items"]:
             assert "current_point" in item
             assert "recommended_point" in item
+            assert "feasible_alternatives" in item
+            assert "rejected_points" in item
 
 
 def test_risk_metric_is_non_zero_and_scenario_texts_differ(client):
@@ -400,6 +406,8 @@ def test_buy_api_returns_full_post_buy_refresh_for_remaining_lots_and_strategy(c
     assert float(payload["item"]["purchase_price"]) == pytest.approx(55.0)
     refresh = payload.get("refresh") or {}
     meta = refresh.get("meta") or {}
+    assert float(meta.get("purchase_spent", -1.0)) == pytest.approx(55.0)
+    assert float(meta.get("allpay_spent", -1.0)) == pytest.approx(0.0)
     assert float(meta.get("spent_total", 0.0)) == pytest.approx(55.0)
     assert float(meta.get("remaining_budget", 0.0)) == pytest.approx(
         float(payload["item"]["remaining_budget"])
@@ -461,6 +469,8 @@ def test_undo_buy_api_returns_full_recalculation_snapshot(client):
     payload = undo.get_json()
     refresh = payload.get("refresh") or {}
     meta = refresh.get("meta") or {}
+    assert float(meta.get("purchase_spent", -1.0)) == pytest.approx(0.0)
+    assert float(meta.get("allpay_spent", -1.0)) == pytest.approx(0.0)
     assert float(meta.get("spent_total", -1.0)) == pytest.approx(0.0)
     assert float(meta.get("remaining_budget", -1.0)) == pytest.approx(budget_total)
     assert int(meta.get("bought_lots_count", -1)) == 0
@@ -672,6 +682,175 @@ def test_workbench_and_forecast_pages_share_current_budget_snapshot_after_purcha
     assert f"Остаток: <span data-session-remaining-budget>{remaining_label}</span>" in forecast_html
 
 
+def test_post_buy_unconnected_objects_show_network_readiness_alerts(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Network readiness alerts")
+    tmap = _type_map(client)
+
+    start_pack = client.post(f"/api/sessions/{session_id}/add-start-pack", json={})
+    assert start_pack.status_code == 200
+
+    created = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Unconnected after buy",
+            "scope": "normal",
+            "base_bid": 80,
+            "current_bid": 80,
+            "items": [{"object_type_id": tmap["wind"], "quantity": 1}],
+        },
+    )
+    assert created.status_code == 200
+    lot_id = int(created.get_json()["item"]["id"])
+
+    buy = client.post(f"/api/lots/{lot_id}/buy", json={"purchase_price": 70.0})
+    assert buy.status_code == 200
+
+    session_html = client.get(f"/sessions/{session_id}").get_data(as_text=True)
+    assert "После покупки лотов добавленные объекты нужно подключить в разделе энергосистемы" in session_html
+    assert f"/system/{session_id}" in session_html
+
+    lot_html = client.get(f"/lots/item/{lot_id}").get_data(as_text=True)
+    assert "После покупки нужно подключить новые объекты." in lot_html
+    assert f"/system/{session_id}" in lot_html
+
+
+def test_import_export_roundtrip_keeps_bought_lot_links_and_purchase_lifecycle(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Import/export bought linkage")
+    tmap = _type_map(client)
+
+    created = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Roundtrip bought lot",
+            "scope": "normal",
+            "base_bid": 90,
+            "current_bid": 90,
+            "items": [{"object_type_id": tmap["wind"], "quantity": 1}],
+        },
+    )
+    assert created.status_code == 200
+    lot_id = int(created.get_json()["item"]["id"])
+
+    bought = client.post(f"/api/lots/{lot_id}/buy", json={"purchase_price": 63.0})
+    assert bought.status_code == 200
+
+    exported = client.get(f"/api/sessions/{session_id}/export.json")
+    assert exported.status_code == 200
+    payload = exported.get_json()["item"]
+
+    imported = client.post("/api/sessions/import", json=payload)
+    assert imported.status_code == 200
+    imported_session_id = int(imported.get_json()["item"]["id"])
+
+    imported_lots = client.get(f"/api/lots?session_id={imported_session_id}")
+    assert imported_lots.status_code == 200
+    imported_lot = next(
+        row for row in imported_lots.get_json()["items"] if row.get("name") == "Roundtrip bought lot"
+    )
+    imported_lot_id = int(imported_lot["id"])
+    assert imported_lot["status"] == "bought"
+    assert float(imported_lot["purchase_price"]) == pytest.approx(63.0)
+    assert imported_lot.get("purchased_at")
+
+    imported_objects = client.get(f"/api/objects?session_id={imported_session_id}")
+    assert imported_objects.status_code == 200
+    assert any(
+        int(row.get("source_lot_id") or 0) == imported_lot_id
+        for row in imported_objects.get_json()["items"]
+    )
+
+    undo = client.post(f"/api/lots/{imported_lot_id}/undo-buy", json={})
+    assert undo.status_code == 200
+    assert int(undo.get_json()["item"].get("removed_objects", 0) or 0) >= 1
+
+    objects_after_undo = client.get(f"/api/objects?session_id={imported_session_id}")
+    assert objects_after_undo.status_code == 200
+    assert all(
+        int(row.get("source_lot_id") or 0) != imported_lot_id
+        for row in objects_after_undo.get_json()["items"]
+    )
+
+
+def test_delete_bought_lot_is_blocked_and_does_not_orphan_objects(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Delete bought lot guard")
+    tmap = _type_map(client)
+
+    created = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Protected bought lot",
+            "scope": "normal",
+            "base_bid": 70,
+            "current_bid": 70,
+            "items": [{"object_type_id": tmap["wind"], "quantity": 1}],
+        },
+    )
+    assert created.status_code == 200
+    lot_id = int(created.get_json()["item"]["id"])
+
+    bought = client.post(f"/api/lots/{lot_id}/buy", json={"purchase_price": 55.0})
+    assert bought.status_code == 200
+
+    deleted = client.delete(f"/api/lots/{lot_id}")
+    assert deleted.status_code == 400
+    error = deleted.get_json()["error"]["message"]
+    assert "Нельзя удалить купленный лот" in error
+
+    lot_payload = client.get(f"/api/lots/{lot_id}")
+    assert lot_payload.status_code == 200
+    assert lot_payload.get_json()["item"]["status"] == "bought"
+
+    objects_payload = client.get(f"/api/objects?session_id={session_id}")
+    assert objects_payload.status_code == 200
+    assert any(
+        int(row.get("source_lot_id") or 0) == lot_id
+        for row in objects_payload.get_json()["items"]
+    )
+
+
+def test_evaluation_does_not_use_district_as_connection_point_without_explicit_field(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="District vs point")
+    tmap = _type_map(client)
+
+    created = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "District only lot",
+            "scope": "normal",
+            "base_bid": 30,
+            "current_bid": 30,
+            "items": [
+                {
+                    "object_type_id": tmap["house"],
+                    "quantity": 1,
+                    "overrides": {"district": "north"},
+                }
+            ],
+        },
+    )
+    assert created.status_code == 200
+    lot_id = int(created.get_json()["item"]["id"])
+
+    evaluation = client.post(f"/api/lots/{lot_id}/evaluate", json={})
+    assert evaluation.status_code == 200
+    payload = evaluation.get_json()["item"]
+    items = list((payload.get("system_check") or {}).get("items") or [])
+    assert items
+    item = dict(items[0] or {})
+
+    assert str(item.get("current_point") or "").upper() != "NORTH"
+    assert str(item.get("recommended_point") or "").upper() != "NORTH"
+    assert "NORTH" not in [str(point).upper() for point in (payload["system_check"].get("recommended_points") or [])]
+
+
 def test_recalculate_meta_contains_shortlist_and_multiple_non_zero_working_bids(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Recalc shortlist meta")
@@ -696,6 +875,8 @@ def test_recalculate_meta_contains_shortlist_and_multiple_non_zero_working_bids(
     assert recalc.status_code == 200
     payload = recalc.get_json()
     meta = payload["meta"]
+    assert "purchase_spent" in meta
+    assert "allpay_spent" in meta
     assert "remaining_budget" in meta
     assert "available_count" in meta
     assert "non_zero_working_bid_count" in meta

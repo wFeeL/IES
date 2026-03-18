@@ -12,6 +12,16 @@ def normalize_lot_items(items_payload: List[Dict[str, Any]]) -> List[Dict[str, A
 
 
 def delete_lot(lot: Lot) -> Dict[str, Any]:
+    status = str(lot.status or "")
+    if status == "bought":
+        raise ValueError(
+            "Нельзя удалить купленный лот: сначала отмените покупку, чтобы безопасно убрать связанные объекты."
+        )
+    if lot.generated_objects:
+        raise ValueError(
+            "Нельзя удалить лот, пока у него есть связанные объекты в энергосистеме."
+        )
+
     summary = {
         "lot_id": int(lot.id),
         "name": lot.name,
@@ -20,8 +30,5 @@ def delete_lot(lot: Lot) -> Dict[str, Any]:
         "evaluations_count": len(lot.evaluations),
         "generated_objects_count": len(lot.generated_objects),
     }
-    for obj in list(lot.generated_objects):
-        obj.source_lot_id = None
-        db.session.add(obj)
     db.session.delete(lot)
     return summary

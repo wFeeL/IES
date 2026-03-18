@@ -25,7 +25,6 @@ def test_lot_editor_prefers_visual_payload(client):
         "scope": "normal",
         "base_bid": "100",
         "current_bid": "100",
-        "available_round": "1",
         "note": "",
         "items_state_json": json.dumps([{"object_type_id": wind_id, "quantity": 1}]),
         "items_json": "[]",
@@ -38,6 +37,7 @@ def test_lot_editor_prefers_visual_payload(client):
     lots = lots_resp.get_json()["items"]
     assert lots
     assert lots[0]["items"][0]["object_type_id"] == wind_id
+    assert int(lots[0]["available_round"]) == 1
 
 
 def test_lot_editor_edit_preserves_existing_overrides_when_visual_rows_are_compact(client):
@@ -76,7 +76,6 @@ def test_lot_editor_edit_preserves_existing_overrides_when_visual_rows_are_compa
         "scope": "normal",
         "base_bid": "100",
         "current_bid": "100",
-        "available_round": "1",
         "note": "",
         "items_state_json": json.dumps(
             [
@@ -110,6 +109,8 @@ def test_lot_editor_renders_single_hidden_state_fields(client):
     assert html.count('name="items_state_json"') == 1
     assert html.count('name="items_json"') == 1
     assert html.count('name="session_id"') == 1
+    assert 'name="available_round"' not in html
+    assert "Раунд" not in html
     assert "showConnectionPoint" not in html
     assert "defaultConnectionPoint" not in html
 
@@ -125,7 +126,6 @@ def test_lot_editor_rejects_invalid_lot_payload(client):
         "scope": "normal",
         "base_bid": "100",
         "current_bid": "100",
-        "available_round": "1",
         "note": "",
         "items_state_json": json.dumps([{"object_type_id": wind_id, "quantity": 0}]),
         "items_json": "[]",
@@ -225,7 +225,6 @@ def test_lot_detail_and_edit_flow(client):
         "scope": "global",
         "base_bid": "140",
         "current_bid": "145",
-        "available_round": "2",
         "note": "Updated note",
         "items_state_json": json.dumps(
             [

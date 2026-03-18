@@ -137,3 +137,32 @@ def test_strategy_weights_are_unified_by_default():
     generation = strategy_weights({}, "generation")
     aggressive = strategy_weights({}, "aggressive")
     assert generation == aggressive
+
+
+def test_best_pairs_for_lot_sorted_by_profit_desc():
+    snapshot = {
+        "best_pairs": [
+            {
+                "lot_ids": [1, 2],
+                "net_profit_base": 14.0,
+                "risk_adjusted_net_profit": 9.0,
+                "utility_score": 5.0,
+            },
+            {
+                "lot_ids": [1, 3],
+                "net_profit_base": 22.0,
+                "risk_adjusted_net_profit": 8.0,
+                "utility_score": 4.0,
+            },
+            {
+                "lot_ids": [1, 4],
+                "net_profit_base": 18.0,
+                "risk_adjusted_net_profit": 11.0,
+                "utility_score": 6.0,
+            },
+        ]
+    }
+
+    rows = strategy_service.best_pairs_for_lot(strategy_snapshot=snapshot, lot_id=1, top_n=5)
+
+    assert [float(row["net_profit_base"]) for row in rows] == [22.0, 18.0, 14.0]

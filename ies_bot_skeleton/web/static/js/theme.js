@@ -1,8 +1,25 @@
 (function () {
   const KEY = "ies-theme";
+  const LEGACY_KEYS = ["theme", "ies-ui-theme", "ies_theme"];
 
-  function preferredTheme() {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  function normalizeTheme(value) {
+    return value === "dark" || value === "light" ? value : null;
+  }
+
+  function readSavedTheme() {
+    const current = normalizeTheme(localStorage.getItem(KEY));
+    if (current) {
+      return current;
+    }
+    for (const legacyKey of LEGACY_KEYS) {
+      const legacy = normalizeTheme(localStorage.getItem(legacyKey));
+      if (!legacy) {
+        continue;
+      }
+      localStorage.setItem(KEY, legacy);
+      return legacy;
+    }
+    return null;
   }
 
   function apply(theme) {
@@ -19,8 +36,8 @@
     btn.dataset.themeState = theme;
   }
 
-  const saved = localStorage.getItem(KEY);
-  const initialTheme = saved === "dark" || saved === "light" ? saved : preferredTheme();
+  const saved = readSavedTheme();
+  const initialTheme = saved || "light";
   let currentTheme = apply(initialTheme);
 
   window.addEventListener("DOMContentLoaded", () => {

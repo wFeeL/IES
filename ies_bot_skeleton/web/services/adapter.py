@@ -231,11 +231,12 @@ def session_to_state(
             "load_mul": 0.10,
         }
     )
-    spent_total = sum(
-        float(lot.purchase_price or 0.0)
+    allpay_spent = max(0.0, float(getattr(session, "allpay_spent", 0.0) or 0.0))
+    owned_lot_ids = [
+        f"LOT{int(lot.id)}"
         for lot in session.lots
         if str(lot.status or "") == "bought"
-    )
+    ]
 
     state = State(
         schema_version=1,
@@ -243,8 +244,10 @@ def session_to_state(
             ticks_per_day=int(time_cfg.get("ticks_per_day", 48) or 48),
             horizon_ticks=int(time_cfg.get("horizon_ticks", 48) or 48),
         ),
-        budget=Budget(cash=float(session.budget_total or 0.0), allpay_spent=float(spent_total)),
-        owned_lots=[],
+        # Legacy domain model separates cash and all-pay spend.
+        # Purchase spend is represented by owned lots/objects, not by allpay_spent.
+        budget=Budget(cash=float(session.budget_total or 0.0), allpay_spent=float(allpay_spent)),
+        owned_lots=owned_lot_ids,
         owned_objects_override=list(owned_items),
         network_plan=_build_network_plan(session.objects, cfg),
         assumptions=Assumptions(
