@@ -106,6 +106,18 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return float(default)
 
 
+def _ignore_connection_sectors_cfg(cfg: Dict[str, Any]) -> bool:
+    del cfg
+    # Lot valuation is intentionally sector-agnostic:
+    # connection sectors (A/B/C/...) must not alter lot pricing and profit.
+    return True
+
+
+def _ignore_connection_sectors(session: GameSession) -> bool:
+    del session
+    return True
+
+
 def _weighted_expected(config: Dict[str, Any], base: float, worst: float, best: float) -> float:
     weighted = ((config.get("evaluation", {}) or {}).get("weighted_expected", {}) or {}).copy()
     if not weighted:
@@ -283,6 +295,59 @@ def _lot_connection_outlook(
     topology_issues = validate_session_network(list(_session_objects(session)))
     topology_errors = [issue for issue in topology_issues if str(issue.severity or "") == "error"]
     topology_invalid = bool(topology_errors)
+    sector_agnostic = _ignore_connection_sectors(session)
+
+    if sector_agnostic:
+        items: List[Dict[str, Any]] = []
+        total_items = 0
+        for lot in lots:
+            for item in _lot_items(lot):
+                if item.object_type is None:
+                    continue
+                qty = max(1, int(item.quantity or 1))
+                total_items += qty
+                items.append(
+                    {
+                        "lot_id": int(lot.id),
+                        "lot_name": lot.name,
+                        "object_type_code": item.object_type.code,
+                        "object_type_name": item.object_type.name,
+                        "category": item.object_type.category,
+                        "quantity": qty,
+                        "message": "Оценка лота выполняется без учёта секторов подключения.",
+                        "is_feasible": not topology_invalid,
+                    }
+                )
+
+        if topology_invalid:
+            blocked_items_count = max(len(topology_errors), total_items)
+            status = "blocked"
+            message = (
+                "Сетевая топология сессии некорректна: "
+                + "; ".join(str(issue.message) for issue in topology_errors[:3])
+            )
+            system_fit_score = float(-50.0 - len(topology_errors) * 10.0)
+        else:
+            blocked_items_count = 0
+            status = "neutral"
+            message = (
+                "Оценка выполняется без учёта секторов подключения "
+                "(A/B/C/...)."
+            )
+            system_fit_score = 0.0
+        feasible_items_count = max(0, total_items - blocked_items_count)
+        return {
+            "status": status,
+            "message": message,
+            "items": items,
+            "estimated_delta_total": 0.0,
+            "blocked_items_count": int(blocked_items_count),
+            "feasible_items_count": int(feasible_items_count),
+            "avg_recommended_loss_pct": 0.0,
+            "system_fit_score": float(system_fit_score),
+            "topology_invalid": bool(topology_invalid),
+            "topology_issues": [issue.to_dict() for issue in topology_issues],
+        }
 
     items: List[Dict[str, Any]] = []
     estimated_delta_total = 0.0
@@ -617,6 +682,7 @@ def _simulate_scenario(
     market_cfg = dict(cfg.get("market", {}) or {})
     fine_cfg = dict(cfg.get("fine", {}) or {})
     net_cfg = dict(cfg.get("network", {}) or {})
+    sector_agnostic = _ignore_connection_sectors_cfg(cfg)
     eco_cfg = dict(cfg.get("eco", {}) or {})
     storage_cfg = dict(cfg.get("storage", {}) or {})
     evaluation_cfg = dict(cfg.get("evaluation", {}) or {})
@@ -629,13 +695,18 @@ def _simulate_scenario(
     loss_tax = _as_float(net_cfg.get("loss_tax"), 1.0)
     base_loss_rate = 0.05
     default_connection_point = str(net_cfg.get("default_connection_point") or "A").strip().upper()
-    point_losses_raw = dict(net_cfg.get("connection_loss_pct_by_point") or {})
-    point_loss_by_connection: Dict[str, float] = {
-        str(key).strip().upper(): max(0.0, _as_float(value, 0.0)) / 100.0
-        for key, value in point_losses_raw.items()
-        if str(key).strip()
-    }
-    default_point_loss = float(point_loss_by_connection.get(default_connection_point, 0.0))
+    if sector_agnostic:
+        default_connection_point = "ANY"
+        point_loss_by_connection: Dict[str, float] = {default_connection_point: 0.0}
+        default_point_loss = 0.0
+    else:
+        point_losses_raw = dict(net_cfg.get("connection_loss_pct_by_point") or {})
+        point_loss_by_connection = {
+            str(key).strip().upper(): max(0.0, _as_float(value, 0.0)) / 100.0
+            for key, value in point_losses_raw.items()
+            if str(key).strip()
+        }
+        default_point_loss = float(point_loss_by_connection.get(default_connection_point, 0.0))
     storage_throughput_cost = max(
         0.0,
         _as_float(
@@ -669,6 +740,8 @@ def _simulate_scenario(
     line_capacity_default = max(0.0, _as_float(net_cfg.get("line_max_power_mw"), 0.0))
 
     def asset_connection_point(asset: Asset) -> str:
+        if sector_agnostic:
+            return default_connection_point
         return str(
             asset.parameters.get("connection_point")
             or asset.parameters.get("district")
@@ -702,26 +775,46 @@ def _simulate_scenario(
         infrastructure_loss_reduction_total += loss_reduction
 
     point_capacity_by_connection: Dict[str, float] = {}
-    for point in set(
-        [
-            *point_loss_by_connection.keys(),
-            *point_capacity_raw.keys(),
-            *(asset_connection_point(asset) for asset in assets),
-            default_connection_point,
-        ]
-    ):
-        base_capacity = max(0.0, _as_float(point_capacity_raw.get(point), line_capacity_default))
+    if sector_agnostic:
+        fallback_candidates = [max(0.0, line_capacity_default)]
+        fallback_candidates.extend(
+            max(0.0, _as_float(value, 0.0)) for value in point_capacity_raw.values()
+        )
+        shared_capacity = max(fallback_candidates) if fallback_candidates else 0.0
         support_bonus = max(
             0.0,
             _as_float(
-                (infrastructure_support_by_point.get(point) or {}).get("capacity_bonus_mw"),
+                (infrastructure_support_by_point.get(default_connection_point) or {}).get(
+                    "capacity_bonus_mw"
+                ),
                 0.0,
             ),
         )
-        capacity = base_capacity + support_bonus
+        capacity = shared_capacity + support_bonus
         if capacity <= 0.0:
             capacity = float("inf")
-        point_capacity_by_connection[point] = float(capacity)
+        point_capacity_by_connection[default_connection_point] = float(capacity)
+    else:
+        for point in set(
+            [
+                *point_loss_by_connection.keys(),
+                *point_capacity_raw.keys(),
+                *(asset_connection_point(asset) for asset in assets),
+                default_connection_point,
+            ]
+        ):
+            base_capacity = max(0.0, _as_float(point_capacity_raw.get(point), line_capacity_default))
+            support_bonus = max(
+                0.0,
+                _as_float(
+                    (infrastructure_support_by_point.get(point) or {}).get("capacity_bonus_mw"),
+                    0.0,
+                ),
+            )
+            capacity = base_capacity + support_bonus
+            if capacity <= 0.0:
+                capacity = float("inf")
+            point_capacity_by_connection[point] = float(capacity)
 
     all_connection_losses = [asset_connection_loss(asset) for asset in assets] or [default_point_loss]
     avg_connection_loss = float(sum(all_connection_losses) / len(all_connection_losses))

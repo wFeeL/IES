@@ -117,16 +117,16 @@
 
   <article class="card">
     <p class="section-kicker">Влияние на портфель</p>
-    <h2 class="h2">Бюджет, синергия и system-check</h2>
+    <h2 class="h2">Бюджет, синергия и системная проверка</h2>
     <div class="table-wrap mt-3">
       <table class="table">
         <tbody>
           <tr><th class="col-text">Остаток бюджета</th><td class="num">{{ fmt_num(evaluation.portfolio_context.remaining_budget, 1) }}</td></tr>
-          <tr><th class="col-text">Portfolio synergy</th><td class="num">{{ fmt_num(evaluation.metrics.synergy.score, 2) }}</td></tr>
-          <tr><th class="col-text">System fit score</th><td class="num">{{ fmt_num(evaluation.system_check.system_fit_score, 2) }}</td></tr>
-          <tr><th class="col-text">System-check</th><td>{{ evaluation.system_check.message }}</td></tr>
-          <tr><th class="col-text">Feasible items</th><td>{{ evaluation.system_check.feasible_items_count or 0 }}</td></tr>
-          <tr><th class="col-text">Blocked items</th><td>{{ evaluation.system_check.blocked_items_count or 0 }}</td></tr>
+          <tr><th class="col-text">Синергия с портфелем</th><td class="num">{{ fmt_num(evaluation.metrics.synergy.score, 2) }}</td></tr>
+          <tr><th class="col-text">Системный fit score</th><td class="num">{{ fmt_num(evaluation.system_check.system_fit_score, 2) }}</td></tr>
+          <tr><th class="col-text">Системная проверка</th><td>{{ evaluation.system_check.message }}</td></tr>
+          <tr><th class="col-text">Допустимые объекты</th><td>{{ evaluation.system_check.feasible_items_count or 0 }}</td></tr>
+          <tr><th class="col-text">Блокирующие объекты</th><td>{{ evaluation.system_check.blocked_items_count or 0 }}</td></tr>
         </tbody>
       </table>
     </div>
@@ -189,8 +189,8 @@
           <tr><th class="col-text">Ставка с учетом бюджета</th><td class="num">{{ fmt_num(evaluation.decision_summary.budget_adjusted_bid, 1) }}</td></tr>
           <tr><th class="col-text">Риск-премия в модели ставки</th><td class="num">{{ fmt_num(evaluation.metrics.bids.risk_premium, 2) }}</td></tr>
           <tr><th class="col-text">Резервный буфер</th><td class="num">{{ fmt_num(evaluation.metrics.bids.reserve_margin, 2) }}</td></tr>
-          <tr><th class="col-text">Portfolio synergy</th><td class="num">{{ fmt_num(evaluation.metrics.synergy.score, 2) }}</td></tr>
-          <tr><th class="col-text">System fit score</th><td class="num">{{ fmt_num(evaluation.system_check.system_fit_score, 2) }}</td></tr>
+          <tr><th class="col-text">Синергия с портфелем</th><td class="num">{{ fmt_num(evaluation.metrics.synergy.score, 2) }}</td></tr>
+          <tr><th class="col-text">Системный fit score</th><td class="num">{{ fmt_num(evaluation.system_check.system_fit_score, 2) }}</td></tr>
           <tr><th class="col-text">Соответствие стратегии</th><td>{{ evaluation.strategy_fit_text }}</td></tr>
           <tr><th class="col-text">Комментарий по рискам</th><td>{{ evaluation.risk_commentary }}</td></tr>
           <tr><th class="col-text">Влияние на портфель (чистая прибыль)</th><td>{{ fmt_num(evaluation.metrics.portfolio_delta.net_profit_base, 2) }}</td></tr>
@@ -209,33 +209,43 @@
 </section>
 
 <section class="card mt-4">
-  <p class="section-kicker">System-check</p>
-  <h2 class="h2">Рекомендации подключения для объектов лота</h2>
+  <p class="section-kicker">Системная проверка</p>
+  <h2 class="h2">Проверка состава лота</h2>
   <div class="risk-block mt-3">{{ evaluation.system_check.message }}</div>
+  {% set has_connection_points = evaluation.system_check['items'] and (
+    'current_point' in evaluation.system_check['items'][0] or
+    'recommended_point' in evaluation.system_check['items'][0]
+  ) %}
   <div class="table-wrap mt-3">
     <table class="table">
       <thead>
         <tr>
           <th class="col-text">Объект</th>
+          <th class="col-num">Количество</th>
+          {% if has_connection_points %}
           <th class="col-text">Текущая точка</th>
           <th class="col-text">Рекомендация</th>
           <th class="col-num">Потери</th>
           <th class="col-num">Остаток лимита</th>
+          {% endif %}
           <th class="col-text">Комментарий</th>
         </tr>
       </thead>
       <tbody>
         {% for item in evaluation.system_check['items'] %}
         <tr>
-          <td class="col-text">{{ item.object_type_name }} ×{{ item.quantity }}</td>
+          <td class="col-text">{{ item.object_type_name }}</td>
+          <td class="num">{{ item.quantity }}</td>
+          {% if has_connection_points %}
           <td class="col-text">{{ item.current_point or '—' }}</td>
           <td class="col-text">{{ item.recommended_point or '—' }}</td>
           <td class="num">{{ fmt_num(item.recommended_loss_pct, 1) }}%</td>
           <td class="num">{{ fmt_num(item.remaining_capacity_mw, 2) }}</td>
+          {% endif %}
           <td class="col-text">{{ item.message }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="muted">Для этого лота рекомендации подключения не требуются или пока недоступны.</td></tr>
+        <tr><td colspan="{{ 7 if has_connection_points else 3 }}" class="muted">Для этого лота дополнительные замечания по системной проверке не требуются.</td></tr>
         {% endfor %}
       </tbody>
     </table>

@@ -993,7 +993,11 @@ def lot_edit_page(lot_id: int):
         source = (form.items_state_json.data or "").strip() or (form.items_json.data or "").strip()
         try:
             items_payload = parse_json(source, field_name="items", default=[])
-            lot_items_from_payload(lot, items_payload)
+            lot_items_from_payload(
+                lot,
+                items_payload,
+                preserve_existing_overrides=True,
+            )
         except ValueError as exc:
             db.session.rollback()
             flash(str(exc), "error")

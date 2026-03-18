@@ -556,6 +556,53 @@ def test_analytics_rows_return_full_structure_items_without_truncation(client):
         assert label in str(row.get("structure") or "")
 
 
+def test_analytics_structure_items_are_sector_agnostic_in_presentation(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Structure points")
+    type_rows = client.get("/api/object-types").get_json()["items"]
+    by_code = {row["code"]: row for row in type_rows}
+
+    created = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Point-sensitive lot",
+            "scope": "normal",
+            "base_bid": 80.0,
+            "current_bid": 80.0,
+            "items": [
+                {
+                    "object_type_id": int(by_code["tps"]["id"]),
+                    "quantity": 1,
+                    "overrides": {"connection_point": "D"},
+                },
+                {
+                    "object_type_id": int(by_code["office"]["id"]),
+                    "quantity": 1,
+                    "overrides": {"connection_point": "C"},
+                },
+            ],
+        },
+    )
+    assert created.status_code == 200
+    lot_id = int(created.get_json()["item"]["id"])
+
+    analytics = client.get(f"/api/sessions/{session_id}/lots/analytics")
+    assert analytics.status_code == 200
+    row = next(item for item in analytics.get_json()["items"] if int(item["lot_id"]) == lot_id)
+
+    structure_items = list(row.get("structure_items") or [])
+    by_name = {item["name"]: item for item in structure_items}
+    assert "connection_point" not in by_name[by_code["tps"]["name"]]
+    assert "connection_point" not in by_name[by_code["office"]["name"]]
+    assert "display_label" not in by_name[by_code["tps"]["name"]]
+    assert "display_label" not in by_name[by_code["office"]["name"]]
+    assert "@D" not in str(row.get("structure") or "")
+    assert "@C" not in str(row.get("structure") or "")
+    assert f'{by_code["tps"]["name"]} ×1' in str(row.get("structure") or "")
+    assert f'{by_code["office"]["name"]} ×1' in str(row.get("structure") or "")
+
+
 def test_test_game_solar_storage_profit_is_not_inflated_anymore(client):
     login(client, "admin", "admin123")
     test_game_ruleset = ruleset_id_by_code(client, "ies_test_game_2026")

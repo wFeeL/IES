@@ -206,6 +206,30 @@
     );
   }
 
+  function structureText(row) {
+    const items = Array.isArray(row?.structure_items) ? row.structure_items : [];
+    const labels = items
+      .map((item) => String(item?.label || '').trim())
+      .filter(Boolean);
+    if (labels.length) {
+      return labels.join(', ');
+    }
+    return String(row?.structure || 'Пустой лот');
+  }
+
+  function structureCellHtml(row) {
+    const items = Array.isArray(row?.structure_items) ? row.structure_items : [];
+    const fullText = structureText(row);
+    if (items.length) {
+      const chips = items
+        .map((item) => `<span class="lot-chip">${escapeHtml(item?.label || '—')}</span>`)
+        .join('');
+      return `<div class="lot-chip-wrap" title="${escapeHtml(fullText)}">${chips}</div>`;
+    }
+    const safeText = escapeHtml(fullText);
+    return `<span class="text-clamp-2" title="${safeText}">${safeText}</span>`;
+  }
+
   function strategyNames(row) {
     if (row?.display_title) return row.display_title;
     const labels = Array.isArray(row?.lot_labels) ? row.lot_labels : [];
@@ -213,22 +237,62 @@
     return '—';
   }
 
+  function strategyLotsCount(row) {
+    return Array.isArray(row?.lot_ids) ? row.lot_ids.length : 0;
+  }
+
+  function strategyRowPrice(row) {
+    return Number(row?.working_bid || row?.total_price || 0);
+  }
+
+  function strategyRowProfit(row) {
+    return Number(row?.total_profit || row?.net_profit_base || 0);
+  }
+
+  function strategyMetricsLine(row) {
+    if (strategyLotsCount(row) <= 1) {
+      return `цена: ${formatNumber(strategyRowPrice(row), 1)} · прибыль: ${formatNumber(strategyRowProfit(row), 2)}`;
+    }
+    return (
+      `общая цена: ${formatNumber(strategyRowPrice(row), 1)} · ` +
+      `общая прибыль: ${formatNumber(strategyRowProfit(row), 2)} · ` +
+      `синергия: ${formatNumber(row?.synergy_score || 0, 2)}`
+    );
+  }
+
+  function renderStrategyBreakdown(row) {
+    const breakdown = Array.isArray(row?.lot_bid_breakdown) ? row.lot_bid_breakdown : [];
+    if (!breakdown.length) {
+      return '';
+    }
+    const lines = breakdown
+      .map((item) => {
+        const label = item?.lot_label || `${item?.lot_name || 'Лот'} (${Number(item?.lot_id || 0)})`;
+        const price = Number(
+          item?.recommended_bid ||
+          item?.allocated_working_bid ||
+          item?.budget_adjusted_bid ||
+          item?.allocated_target_bid ||
+          item?.price ||
+          0
+        );
+        const profit = Number(item?.profit || item?.allocated_net_profit || 0);
+        return `<li>${escapeHtml(label)} — цена: ${formatNumber(price, 1)}, прибыль: ${formatNumber(profit, 2)}</li>`;
+      })
+      .join('');
+    return `<ul class="strategy-lot-list mt-2">${lines}</ul>`;
+  }
+
   function renderStrategyRow(row, title) {
     if (!row) {
       return `<div class="muted">${title}: нет доступной альтернативы.</div>`;
     }
-    const breakdown = Array.isArray(row?.lot_bid_breakdown) ? row.lot_bid_breakdown : [];
-    const lines = breakdown
-      .map((item) => `${item.lot_label} — цена: ${formatNumber(item.price, 1)}, прибыль: ${formatNumber(item.profit, 2)}`)
-      .join('<br/>');
     return `
       <article class="card">
         <p class="section-kicker">${title}</p>
         <strong>${strategyNames(row)}</strong>
-        <div class="muted mt-2">цена: ${formatNumber(row.working_bid || row.total_price, 1)} · прибыль: ${formatNumber(row.total_profit || row.net_profit_base, 2)}</div>
-        <div class="muted">синергия: ${formatNumber(row.synergy_score, 2)} · полезность: ${formatNumber(row.utility_score || row.utility, 2)} · бюджет: ${row?.budget_fit?.is_affordable ? 'вмещается' : 'на пределе'}</div>
-        <div class="muted mt-2">${compactReason(row.explanation || row.reason || row.working_bid_reason || '')}</div>
-        ${lines ? `<div class="muted mt-2">${lines}</div>` : ''}
+        <div class="muted mt-2">${strategyMetricsLine(row)}</div>
+        ${renderStrategyBreakdown(row)}
       </article>
     `;
   }
@@ -466,7 +530,6 @@
       const fullReasonText = fullReason(row);
       const shortReasonText = shortReason(row);
       const lotName = escapeHtml(row?.name || `Лот ${lotId || '—'}`);
-      const structure = escapeHtml(row?.structure || 'Пустой лот');
       tr.dataset.lotId = String(row.lot_id || '');
       tr.innerHTML = `
         <td class="num">${index + 1}</td>
@@ -475,7 +538,7 @@
           <div class="table-secondary">Лот #${lotId || '—'}</div>
         </td>
         <td class="col-text qa-structure-cell">
-          <span class="text-clamp-2" title="${structure}">${structure}</span>
+          ${structureCellHtml(row)}
         </td>
         <td class="num">${formatNumber(row.summary_score, 2)}</td>
         <td class="num">${formatNumber(netProfit(row), 2)}</td>

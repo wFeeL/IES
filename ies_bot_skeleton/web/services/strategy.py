@@ -149,10 +149,14 @@ def _combo_eval(
         standalone_target = float(base.get("target_bid", 0.0) or 0.0)
         standalone_cautious = float(base.get("cautious_bid", 0.0) or 0.0)
         standalone_hard = float(base.get("hard_ceiling_bid", 0.0) or 0.0)
+        standalone_working = float(base.get("working_bid", 0.0) or 0.0)
         if len(ordered_lots) == 1 and standalone_target <= 0.0:
             standalone_target = float(bids.get("target_bid", 0.0) or 0.0)
             standalone_cautious = float(bids.get("cautious_bid", 0.0) or 0.0)
             standalone_hard = float(bids.get("hard_ceiling_bid", 0.0) or 0.0)
+            standalone_working = float(
+                payload.get("working_bid") or decision_summary.get("working_bid") or 0.0
+            )
         lot_price = float(lot.current_bid or 0.0)
         weight = standalone_target if standalone_target > 0.0 else lot_price
         if weight <= 0.0:
@@ -166,6 +170,7 @@ def _combo_eval(
                 "standalone_target_bid": standalone_target,
                 "standalone_cautious_bid": standalone_cautious,
                 "standalone_hard_ceiling_bid": standalone_hard,
+                "standalone_working_bid": standalone_working,
                 "weight": weight,
             }
         )
@@ -189,15 +194,9 @@ def _combo_eval(
     )
 
     combo_target_bid = float(bids.get("target_bid", 0.0) or 0.0)
-    budget_ratio = (
-        max(
-            0.0,
-            min(1.0, float(bids.get("budget_adjusted_bid", 0.0) or 0.0) / combo_target_bid),
-        )
-        if combo_target_bid > 0.0
-        else 1.0
-    )
-    lot_bid_breakdown: List[Dict[str, Any]] = []
+    combo_budget_adjusted = float(bids.get("budget_adjusted_bid", 0.0) or 0.0)
+    combo_working_bid = float(payload.get("working_bid") or decision_summary.get("working_bid") or 0.0)
+    provisional_allocations: List[Dict[str, Any]] = []
     for row in standalone_rows:
         share = float(row["weight"]) / weight_total
         allocated_target = max(
@@ -212,6 +211,50 @@ def _combo_eval(
             allocated_target,
             float(row["standalone_hard_ceiling_bid"]) + hard_synergy * share,
         )
+        provisional_allocations.append(
+            {
+                "row": row,
+                "share": float(share),
+                "allocated_target": float(allocated_target),
+                "allocated_cautious": float(allocated_cautious),
+                "allocated_hard": float(allocated_hard),
+            }
+        )
+
+    total_allocated_target = float(
+        sum(float(entry["allocated_target"] or 0.0) for entry in provisional_allocations)
+    )
+    if len(ordered_lots) == 1:
+        budget_scale = 0.0
+        working_scale = 0.0
+    elif total_allocated_target > 0.0:
+        budget_scale = max(0.0, combo_budget_adjusted / total_allocated_target)
+        working_scale = max(0.0, combo_working_bid / total_allocated_target)
+    else:
+        budget_scale = 0.0
+        working_scale = 0.0
+
+    lot_bid_breakdown: List[Dict[str, Any]] = []
+    for entry in provisional_allocations:
+        row = cast(Dict[str, Any], dict(entry.get("row") or {}))
+        share = float(entry.get("share") or 0.0)
+        allocated_target = float(entry.get("allocated_target") or 0.0)
+        allocated_cautious = float(entry.get("allocated_cautious") or 0.0)
+        allocated_hard = float(entry.get("allocated_hard") or 0.0)
+        if len(ordered_lots) == 1:
+            allocated_target = float(combo_target_bid)
+            allocated_cautious = float(bids.get("cautious_bid", 0.0) or 0.0)
+            allocated_hard = float(bids.get("hard_ceiling_bid", 0.0) or 0.0)
+            allocated_budget_adjusted = float(combo_budget_adjusted)
+            allocated_working = float(combo_working_bid)
+        else:
+            allocated_budget_adjusted = float(max(0.0, allocated_target * budget_scale))
+            allocated_working = float(max(0.0, allocated_target * working_scale))
+        recommended_bid = (
+            float(allocated_working)
+            if float(allocated_working) > 0.0
+            else float(allocated_budget_adjusted)
+        )
         lot_bid_breakdown.append(
             {
                 "lot_id": int(row["lot_id"]),
@@ -220,15 +263,18 @@ def _combo_eval(
                 "standalone_net_profit": float(row["standalone_net_profit"]),
                 "standalone_target_bid": float(row["standalone_target_bid"]),
                 "standalone_hard_ceiling_bid": float(row["standalone_hard_ceiling_bid"]),
+                "standalone_working_bid": float(row["standalone_working_bid"]),
                 "allocated_target_bid": float(allocated_target),
                 "allocated_cautious_bid": float(allocated_cautious),
                 "allocated_hard_ceiling_bid": float(allocated_hard),
+                "allocated_working_bid": float(allocated_working),
                 "synergy_allocated": float(target_synergy * share),
-                "budget_adjusted_bid": float(max(0.0, allocated_target * budget_ratio)),
+                "budget_adjusted_bid": float(allocated_budget_adjusted),
+                "recommended_bid": float(recommended_bid),
                 "allocated_net_profit": float(
                     float(row["standalone_net_profit"]) + float(synergy_profit * share)
                 ),
-                "price": float(max(0.0, allocated_target * budget_ratio)),
+                "price": float(recommended_bid),
                 "profit": float(
                     float(row["standalone_net_profit"]) + float(synergy_profit * share)
                 ),
@@ -357,6 +403,7 @@ def _build_combo_catalog(
             "target_bid": float(row.target_bid),
             "cautious_bid": float(row.cautious_bid),
             "hard_ceiling_bid": float(row.hard_ceiling_bid),
+            "working_bid": float(row.working_bid),
         }
 
     combos: Dict[Tuple[int, ...], ComboEvaluation] = {row.lot_ids: row for row in singles}

@@ -14,6 +14,18 @@
     return Math.floor(out);
   }
 
+  function parseOverrides(raw) {
+    try {
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return {...parsed};
+      }
+      return {};
+    } catch (_) {
+      return {};
+    }
+  }
+
   function setupLotEditor() {
     const cfg = window.IES_LOT_EDITOR || {};
     const rowsEl = document.getElementById("lotEditorRows");
@@ -25,6 +37,7 @@
     if (!rowsEl || !addBtn || !hiddenEl) return;
 
     const objectTypes = Array.isArray(cfg.objectTypes) ? cfg.objectTypes : [];
+    const preserveOverrides = Boolean(cfg.preserveOverrides);
     const defaultTypeId = objectTypes.length ? Number(objectTypes[0].id) : 0;
     const typeOptions = objectTypes
       .map((row) => `<option value="${row.id}">${row.code} / ${row.name}</option>`)
@@ -48,6 +61,17 @@
       summaryEl.textContent = `Суммарно объектов: ${total}. Потребители: ${counts.consumer || 0}, генераторы: ${counts.generator || 0}, накопители: ${counts.storage || 0}, инфраструктура: ${counts.infrastructure || 0}.`;
     }
 
+    function extractRowOverrides(tr, typeId) {
+      let overrides = {};
+      const sourceTypeId = toInt(tr.dataset.sourceTypeId || 0, 0);
+      if (preserveOverrides && sourceTypeId > 0 && sourceTypeId === typeId) {
+        overrides = parseOverrides(tr.dataset.overridesJson || "{}");
+      }
+      tr.dataset.sourceTypeId = String(typeId);
+      tr.dataset.overridesJson = JSON.stringify(overrides);
+      return overrides;
+    }
+
     function collectRows() {
       const lines = Array.from(rowsEl.querySelectorAll("tr"))
         .map((tr) => {
@@ -55,11 +79,12 @@
           const quantity = Math.max(1, toInt(tr.querySelector(".le-qty")?.value || 1, 1));
           if (!typeId) return null;
           const typeRow = objectTypes.find((x) => Number(x.id) === Number(typeId));
+          const overrides = extractRowOverrides(tr, typeId);
           return {
             object_type_id: typeId,
             object_type_code: typeRow ? typeRow.code : null,
             quantity,
-            overrides: {},
+            overrides,
           };
         })
         .filter(Boolean);
@@ -73,6 +98,9 @@
     function addRow(item) {
       const tr = document.createElement("tr");
       const selectedType = item.object_type_id ? String(item.object_type_id) : String(defaultTypeId || "");
+      const sourceOverrides = parseOverrides(item?.overrides || {});
+      tr.dataset.sourceTypeId = selectedType;
+      tr.dataset.overridesJson = JSON.stringify(sourceOverrides);
       tr.innerHTML = `
         <td><select class="input le-type">${typeOptions}</select></td>
         <td><input class="input le-qty" type="number" min="1" value="${Math.max(1, toInt(item.quantity || 1, 1))}" /></td>

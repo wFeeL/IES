@@ -82,8 +82,8 @@
 <section class="card mt-4">
   <div class="section-head">
     <div>
-      <p class="section-kicker">Auction strategy</p>
-      <h2 class="h2">Следующий ход после покупки и после потери лучшего лота</h2>
+      <p class="section-kicker">Стратегия</p>
+      <h2 class="h2">Компактный план: текущий ход, Plan B/Plan C и сценарии после изменения портфеля</h2>
     </div>
   </div>
   {% if forecast_blocked %}
@@ -156,7 +156,13 @@
             <div class="table-secondary">Лот #{{ row.lot_id }}</div>
           </td>
           <td class="col-text qa-structure-cell">
-            <span class="text-clamp-2" title="{{ row.structure }}">{{ row.structure or 'Пустой лот' }}</span>
+            <div class="lot-chip-wrap" title="{{ row.structure or 'Пустой лот' }}">
+              {% for item in row.structure_items %}
+              <span class="lot-chip">{{ item.label }}</span>
+              {% else %}
+              <span class="text-clamp-2">{{ row.structure or 'Пустой лот' }}</span>
+              {% endfor %}
+            </div>
           </td>
           <td class="num">{{ fmt_num(row.summary_score, 2) }}</td>
           <td class="num">{{ fmt_num(row.financial_breakdown.result.net_profit, 2) }}</td>

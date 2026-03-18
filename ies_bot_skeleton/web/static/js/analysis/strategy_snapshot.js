@@ -10,8 +10,8 @@
   const PLAN_TITLES = ['Plan B', 'Plan C'];
   const FALLBACK_SCENARIO_TITLES = {
     full_budget: 'Полный бюджет',
-    after_purchase: 'After purchase',
-    after_loss: 'After loss',
+    after_purchase: 'После покупки',
+    after_loss: 'После потери лучшего лота',
   };
 
   function formatNumber(value, digits) {
@@ -44,9 +44,13 @@
     return `${text.slice(0, limit - 1)}...`;
   }
 
-  function names(row) {
+  function rowLotsCount(row) {
+    return Array.isArray(row?.lot_ids) ? row.lot_ids.length : 0;
+  }
+
+  function rowTitle(row) {
     if (row?.display_title) {
-      return row.display_title;
+      return String(row.display_title);
     }
     const lotLabels = Array.isArray(row?.lot_labels) ? row.lot_labels : [];
     if (lotLabels.length) {
@@ -60,39 +64,65 @@
     return lotNames.map((label, index) => `${label} (${lotIds[index] || 0})`).join(' + ');
   }
 
-  function renderLotBidBreakdown(row, withProfit) {
+  function rowPrice(row) {
+    return Number(row?.working_bid || row?.total_price || 0);
+  }
+
+  function rowProfit(row) {
+    return Number(row?.total_profit ?? row?.net_profit_base ?? 0);
+  }
+
+  function rowSynergy(row) {
+    return Number(row?.synergy_score ?? row?.synergy ?? 0);
+  }
+
+  function rowMetrics(row) {
+    if (rowLotsCount(row) <= 1) {
+      return `цена: ${formatNumber(rowPrice(row), 1)} · прибыль: ${formatNumber(rowProfit(row), 2)}`;
+    }
+    return (
+      `общая цена: ${formatNumber(rowPrice(row), 1)} · ` +
+      `общая прибыль: ${formatNumber(rowProfit(row), 2)} · ` +
+      `синергия: ${formatNumber(rowSynergy(row), 2)}`
+    );
+  }
+
+  function renderLotBreakdown(row) {
     const breakdown = Array.isArray(row?.lot_bid_breakdown) ? row.lot_bid_breakdown : [];
     if (!breakdown.length) {
       return '';
     }
-    return breakdown
+    const items = breakdown
       .map((item) => {
-        const lotLabel = item?.lot_label
+        const label = item?.lot_label
           ? escapeHtml(item.lot_label)
           : `${escapeHtml(item?.lot_name || 'Лот')} (${Number(item?.lot_id || 0)})`;
-        const purchasePrice = Number(item?.budget_adjusted_bid || item?.allocated_target_bid || 0);
-        const profitPart = withProfit
-          ? `, прибыль: ${formatNumber(item?.allocated_net_profit, 2)}`
-          : '';
-        return `${lotLabel} — цена: ${formatNumber(purchasePrice, 1)}${profitPart}`;
+        const price = Number(
+          item?.recommended_bid ||
+          item?.allocated_working_bid ||
+          item?.budget_adjusted_bid ||
+          item?.allocated_target_bid ||
+          item?.price ||
+          0
+        );
+        const profit = Number(item?.profit ?? item?.allocated_net_profit ?? 0);
+        return `<li>${label} — цена: ${formatNumber(price, 1)}, прибыль: ${formatNumber(profit, 2)}</li>`;
       })
-      .join('<br/>');
+      .join('');
+    return `<ul class="strategy-lot-list mt-2">${items}</ul>`;
   }
 
-  function renderSessionList(rows, emptyMessage, detailBuilder) {
+  function renderSessionList(rows, emptyMessage) {
     if (!Array.isArray(rows) || rows.length === 0) {
       return `<li class="muted">${escapeHtml(emptyMessage)}</li>`;
     }
     return rows
       .map((row) => {
-        const breakdownHtml = renderLotBidBreakdown(row, true);
         return (
-          `<li><strong>${escapeHtml(names(row))}</strong><br/>` +
-          `<span class="muted">${detailBuilder(row)}</span>` +
-          `<div class="muted mt-1">Рабочая цена: ${formatNumber(row?.working_bid, 1)} · ` +
-          `Осторожная цена: ${formatNumber(row?.cautious_bid, 1)} · ` +
-          `Предельная цена: ${formatNumber(row?.hard_ceiling_bid, 1)}</div>` +
-          (breakdownHtml ? `<div class="muted mt-1">${breakdownHtml}</div>` : '') +
+          `<li class="strategy-list-item">` +
+          `<strong>${escapeHtml(rowTitle(row))}</strong>` +
+          `<span class="muted">${escapeHtml(rowMetrics(row))}</span>` +
+          `${renderLotBreakdown(row)}` +
           `</li>`
         );
       })
@@ -112,14 +142,14 @@
     }
 
     const warning =
-      Number(best.working_bid || 0) > Number(remainingBudget || 0)
+      Number(rowPrice(best)) > Number(remainingBudget || 0)
         ? '<div class="flash flash-warning mt-3">Экономически оправдано, но не помещается в текущий бюджет.</div>'
         : '';
 
     const alternatives = [scenario?.plan_b, scenario?.plan_c].filter(Boolean);
     const alternativesHtml = alternatives.length
       ? `<ul class="stack gap-1 mt-3">${alternatives
-          .map((row, index) => `<li><strong>${PLAN_TITLES[index] || `Plan ${index + 2}`}:</strong> ${escapeHtml(names(row))} · рабочая цена ${formatNumber(row.working_bid, 1)} · прибыль ${formatNumber(row.total_profit ?? row.net_profit_base, 2)}</li>`)
+          .map((row, index) => `<li><strong>${PLAN_TITLES[index] || `Plan ${index + 2}`}:</strong> ${escapeHtml(rowTitle(row))} · ${escapeHtml(rowMetrics(row))}</li>`)
           .join('')}</ul>`
       : '';
 
@@ -127,52 +157,30 @@
       <article class="card">
         <p class="section-kicker">${escapeHtml(title)}</p>
         <div class="muted mt-2">${escapeHtml(scenario?.note || '')}</div>
-        <div class="insight-grid mt-3">
-          <div class="metric-card"><span class="metric-label">Лучшая комбинация</span><strong>${escapeHtml(names(best))}</strong></div>
-          <div class="metric-card"><span class="metric-label">Риск-скорректированная прибыль</span><strong>${formatNumber(best.risk_adjusted_net_profit, 2)}</strong></div>
-          <div class="metric-card"><span class="metric-label">Чистая прибыль</span><strong>${formatNumber(best.total_profit ?? best.net_profit_base, 2)}</strong></div>
-          <div class="metric-card"><span class="metric-label">Синергия</span><strong>${formatNumber(best.synergy_score, 2)}</strong></div>
-          <div class="metric-card"><span class="metric-label">Рабочая ставка</span><strong>${formatNumber(best.working_bid, 1)}</strong></div>
-          <div class="metric-card"><span class="metric-label">Ставка с учетом бюджета</span><strong>${formatNumber(best.budget_adjusted_bid, 1)}</strong></div>
+        <div class="mt-3 strategy-list-item">
+          <strong>${escapeHtml(rowTitle(best))}</strong>
+          <span class="muted">${escapeHtml(rowMetrics(best))}</span>
+          ${renderLotBreakdown(best)}
         </div>
         ${warning}
         ${alternativesHtml}
         <div class="grid cols-3 gap-4 mt-4">
           <article class="card">
-            <p class="section-kicker">Лучшие одиночные</p>
+            <p class="section-kicker">Одиночные</p>
             <ul class="stack gap-2 mt-2">
-              ${renderSessionList(
-                scenario.best_singles,
-                'Нет доступных одиночных рекомендаций.',
-                (row) =>
-                  `цена: ${formatNumber(row.working_bid, 1)} · ` +
-                  `прибыль: ${formatNumber(row.total_profit ?? row.net_profit_base, 2)}`
-              )}
+              ${renderSessionList(scenario.best_singles, 'Нет доступных одиночных рекомендаций.')}
             </ul>
           </article>
           <article class="card">
-            <p class="section-kicker">Лучшие пары</p>
+            <p class="section-kicker">Пары</p>
             <ul class="stack gap-2 mt-2">
-              ${renderSessionList(
-                scenario.best_pairs,
-                'Пары в бюджете не найдены.',
-                (row) =>
-                  `цена: ${formatNumber(row.working_bid, 1)} · ` +
-                  `прибыль: ${formatNumber(row.total_profit ?? row.net_profit_base, 2)} · ` +
-                  `синергия: ${formatNumber(row.synergy_score, 2)}`
-              )}
+              ${renderSessionList(scenario.best_pairs, 'Пары в бюджете не найдены.')}
             </ul>
           </article>
           <article class="card">
-            <p class="section-kicker">Лучшие группы</p>
+            <p class="section-kicker">Группы</p>
             <ul class="stack gap-2 mt-2">
-              ${renderSessionList(
-                scenario.best_groups,
-                'Группы в бюджете не найдены.',
-                (row) =>
-                  `цена: ${formatNumber(row.working_bid || row.total_price, 1)} · ` +
-                  `прибыль: ${formatNumber(row.total_profit ?? row.net_profit_base, 2)}`
-              )}
+              ${renderSessionList(scenario.best_groups, 'Группы в бюджете не найдены.')}
             </ul>
           </article>
         </div>
@@ -217,16 +225,15 @@
     }
     return rows
       .map((row) => {
-        const breakdown = renderLotBidBreakdown(row, true);
-        const reason = String(row.reason || '—');
+        const reason = compactText(String(row?.reason || ''), 120) || '—';
         return `
           <tr>
-            <td class="col-text">${escapeHtml(names(row))}</td>
-            <td class="num">${formatNumber(row.synergy_score, 2)}</td>
-            <td class="num">${formatNumber(row.net_profit_base, 2)}</td>
-            <td class="num">${formatNumber(row.working_bid, 1)}</td>
-            <td class="col-text">${breakdown || '—'}</td>
-            <td class="col-text"><span class="text-clamp-2" title="${escapeHtml(reason)}">${escapeHtml(compactText(reason, 120) || '—')}</span></td>
+            <td class="col-text">${escapeHtml(rowTitle(row))}</td>
+            <td class="num">${formatNumber(rowSynergy(row), 2)}</td>
+            <td class="num">${formatNumber(rowProfit(row), 2)}</td>
+            <td class="num">${formatNumber(rowPrice(row), 1)}</td>
+            <td class="col-text">${renderLotBreakdown(row) || '—'}</td>
+            <td class="col-text"><span class="text-clamp-2" title="${escapeHtml(String(row?.reason || ''))}">${escapeHtml(reason)}</span></td>
           </tr>
         `;
       })

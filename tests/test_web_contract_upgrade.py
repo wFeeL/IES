@@ -156,22 +156,120 @@ def test_strategy_snapshot_has_titles_and_per_lot_prices(client):
         if scenario.get("best_combination") is not None:
             assert float(scenario["best_combination"]["working_bid"]) > 0.0
     strategy_js = client.get("/static/js/analysis/strategy_snapshot.js").get_data(as_text=True)
-    assert "— цена:" in strategy_js
+    assert "общая цена:" in strategy_js
+    assert "общая прибыль:" in strategy_js
     assert "прибыль:" in strategy_js
+    assert "strategy-lot-list" in strategy_js
     assert "Plan B" in strategy_js
-    assert "After purchase" in strategy_js
-    assert "formatNumber(row.working_bid, 1)" in strategy_js
+    assert "После покупки" in strategy_js
+    assert "ставить до:" not in strategy_js
     assert "Название группы -" not in strategy_js
     for row in rows:
         assert re.search(r"\(\d+\)", row["display_title"])
         assert "working_bid" in row
         assert "budget_adjusted_bid" in row
         assert "budget_fit" in row
-        for breakdown in row.get("lot_bid_breakdown") or []:
+        breakdown_rows = list(row.get("lot_bid_breakdown") or [])
+        if len(row.get("lot_ids") or []) == 1 and breakdown_rows:
+            part = breakdown_rows[0]
+            assert float(part.get("recommended_bid") or 0.0) == pytest.approx(
+                float(row.get("working_bid") or 0.0)
+            )
+            assert float(part.get("standalone_working_bid") or 0.0) == pytest.approx(
+                float(row.get("working_bid") or 0.0)
+            )
+        if len(row.get("lot_ids") or []) >= 2 and breakdown_rows:
+            assert sum(float(part.get("recommended_bid") or 0.0) for part in breakdown_rows) == pytest.approx(
+                float(row.get("working_bid") or 0.0)
+            )
+        for breakdown in breakdown_rows:
             assert "budget_adjusted_bid" in breakdown
             assert "allocated_net_profit" in breakdown
+            assert "allocated_working_bid" in breakdown
+            assert "standalone_working_bid" in breakdown
+            assert "recommended_bid" in breakdown
             assert "price" in breakdown
             assert "profit" in breakdown
+
+
+def test_lot_evaluation_ignores_connection_sectors_for_identical_compositions(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Sector-agnostic lots")
+    tmap = _type_map(client)
+
+    lot_a = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "TPS+Office D/C",
+            "scope": "normal",
+            "base_bid": 70,
+            "current_bid": 70,
+            "items": [
+                {
+                    "object_type_id": tmap["tps"],
+                    "quantity": 1,
+                    "overrides": {"connection_point": "D"},
+                },
+                {
+                    "object_type_id": tmap["office"],
+                    "quantity": 1,
+                    "overrides": {"connection_point": "C"},
+                },
+            ],
+        },
+    )
+    assert lot_a.status_code == 200
+    lot_a_id = int(lot_a.get_json()["item"]["id"])
+
+    lot_b = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "TPS+Office A/A",
+            "scope": "normal",
+            "base_bid": 70,
+            "current_bid": 70,
+            "items": [
+                {
+                    "object_type_id": tmap["tps"],
+                    "quantity": 1,
+                    "overrides": {"connection_point": "A"},
+                },
+                {
+                    "object_type_id": tmap["office"],
+                    "quantity": 1,
+                    "overrides": {"connection_point": "A"},
+                },
+            ],
+        },
+    )
+    assert lot_b.status_code == 200
+    lot_b_id = int(lot_b.get_json()["item"]["id"])
+
+    eval_a = client.post(f"/api/lots/{lot_a_id}/evaluate", json={})
+    eval_b = client.post(f"/api/lots/{lot_b_id}/evaluate", json={})
+    assert eval_a.status_code == 200
+    assert eval_b.status_code == 200
+    row_a = eval_a.get_json()["item"]
+    row_b = eval_b.get_json()["item"]
+
+    assert float(row_a["summary_score"]) == pytest.approx(float(row_b["summary_score"]))
+    assert float(row_a["working_bid"]) == pytest.approx(float(row_b["working_bid"]))
+    assert float(row_a["financial_breakdown"]["result"]["net_profit"]) == pytest.approx(
+        float(row_b["financial_breakdown"]["result"]["net_profit"])
+    )
+    assert float(row_a["financial_breakdown"]["losses_and_risks"]["risk_total"]) == pytest.approx(
+        float(row_b["financial_breakdown"]["losses_and_risks"]["risk_total"])
+    )
+    assert float(row_a["system_check"]["system_fit_score"]) == pytest.approx(0.0)
+    assert float(row_b["system_check"]["system_fit_score"]) == pytest.approx(0.0)
+    assert "A/B/C" in str(row_a["system_check"]["message"])
+    assert "A/B/C" in str(row_b["system_check"]["message"])
+    for row in (row_a, row_b):
+        for item in row["system_check"]["items"]:
+            assert "current_point" not in item
+            assert "recommended_point" not in item
 
 
 def test_risk_metric_is_non_zero_and_scenario_texts_differ(client):

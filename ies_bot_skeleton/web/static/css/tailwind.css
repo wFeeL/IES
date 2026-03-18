@@ -1075,6 +1075,18 @@ html[data-theme="dark"] .input {
   padding-bottom: 0;
 }
 
+.strategy-lot-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.strategy-lot-list li {
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
 .danger-zone {
   background: linear-gradient(180deg, rgba(191, 62, 80, 0.08), rgba(255, 255, 255, 0.7));
   border-color: rgba(191, 62, 80, 0.24);

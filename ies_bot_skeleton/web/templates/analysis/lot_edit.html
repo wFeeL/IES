@@ -55,6 +55,7 @@
 <script>
 window.IES_LOT_EDITOR = {
   initialItemsRaw: {{ (form.items_state_json.data or form.items_json.data or '[]')|tojson }},
+  preserveOverrides: true,
   objectTypes: [
     {% for row in object_types %}
     {id: {{ row.id }}, code: {{ row.code|tojson }}, name: {{ row.name|tojson }}, category: {{ row.category|tojson }}}{% if not loop.last %},{% endif %}

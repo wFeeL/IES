@@ -67,15 +67,32 @@ def get_lot_or_404(lot_id: int) -> Lot:
     return row
 
 
-def lot_items_from_payload(lot: Lot, items_payload: List[Dict[str, Any]]) -> None:
+def lot_items_from_payload(
+    lot: Lot,
+    items_payload: List[Dict[str, Any]],
+    *,
+    preserve_existing_overrides: bool = False,
+) -> None:
     normalized = normalize_lot_items(items_payload)
+    existing_overrides: Dict[int, List[Dict[str, Any]]] = {}
+    if preserve_existing_overrides:
+        for item in sorted(list(lot.items), key=lambda row: int(row.id or 0)):
+            type_id = int(item.object_type_id or 0)
+            existing_overrides.setdefault(type_id, []).append(dict(item.overrides_json or {}))
+
     lot.items.clear()
     for row in normalized:
+        type_id = int(row["object_type_id"])
+        overrides = dict(row.get("overrides", {}) or {})
+        if preserve_existing_overrides and not overrides:
+            bucket = existing_overrides.get(type_id) or []
+            if bucket:
+                overrides = dict(bucket.pop(0) or {})
         lot.items.append(
             LotItem(
-                object_type_id=int(row["object_type_id"]),
+                object_type_id=type_id,
                 quantity=max(1, int(row.get("quantity", 1) or 1)),
-                overrides_json=dict(row.get("overrides", {}) or {}),
+                overrides_json=overrides,
             )
         )
 

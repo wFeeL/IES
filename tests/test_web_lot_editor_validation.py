@@ -40,6 +40,65 @@ def test_lot_editor_prefers_visual_payload(client):
     assert lots[0]["items"][0]["object_type_id"] == wind_id
 
 
+def test_lot_editor_edit_preserves_existing_overrides_when_visual_rows_are_compact(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Lot editor keep overrides")
+    type_map = _type_map(client)
+
+    created = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Override source",
+            "scope": "normal",
+            "base_bid": 100,
+            "current_bid": 100,
+            "items": [
+                {
+                    "object_type_id": type_map["tps"],
+                    "quantity": 1,
+                    "overrides": {"connection_point": "D", "contract_rub_per_tick": 0.0},
+                },
+                {
+                    "object_type_id": type_map["office"],
+                    "quantity": 1,
+                    "overrides": {"connection_point": "C", "tariff_rub_per_mw_tick": 5.0},
+                },
+            ],
+        },
+    )
+    assert created.status_code == 200
+    lot_id = int(created.get_json()["item"]["id"])
+
+    compact_edit_form = {
+        "session_id": str(session_id),
+        "name": "Override source",
+        "scope": "normal",
+        "base_bid": "100",
+        "current_bid": "100",
+        "available_round": "1",
+        "note": "",
+        "items_state_json": json.dumps(
+            [
+                {"object_type_id": type_map["tps"], "quantity": 1, "overrides": {}},
+                {"object_type_id": type_map["office"], "quantity": 1, "overrides": {}},
+            ]
+        ),
+        "items_json": "[]",
+    }
+    resp = client.post(
+        f"/lots/item/{lot_id}/edit",
+        data=compact_edit_form,
+        follow_redirects=False,
+    )
+    assert resp.status_code in (302, 303)
+
+    lot_payload = client.get(f"/api/lots/{lot_id}").get_json()["item"]
+    item_by_code = {row["object_type_code"]: row for row in lot_payload["items"]}
+    assert item_by_code["tps"]["overrides"]["connection_point"] == "D"
+    assert item_by_code["office"]["overrides"]["connection_point"] == "C"
+
+
 def test_lot_editor_renders_single_hidden_state_fields(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Lot editor html")
@@ -51,6 +110,8 @@ def test_lot_editor_renders_single_hidden_state_fields(client):
     assert html.count('name="items_state_json"') == 1
     assert html.count('name="items_json"') == 1
     assert html.count('name="session_id"') == 1
+    assert "showConnectionPoint" not in html
+    assert "defaultConnectionPoint" not in html
 
 
 def test_lot_editor_rejects_invalid_lot_payload(client):
