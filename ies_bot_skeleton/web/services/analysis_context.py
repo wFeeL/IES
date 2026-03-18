@@ -15,6 +15,8 @@ def session_analysis_settings(session: GameSession) -> Dict[str, Any]:
         "selected_forecast_id": (
             int(session.selected_forecast_id) if session.selected_forecast_id else None
         ),
+        "allpay_spent": float(getattr(session, "allpay_spent", 0.0) or 0.0),
+        "analysis_mode": "unified",
     }
 
 
@@ -45,6 +47,10 @@ def update_session_analysis_settings(
         session.selected_forecast_id = selected.id if selected is not None else None
     else:
         session.selected_forecast_id = None
+
+    if "allpay_spent" in payload:
+        session.allpay_spent = max(0.0, float(payload.get("allpay_spent", 0.0) or 0.0))
+
     return session_analysis_settings(session)
 
 

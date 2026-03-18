@@ -191,7 +191,7 @@
           <tr><th class="col-text">Резервный буфер</th><td class="num">{{ fmt_num(evaluation.metrics.bids.reserve_margin, 2) }}</td></tr>
           <tr><th class="col-text">Синергия с портфелем</th><td class="num">{{ fmt_num(evaluation.metrics.synergy.score, 2) }}</td></tr>
           <tr><th class="col-text">Системный fit score</th><td class="num">{{ fmt_num(evaluation.system_check.system_fit_score, 2) }}</td></tr>
-          <tr><th class="col-text">Соответствие стратегии</th><td>{{ evaluation.strategy_fit_text }}</td></tr>
+          <tr><th class="col-text">Режим анализа</th><td>{{ evaluation.strategy_fit_text }}</td></tr>
           <tr><th class="col-text">Комментарий по рискам</th><td>{{ evaluation.risk_commentary }}</td></tr>
           <tr><th class="col-text">Влияние на портфель (чистая прибыль)</th><td>{{ fmt_num(evaluation.metrics.portfolio_delta.net_profit_base, 2) }}</td></tr>
           <tr><th class="col-text">Влияние на портфель (risk-adjusted)</th><td>{{ fmt_num(evaluation.metrics.portfolio_delta.risk_adjusted_net_profit, 2) }}</td></tr>

@@ -46,7 +46,7 @@ def create_session_record(payload: Dict[str, Any]) -> GameSession:
     row = GameSession(
         title=title,
         ruleset_id=int(ruleset_id),
-        selected_strategy=str(payload.get("selected_strategy", "balanced")),
+        selected_strategy="unified",
         selected_forecast_id=None,
         budget_total=budget_value,
         allpay_spent=float(payload.get("allpay_spent", 0.0) or 0.0),

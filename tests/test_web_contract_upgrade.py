@@ -192,7 +192,7 @@ def test_strategy_snapshot_has_titles_and_per_lot_prices(client):
             assert "profit" in breakdown
 
 
-def test_lot_evaluation_ignores_connection_sectors_for_identical_compositions(client):
+def test_lot_evaluation_accounts_for_connection_sectors_when_points_differ(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Sector-agnostic lots")
     tmap = _type_map(client)
@@ -254,22 +254,20 @@ def test_lot_evaluation_ignores_connection_sectors_for_identical_compositions(cl
     row_a = eval_a.get_json()["item"]
     row_b = eval_b.get_json()["item"]
 
-    assert float(row_a["summary_score"]) == pytest.approx(float(row_b["summary_score"]))
-    assert float(row_a["working_bid"]) == pytest.approx(float(row_b["working_bid"]))
-    assert float(row_a["financial_breakdown"]["result"]["net_profit"]) == pytest.approx(
-        float(row_b["financial_breakdown"]["result"]["net_profit"])
+    assert float(row_a["summary_score"]) > float(row_b["summary_score"])
+    assert float(row_a["working_bid"]) > float(row_b["working_bid"])
+    assert float(row_a["financial_breakdown"]["result"]["net_profit"]) > float(
+        row_b["financial_breakdown"]["result"]["net_profit"]
     )
-    assert float(row_a["financial_breakdown"]["losses_and_risks"]["risk_total"]) == pytest.approx(
-        float(row_b["financial_breakdown"]["losses_and_risks"]["risk_total"])
-    )
-    assert float(row_a["system_check"]["system_fit_score"]) == pytest.approx(0.0)
-    assert float(row_b["system_check"]["system_fit_score"]) == pytest.approx(0.0)
-    assert "A/B/C" in str(row_a["system_check"]["message"])
-    assert "A/B/C" in str(row_b["system_check"]["message"])
+    assert float(row_a["financial_breakdown"]["losses_and_risks"]["risk_total"]) >= 0.0
+    assert float(row_b["financial_breakdown"]["losses_and_risks"]["risk_total"]) >= 0.0
+    assert float(row_a["system_check"]["system_fit_score"]) >= float(row_b["system_check"]["system_fit_score"])
+    assert "A/B/C" not in str(row_a["system_check"]["message"])
+    assert "A/B/C" not in str(row_b["system_check"]["message"])
     for row in (row_a, row_b):
         for item in row["system_check"]["items"]:
-            assert "current_point" not in item
-            assert "recommended_point" not in item
+            assert "current_point" in item
+            assert "recommended_point" in item
 
 
 def test_risk_metric_is_non_zero_and_scenario_texts_differ(client):

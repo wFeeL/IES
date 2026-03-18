@@ -81,7 +81,7 @@ def test_session_dashboard_shows_forecast_portfolio_and_quick_actions(client):
     assert "Периодов" not in html
     assert "Готовность данных" in html
     assert "Бюджет и портфель" in html
-    assert "Стратегия" in html
+    assert "Режим" in html
     assert "одиночные лоты, пары и группы" in html
     assert "Совместимость" in html
     assert "Лоты" in html

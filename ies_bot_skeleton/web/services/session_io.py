@@ -144,7 +144,7 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
     out_session = GameSession(
         title=title,
         ruleset_id=ruleset.id,
-        selected_strategy=str(session_payload.get("selected_strategy", "balanced")),
+        selected_strategy="unified",
         selected_forecast_id=None,
         budget_total=float(session_payload.get("budget_total", 9999.0) or 9999.0),
         allpay_spent=float(session_payload.get("allpay_spent", 0.0) or 0.0),

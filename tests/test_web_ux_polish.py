@@ -5,7 +5,7 @@ import json
 from tests.web_helpers import create_session, login
 
 
-def test_dashboard_uses_session_terms_and_strategy_help(client):
+def test_dashboard_uses_session_terms_and_unified_analysis_help(client):
     login(client, "admin", "admin123")
 
     session_id = create_session(client, title="UX session", selected_strategy="eco")
@@ -15,9 +15,9 @@ def test_dashboard_uses_session_terms_and_strategy_help(client):
     html = resp.get_data(as_text=True)
 
     assert "Создать сессию" in html
-    assert "Пояснение к стратегии" in html
+    assert "Как читается оценка" in html
     assert "Открыть сессию" in html
-    assert "Экологическая" in html
+    assert "Единый анализ" in html
     assert f"/sessions/{session_id}" in html
 
 

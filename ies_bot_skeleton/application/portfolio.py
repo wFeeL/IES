@@ -15,13 +15,21 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def spent_total(session: GameSession) -> float:
+def purchase_spent_total(session: GameSession) -> float:
     total = 0.0
     for lot in session.lots:
         if lot.status != "bought":
             continue
         total += float(lot.purchase_price or 0.0)
     return float(total)
+
+
+def allpay_spent_total(session: GameSession) -> float:
+    return max(0.0, float(getattr(session, "allpay_spent", 0.0) or 0.0))
+
+
+def spent_total(session: GameSession) -> float:
+    return float(purchase_spent_total(session) + allpay_spent_total(session))
 
 
 def remaining_budget(session: GameSession) -> float:
@@ -199,7 +207,9 @@ def portfolio_summary(
     analytics_by_lot: Mapping[int, Mapping[str, Any]] | None = None,
 ) -> Dict[str, Any]:
     rows = portfolio_rows(session, analytics_by_lot=analytics_by_lot)
-    spent = float(sum(row["purchase_price"] for row in rows))
+    purchase_spent = purchase_spent_total(session)
+    allpay_spent = allpay_spent_total(session)
+    spent = float(purchase_spent + allpay_spent)
     expected_income = 0.0
     expected_expenses = 0.0
     expected_net_profit = 0.0
@@ -224,7 +234,10 @@ def portfolio_summary(
         risk_profile = "Низкий"
 
     return {
+        "analysis_mode": "unified",
         "budget_total": float(session.budget_total or 0.0),
+        "purchase_spent": float(purchase_spent),
+        "allpay_spent": float(allpay_spent),
         "spent_total": spent,
         "remaining_budget": max(0.0, float(session.budget_total or 0.0) - spent),
         "bought_lots_count": len(rows),

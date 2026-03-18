@@ -1195,6 +1195,6 @@ def strategy_fit_page(lot_id: int):
     if lot is None:
         return _missing_lot_redirect(lot_id=lot_id)
     flash(
-        "Страница «Strategy fit» выведена из основного сценария. Открыта карточка лота.", "warning"
+        "Отдельная страница strategy fit больше не нужна: вся аналитика собрана в карточке лота.", "warning"
     )
     return redirect(url_for("pages.lot_detail_page", lot_id=lot.id))

@@ -12,12 +12,12 @@
         {{ form.hidden_tag() }}
         <label class="label">{{ form.title.label }} {{ form.title(class_='input') }}</label>
         <label class="label">{{ form.ruleset_id.label }} {{ form.ruleset_id(class_='input') }}</label>
-        <label class="label">{{ form.selected_strategy.label }} {{ form.selected_strategy(class_='input', id='sessionStrategySelect') }}</label>
+        {{ form.selected_strategy(id='sessionAnalysisMode') }}
         <label class="label">{{ form.budget_total.label }} {{ form.budget_total(class_='input') }}</label>
         <button class="btn btn-primary btn-block" type="submit">Создать сессию</button>
       </form>
       <article class="strategy-card mt-4" id="strategySummaryCard">
-        <p class="section-kicker">Пояснение к стратегии</p>
+        <p class="section-kicker">Как читается оценка</p>
         <h2 class="h2" id="strategySummaryLabel">{{ selected_strategy_meta.label }}</h2>
         <p class="lead mt-2" id="strategySummaryText">{{ selected_strategy_meta.summary }}</p>
         <p class="muted mt-2" id="strategySummaryHint">{{ selected_strategy_meta.when_to_use }}</p>
@@ -53,7 +53,7 @@
           <div class="session-card-main">
             <div>
               <h3 class="h3">{{ row.title }}</h3>
-              <p class="muted">Стратегия: {{ row.strategy_label }} · Бюджет: {{ fmt_num(row.budget_total, 1) }} · Остаток: {{ fmt_num(row.remaining_budget, 1) }}</p>
+              <p class="muted">Режим: {{ row.strategy_label }} · Бюджет: {{ fmt_num(row.budget_total, 1) }} · Остаток: {{ fmt_num(row.remaining_budget, 1) }}</p>
               <p class="muted">Активный прогноз: {{ row.forecast_name }} · {{ row.forecast_source }} · Обновлено: {{ row.updated_at_label }}</p>
             </div>
             <span class="status-badge status-fresh">Сессия активна</span>
@@ -75,8 +75,5 @@
     </article>
   </div>
 </section>
-<script>
-window.IES_SESSION_STRATEGIES = {{ strategy_catalog|tojson }};
-</script>
-<script defer src="{{ url_for('static', filename='js/analysis/session_form.js') }}"></script>
+
 {% endblock %}

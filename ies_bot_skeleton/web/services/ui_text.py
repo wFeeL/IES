@@ -10,13 +10,14 @@ SESSION_TERMS = {
 }
 
 STRATEGY_LABELS: Dict[str, str] = {
-    "generation": "Генерация-ориентированная",
-    "consumer": "Потребительская",
-    "balanced": "Сбалансированная",
-    "storage": "Накопительная",
-    "eco": "Экологическая",
-    "risk_averse": "Риск-консервативная",
-    "aggressive": "Агрессивная аукционная",
+    "unified": "Единый анализ",
+    "generation": "Единый анализ",
+    "consumer": "Единый анализ",
+    "balanced": "Единый анализ",
+    "storage": "Единый анализ",
+    "eco": "Единый анализ",
+    "risk_averse": "Единый анализ",
+    "aggressive": "Единый анализ",
 }
 
 CATEGORY_LABELS: Dict[str, str] = {
@@ -82,8 +83,8 @@ FORECAST_SERVICE_LOAD_KEYS = {"class3", "consumer", "load"}
 
 def strategy_label(code: str | None) -> str:
     if not code:
-        return "Не выбрана"
-    return STRATEGY_LABELS.get(code, code)
+        return "Единый анализ"
+    return STRATEGY_LABELS.get(code, "Единый анализ")
 
 
 def category_label(code: str | None) -> str:

@@ -175,7 +175,7 @@ def dashboard():
         form=form,
         import_form=import_form,
         session_terms=SESSION_TERMS,
-        selected_strategy_meta=strategy_meta(form.selected_strategy.data or "balanced"),
+        selected_strategy_meta=strategy_meta("unified"),
         strategy_catalog=strategy_list(),
     )
 

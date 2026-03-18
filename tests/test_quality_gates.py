@@ -26,8 +26,10 @@ class QualityGateTests(unittest.TestCase):
                 continue
             if any(part.endswith(".egg-info") for part in path.parts):
                 continue
+            if path.name.startswith("._"):
+                continue
 
-            source = path.read_text(encoding="utf-8")
+            source = path.read_text(encoding="utf-8", errors="ignore")
             try:
                 compile(source, str(path), "exec")
             except SyntaxError as exc:

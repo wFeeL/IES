@@ -7,7 +7,7 @@
     <p class="section-kicker">Сессия #{{ session.id }}</p>
     <h1 class="hero-title">{{ session.title }}</h1>
     <p class="hero-subtitle">
-      Стратегия: {{ strategy_label(session.selected_strategy) }} ·
+      Режим: {{ strategy_label(session.selected_strategy) }} ·
       Бюджет: <span data-session-budget-total>{{ fmt_num(session.budget_total, 1) }}</span> ·
       Потрачено: <span data-session-spent-total>{{ fmt_num(spent, 1) }}</span> ·
       Остаток: <span data-session-remaining-budget>{{ fmt_num(remaining, 1) }}</span>

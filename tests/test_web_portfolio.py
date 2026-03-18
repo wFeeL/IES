@@ -55,3 +55,23 @@ def test_buy_and_undo_lot_updates_budget_and_materializes_objects(client):
     lot_payload = client.get(f"/api/lots/{lot_id}").get_json()["item"]
     assert lot_payload["status"] == "available"
     assert lot_payload["purchase_price"] is None
+
+
+def test_session_budget_summary_includes_allpay_spend(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Allpay budget")
+
+    update = client.put(
+        f"/api/sessions/{session_id}/analysis-settings",
+        json={"allpay_spent": 37.5},
+    )
+    assert update.status_code == 200
+
+    session_payload = client.get(f"/api/sessions/{session_id}").get_json()["item"]
+    assert session_payload["allpay_spent"] == 37.5
+    assert session_payload["remaining_budget"] == session_payload["budget_total"] - 37.5
+
+    dashboard = client.get(f"/sessions/{session_id}")
+    assert dashboard.status_code == 200
+    html = dashboard.get_data(as_text=True)
+    assert "37.5" in html or "37,5" in html
