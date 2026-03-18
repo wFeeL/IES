@@ -38,14 +38,17 @@
           <tr><th>Лот</th><td>{{ lot.name }}</td></tr>
           <tr><th>Текущая ставка</th><td>{{ fmt_num(lot.current_bid, 1) }}</td></tr>
           <tr><th>Остаток бюджета до покупки</th><td>{{ fmt_num(portfolio.remaining_budget, 1) }}</td></tr>
-          <tr><th>Рабочая цена</th><td>{{ fmt_num(evaluation.working_bid or evaluation.decision_summary.working_bid, 1) }}</td></tr>
-          <tr><th>Ставка с учетом бюджета</th><td>{{ fmt_num(evaluation.decision_summary.budget_adjusted_bid, 1) }}</td></tr>
-          <tr><th>Ожидаемая чистая прибыль</th><td>{{ fmt_num(evaluation.financial_breakdown.result.net_profit, 2) }}</td></tr>
+          <tr><th>Рекомендуемая ставка</th><td>{{ fmt_num(evaluation.recommended_bid or evaluation.decision_summary.recommended_bid or evaluation.working_bid or evaluation.decision_summary.working_bid, 1) }}</td></tr>
+          <tr><th>Максимальная ставка</th><td>{{ fmt_num(evaluation.max_bid or evaluation.decision_summary.max_bid, 1) }}</td></tr>
+          <tr><th>Чистая прибыль после рекомендуемой ставки</th><td>{{ fmt_num(evaluation.decision_summary.net_profit_at_recommended_bid or evaluation.financial_breakdown.result.net_profit_at_recommended_bid, 2) }}</td></tr>
+          <tr><th>Остаток бюджета после покупки по рекомендуемой ставке</th><td>{{ fmt_num(evaluation.decision_summary.remaining_budget_after_recommended_bid or evaluation.financial_breakdown.result.remaining_budget_after_recommended_bid, 1) }}</td></tr>
+          <tr><th>После максимальной ставки останется бюджета</th><td>{{ fmt_num(evaluation.decision_summary.remaining_budget_after_max_bid or evaluation.financial_breakdown.result.remaining_budget_after_max_bid, 1) }}</td></tr>
+          <tr><th>Чистая прибыль при текущей цене</th><td>{{ fmt_num(evaluation.financial_breakdown.result.net_profit_at_current_price or evaluation.financial_breakdown.result.net_profit, 2) }}</td></tr>
           <tr><th>Системная проверка</th><td>{{ evaluation.system_check.message }}</td></tr>
         </tbody>
       </table>
     </div>
-    {% if (evaluation.working_bid or evaluation.decision_summary.working_bid or 0.0) > portfolio.remaining_budget %}
+    {% if (evaluation.recommended_bid or evaluation.decision_summary.recommended_bid or evaluation.working_bid or evaluation.decision_summary.working_bid or 0.0) > portfolio.remaining_budget %}
     <div class="flash flash-warning mt-3">Справедливая цена выше доступного остатка бюджета.</div>
     {% endif %}
     <form method="post" class="stack gap-3 mt-4">
@@ -66,9 +69,11 @@
     <h2 class="h2">Что изменится после покупки</h2>
     <div class="metric-strip mt-3">
       <div><span class="metric-label">Итоговая полезность</span><strong>{{ fmt_num(evaluation.summary_score, 2) }}</strong></div>
-      <div><span class="metric-label">Чистая прибыль</span><strong>{{ fmt_num(evaluation.financial_breakdown.result.net_profit, 2) }}</strong></div>
+      <div><span class="metric-label">Чистая прибыль после рекомендуемой ставки</span><strong>{{ fmt_num(evaluation.decision_summary.net_profit_at_recommended_bid or evaluation.financial_breakdown.result.net_profit_at_recommended_bid, 2) }}</strong></div>
+      <div><span class="metric-label">Остаток бюджета после ставки</span><strong>{{ fmt_num(evaluation.decision_summary.remaining_budget_after_recommended_bid or evaluation.financial_breakdown.result.remaining_budget_after_recommended_bid, 1) }}</strong></div>
       <div><span class="metric-label">Риск</span><strong>{{ fmt_num(evaluation.financial_breakdown.losses_and_risks.risk_total, 2) }}</strong></div>
     </div>
+    <div class="muted mt-3">{{ evaluation.decision_summary.budget_preservation_note }}</div>
     <ul class="stack gap-2 mt-3">
       {% for reason in evaluation.reasons %}
       <li>{{ reason }}</li>

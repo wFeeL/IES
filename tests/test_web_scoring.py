@@ -26,6 +26,7 @@ from ies_bot_skeleton.web.services.forecast_service import (
     parse_and_store_forecast,
     summarize_forecast,
 )
+from ies_bot_skeleton.web.services.adapter import session_to_state
 from ies_bot_skeleton.web.services.seed import ensure_seed_data
 
 
@@ -131,6 +132,10 @@ def test_recommended_bid_is_within_budget(app_ctx):
     ceiling = float(out["hard_ceiling_bid"])
     remaining = float(out["portfolio_context"]["remaining_budget"])
     budget_adjusted = float(out["budget_adjusted_bid"])
+    decision_summary = dict(out["decision_summary"])
+    result = dict((out["financial_breakdown"] or {}).get("result") or {})
+    bid_share = float(decision_summary["bid_share"])
+    gross_profit_before_bid = float(decision_summary["gross_expected_profit_before_bid"])
 
     assert hard >= 0.0
     assert soft >= 0.0
@@ -143,17 +148,47 @@ def test_recommended_bid_is_within_budget(app_ctx):
     assert valuation["model"] == "valuation_model_v3"
     assert valuation["profile"] == "generator"
     assert valuation["risk_band"] in {"low", "medium", "high"}
+    assert bid_share == pytest.approx({"low": 0.25, "medium": 0.20, "high": 0.15}[valuation["risk_band"]])
+    assert gross_profit_before_bid == pytest.approx(
+        float(out["metrics"]["weighted_expected"]) + float(out["decision_factors"]["entry_price"])
+    )
     assert valuation["target_bid"] == pytest.approx(hard)
     assert valuation["budget_adjusted_bid"] == pytest.approx(budget_adjusted)
     assert "risk_ratio" in valuation
     assert "role_multipliers" in valuation
     assert "portfolio_synergy" in valuation
     assert "system_fit_score" in valuation
+    assert out["recommended_bid"] == pytest.approx(out["working_bid"])
+    assert out["working_bid"] == pytest.approx(budget_adjusted)
+    assert out["recommended_bid"] <= remaining + 1e-9
+    assert decision_summary["net_profit_at_recommended_bid"] == pytest.approx(
+        gross_profit_before_bid - float(out["recommended_bid"])
+    )
+    assert decision_summary["net_profit_at_max_bid"] == pytest.approx(
+        gross_profit_before_bid - float(out["max_bid"])
+    )
+    assert decision_summary["remaining_budget_after_recommended_bid"] == pytest.approx(
+        remaining - float(out["recommended_bid"])
+    )
+    assert decision_summary["remaining_budget_after_recommended_bid"] >= 0.0
+    assert decision_summary["net_profit_at_max_bid"] > 0.0
+    assert result["gross_profit_before_bid"] == pytest.approx(
+        result["net_profit_at_current_price"] + float(out["decision_factors"]["entry_price"])
+    )
+    assert result["remaining_budget_after_recommended_bid"] == pytest.approx(
+        remaining - float(out["recommended_bid"])
+    )
+    assert decision_summary["budget_preservation_note"]
     ui_rows = list((out["financial_breakdown"] or {}).get("ui_rows") or [])
     assert any(str(row.get("key")) == "entry_price" for row in ui_rows)
     assert any(str(row.get("key")) == "net_profit" for row in ui_rows)
     for row in ui_rows:
-        if str(row.get("key")) in {"entry_price", "net_profit"}:
+        if str(row.get("key")) in {
+            "entry_price",
+            "net_profit",
+            "remaining_budget_after_recommended_bid",
+            "remaining_budget_after_max_bid",
+        }:
             continue
         assert abs(float(row.get("value", 0.0))) > 1e-6
     assert 0.0 <= float(out["confidence"]) <= 1.0
@@ -171,6 +206,7 @@ def test_valuation_model_keeps_non_zero_working_bid_for_slim_positive_expected_v
         p_base=30.0,
         p_best=55.0,
         p_exp=4.0,
+        entry_price_total=6.0,
         horizon_ticks=48,
         remaining_budget=50.0,
         evaluation_cfg={},
@@ -182,9 +218,12 @@ def test_valuation_model_keeps_non_zero_working_bid_for_slim_positive_expected_v
         system_fit_score=0.0,
     )
 
-    assert float(out["target_bid"]) > 0.0
-    assert float(out["budget_adjusted_bid"]) > 0.0
-    assert float(out["working_bid"]) > 0.0
+    assert float(out["target_bid"]) == pytest.approx((4.0 + 6.0) * 0.15)
+    assert float(out["budget_adjusted_bid"]) == pytest.approx(float(out["target_bid"]))
+    assert float(out["working_bid"]) == pytest.approx(float(out["budget_adjusted_bid"]))
+    assert float(out["remaining_budget_after_recommended_bid"]) == pytest.approx(
+        50.0 - float(out["working_bid"])
+    )
 
 
 def test_valuation_model_zeroes_bids_when_weighted_expected_is_negative():
@@ -193,6 +232,7 @@ def test_valuation_model_zeroes_bids_when_weighted_expected_is_negative():
         p_base=211.1122560000003,
         p_best=902.5618560000001,
         p_exp=-748.2272639999994,
+        entry_price_total=120.0,
         horizon_ticks=48,
         remaining_budget=120.0,
         evaluation_cfg={},
@@ -207,6 +247,7 @@ def test_valuation_model_zeroes_bids_when_weighted_expected_is_negative():
     assert float(out["target_bid"]) == pytest.approx(0.0)
     assert float(out["budget_adjusted_bid"]) == pytest.approx(0.0)
     assert float(out["working_bid"]) == pytest.approx(0.0)
+    assert float(out["remaining_budget_after_recommended_bid"]) == pytest.approx(120.0)
 
 
 def test_legacy_load_columns_are_mapped_to_canonical_series(app_ctx):
@@ -507,12 +548,30 @@ def test_financial_breakdown_uses_correct_market_sign():
         delta_total = 42.0
         flags = []
 
-    breakdown = _financial_breakdown(base_delta=Delta(), current_price=50.0, hard_bid=20.0)
+    breakdown = _financial_breakdown(
+        base_delta=Delta(),
+        current_price=50.0,
+        hard_bid=20.0,
+        recommended_bid=12.0,
+        max_bid=18.0,
+        remaining_budget=40.0,
+    )
     assert breakdown["income"]["market_income"] == pytest.approx(0.0)
     assert breakdown["expenses"]["market_purchase"] == pytest.approx(40.0)
+    assert breakdown["result"]["net_profit_at_recommended_bid"] == pytest.approx(
+        breakdown["result"]["gross_profit_before_bid"] - 12.0
+    )
+    assert breakdown["result"]["remaining_budget_after_recommended_bid"] == pytest.approx(28.0)
 
     Delta.delta_market_net = -30.0
-    breakdown_sell = _financial_breakdown(base_delta=Delta(), current_price=50.0, hard_bid=20.0)
+    breakdown_sell = _financial_breakdown(
+        base_delta=Delta(),
+        current_price=50.0,
+        hard_bid=20.0,
+        recommended_bid=12.0,
+        max_bid=18.0,
+        remaining_budget=40.0,
+    )
     assert breakdown_sell["income"]["market_income"] == pytest.approx(30.0)
     assert breakdown_sell["expenses"]["market_purchase"] == pytest.approx(0.0)
 
@@ -538,6 +597,7 @@ def test_scenario_row_uses_correct_market_sign():
     )
     assert row["income_total"] == pytest.approx(50.0)
     assert row["expenses_total"] == pytest.approx(55.0)
+    assert row["gross_profit_before_bid"] == pytest.approx(max(0.0, row["net_profit"] + 20.0))
 
     Delta.delta_market_net = -12.0
     row_sell = _scenario_row(
@@ -563,6 +623,28 @@ def test_session_budget_counts_allpay_spend(app_ctx):
     assert payload["allpay_spent"] == pytest.approx(37.5)
     assert payload["spent_total"] == pytest.approx(37.5)
     assert payload["remaining_budget"] == pytest.approx(162.5)
+
+
+def test_adapter_budget_mapping_keeps_purchase_and_allpay_separate(app_ctx):
+    session = app_ctx["session"]
+    lot = app_ctx["lot"]
+
+    session.budget_total = 300.0
+    session.allpay_spent = 27.5
+    lot.status = "bought"
+    lot.purchase_price = 61.0
+    db.session.add(session)
+    db.session.add(lot)
+    db.session.commit()
+
+    cfg = dict((session.ruleset.config_json or {}) if session.ruleset is not None else {})
+    state, _ = session_to_state(session, cfg)
+
+    assert state.budget.cash == pytest.approx(300.0)
+    assert state.budget.allpay_spent == pytest.approx(27.5)
+    assert state.budget.allpay_spent != pytest.approx(61.0)
+    assert state.budget.allpay_spent != pytest.approx(88.5)
+    assert f"LOT{int(lot.id)}" in list(state.owned_lots or [])
 
 
 def test_strategy_fit_returns_unified_single_row(app_ctx):

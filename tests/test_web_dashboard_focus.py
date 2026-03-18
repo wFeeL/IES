@@ -49,7 +49,7 @@ def test_lots_table_uses_compact_headers_and_actions_menu(client):
 
     assert "Полезность" in html
     assert "Чистая прибыль" in html
-    assert "Рабочая ставка" in html
+    assert "Рекомендуемая / Макс." in html
     assert "Ещё" in html
     assert 'aria-haspopup="menu"' in html
     assert 'role="menu"' in html
@@ -108,6 +108,12 @@ def test_theme_toggle_and_css_tokens_present(client):
     assert 'html[data-theme="dark"]' in css
     assert "overflow-wrap: anywhere" in css
     assert ".row-actions-menu" in css
+
+    js_resp = client.get("/static/js/theme.js")
+    assert js_resp.status_code == 200
+    js = js_resp.get_data(as_text=True)
+    assert 'const initialTheme = saved || "light";' in js
+    assert "prefers-color-scheme" not in js
 
 
 def test_lot_detail_renders_non_zero_income_for_legacy_load_forecast(client, app):
@@ -177,7 +183,10 @@ def test_lot_detail_renders_non_zero_income_for_legacy_load_forecast(client, app
     assert f"{income_total:.2f}" in html
     assert "Лучшие пары" in html
     assert "Синергия с этим лотом" in html
-    assert "Ставка с учетом бюджета" in html
+    assert "Рекомендуемая ставка" in html
+    assert "Максимальная ставка" in html
+    assert "Чистая прибыль после рекомендуемой ставки" in html
+    assert "Остаток бюджета после рекомендуемой ставки" in html
     assert 'id="lotPairsCard"' in html
     assert f'data-strategy-url="/api/sessions/{session_id}/strategy?top_n=20"' in html
 

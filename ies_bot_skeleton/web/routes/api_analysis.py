@@ -468,6 +468,32 @@ def lots_analytics(session_id: int):
         lot = lots_by_id.get(int(item["lot_id"]))
         if lot is None:
             continue
+        decision_summary = dict(item.get("decision_summary") or {})
+        system_check = dict(item.get("system_check") or {})
+        recommended_bid = float(
+            decision_summary.get(
+                "recommended_bid",
+                item.get("working_bid")
+                or decision_summary.get("working_bid")
+                or 0.0,
+            )
+            or 0.0
+        )
+        max_bid = float(
+            decision_summary.get(
+                "max_bid",
+                min(
+                    float(decision_summary.get("hard_ceiling_bid", 0.0) or 0.0),
+                    float(decision_summary.get("budget_remaining", 0.0) or 0.0),
+                ),
+            )
+            or 0.0
+        )
+        recommended_points = [
+            str(point).strip()
+            for point in list(system_check.get("recommended_points") or [])
+            if str(point).strip()
+        ]
         structure_items = []
         for it in lot.items:
             quantity = max(1, int(it.quantity or 1))
@@ -523,39 +549,101 @@ def lots_analytics(session_id: int):
                     (item.get("financial_breakdown") or {}).get("result", {}).get("net_profit", 0.0)
                     or 0.0
                 ),
+                "gross_profit_before_bid": float(
+                    decision_summary.get(
+                        "gross_expected_profit_before_bid",
+                        (item.get("financial_breakdown") or {})
+                        .get("result", {})
+                        .get("gross_profit_before_bid", 0.0),
+                    )
+                    or 0.0
+                ),
+                "net_profit_at_recommended_bid": float(
+                    decision_summary.get(
+                        "net_profit_at_recommended_bid",
+                        (item.get("financial_breakdown") or {})
+                        .get("result", {})
+                        .get("net_profit_at_recommended_bid", 0.0),
+                    )
+                    or 0.0
+                ),
+                "net_profit_at_max_bid": float(
+                    decision_summary.get(
+                        "net_profit_at_max_bid",
+                        (item.get("financial_breakdown") or {})
+                        .get("result", {})
+                        .get("net_profit_at_max_bid", 0.0),
+                    )
+                    or 0.0
+                ),
+                "remaining_budget_after_recommended_bid": float(
+                    decision_summary.get(
+                        "remaining_budget_after_recommended_bid",
+                        (item.get("financial_breakdown") or {})
+                        .get("result", {})
+                        .get("remaining_budget_after_recommended_bid", 0.0),
+                    )
+                    or 0.0
+                ),
+                "remaining_budget_after_max_bid": float(
+                    decision_summary.get(
+                        "remaining_budget_after_max_bid",
+                        (item.get("financial_breakdown") or {})
+                        .get("result", {})
+                        .get("remaining_budget_after_max_bid", 0.0),
+                    )
+                    or 0.0
+                ),
                 "cautious_bid": float(
                     (item.get("decision_summary") or {}).get("cautious_bid", 0.0) or 0.0
                 ),
                 "target_bid": float(
-                    (item.get("decision_summary") or {}).get("target_bid", 0.0) or 0.0
+                    decision_summary.get("target_bid", 0.0) or 0.0
                 ),
                 "hard_ceiling_bid": float(
-                    (item.get("decision_summary") or {}).get("hard_ceiling_bid", 0.0) or 0.0
+                    decision_summary.get("hard_ceiling_bid", 0.0) or 0.0
                 ),
                 "budget_adjusted_bid": float(
-                    (item.get("decision_summary") or {}).get("budget_adjusted_bid", 0.0) or 0.0
+                    decision_summary.get("budget_adjusted_bid", 0.0) or 0.0
+                ),
+                "recommended_bid": float(recommended_bid),
+                "max_bid": float(max_bid),
+                "recommended_bid_reason": str(
+                    decision_summary.get("recommended_bid_reason")
+                    or decision_summary.get("working_bid_reason")
+                    or item.get("working_bid_reason")
+                    or ""
+                ),
+                "budget_preservation_note": str(
+                    decision_summary.get("budget_preservation_note") or ""
+                ),
+                "max_bid_reason": str(decision_summary.get("max_bid_reason") or ""),
+                "connection_fit_status": str(system_check.get("status") or "neutral"),
+                "recommended_points": recommended_points,
+                "connection_block_reasons_count": int(
+                    system_check.get("connection_block_reasons_count", 0) or 0
                 ),
                 "working_bid": float(
                     item.get("working_bid")
-                    or (item.get("decision_summary") or {}).get("working_bid")
+                    or decision_summary.get("working_bid")
                     or 0.0
                 ),
                 "working_bid_source": str(
                     item.get("working_bid_source")
-                    or (item.get("decision_summary") or {}).get("working_bid_source")
+                    or decision_summary.get("working_bid_source")
                     or "zero"
                 ),
                 "working_bid_reason": str(
                     item.get("working_bid_reason")
-                    or (item.get("decision_summary") or {}).get("working_bid_reason")
+                    or decision_summary.get("working_bid_reason")
                     or ""
                 ),
                 "working_bid_short_reason": working_bid_reason_short(
                     item.get("working_bid_reason")
-                    or (item.get("decision_summary") or {}).get("working_bid_reason")
+                    or decision_summary.get("working_bid_reason")
                     or ""
                 ),
-                "system_check": dict(item.get("system_check") or {}),
+                "system_check": system_check,
             }
         )
 
@@ -580,7 +668,9 @@ def lots_analytics(session_id: int):
         enriched.sort(key=lambda row: row["risk"])
     elif sort_key == "bid_desc":
         enriched.sort(
-            key=lambda row: float(row.get("working_bid") or row.get("target_bid") or 0.0),
+            key=lambda row: float(
+                row.get("recommended_bid") or row.get("working_bid") or row.get("target_bid") or 0.0
+            ),
             reverse=True,
         )
     elif sort_key == "price_asc":
@@ -734,7 +824,9 @@ def buy_lot_endpoint(lot_id: int):
     if purchase_price_raw in (None, ""):
         evaluation = evaluate_session_lot(session=session, lot=lot, persist=False)
         purchase_price = float(
-            evaluation.get("working_bid")
+            evaluation.get("recommended_bid")
+            or (evaluation.get("decision_summary") or {}).get("recommended_bid")
+            or evaluation.get("working_bid")
             or (evaluation.get("decision_summary") or {}).get("working_bid")
             or 0.0
         )

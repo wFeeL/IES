@@ -22,6 +22,12 @@ from .network import validate_session_network
 from .ruleset import strategy_weights
 
 DEFAULT_WEIGHTED = {"base": 0.50, "worst": 0.35, "best": 0.15}
+VALUE_BID_SHARE = {"low": 0.25, "medium": 0.20, "high": 0.15}
+CAUTIOUS_BID_SHARE = 0.80
+MIN_POSITIVE_PROFIT_FLOOR = 1.0
+BUDGET_PRESERVATION_NOTE = (
+    "Неиспользованный остаток бюджета сохраняется для следующих аукционов."
+)
 
 
 class ForecastCompatibilityError(ValueError):
@@ -103,6 +109,63 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return float(default)
+
+
+def _value_bid_share(risk_band: str) -> float:
+    return float(VALUE_BID_SHARE.get(str(risk_band or "high"), VALUE_BID_SHARE["high"]))
+
+
+def _gross_profit_before_bid(net_profit_at_current_price: float, current_price: float) -> float:
+    return max(0.0, float(net_profit_at_current_price) + max(0.0, float(current_price)))
+
+
+def _retained_budget(remaining_budget: float, bid: float) -> float:
+    return max(0.0, float(remaining_budget) - max(0.0, float(bid)))
+
+
+def _profit_after_bid(gross_profit_before_bid: float, bid: float) -> float:
+    return float(gross_profit_before_bid) - max(0.0, float(bid))
+
+
+def _value_bid_metrics(
+    *,
+    gross_profit_before_bid: float,
+    remaining_budget: float,
+    risk_band: str,
+) -> Dict[str, float]:
+    gross_profit = max(0.0, float(gross_profit_before_bid))
+    budget_cap = max(0.0, float(remaining_budget))
+    bid_share = _value_bid_share(risk_band)
+    recommended_bid_raw = gross_profit * bid_share
+    hard_ceiling_bid = max(0.0, gross_profit - MIN_POSITIVE_PROFIT_FLOOR)
+    target_bid = min(recommended_bid_raw, hard_ceiling_bid)
+    recommended_bid = min(target_bid, budget_cap)
+    cautious_bid = min(
+        recommended_bid_raw * CAUTIOUS_BID_SHARE,
+        budget_cap,
+        recommended_bid,
+        hard_ceiling_bid,
+    )
+    max_bid = min(hard_ceiling_bid, budget_cap)
+    return {
+        "bid_share": float(bid_share),
+        "gross_profit_before_bid": float(gross_profit),
+        "cautious_bid": float(max(0.0, cautious_bid)),
+        "target_bid": float(max(0.0, target_bid)),
+        "hard_ceiling_bid": float(max(0.0, hard_ceiling_bid)),
+        "budget_adjusted_bid": float(max(0.0, recommended_bid)),
+        "working_bid": float(max(0.0, recommended_bid)),
+        "recommended_bid": float(max(0.0, recommended_bid)),
+        "max_bid": float(max(0.0, max_bid)),
+        "net_profit_at_recommended_bid": float(
+            _profit_after_bid(gross_profit, recommended_bid)
+        ),
+        "net_profit_at_max_bid": float(_profit_after_bid(gross_profit, max_bid)),
+        "remaining_budget_after_recommended_bid": float(
+            _retained_budget(budget_cap, recommended_bid)
+        ),
+        "remaining_budget_after_max_bid": float(_retained_budget(budget_cap, max_bid)),
+    }
 
 
 def _ignore_connection_sectors_cfg(cfg: Dict[str, Any]) -> bool:
@@ -312,6 +375,7 @@ def _lot_connection_outlook(
     if sector_agnostic:
         items: List[Dict[str, Any]] = []
         total_items = 0
+        recommended_points: set[str] = set()
         for lot in lots:
             for item in _lot_items(lot):
                 if item.object_type is None:
@@ -328,6 +392,12 @@ def _lot_connection_outlook(
                         "quantity": qty,
                         "message": "Оценка лота выполняется без учёта секторов подключения.",
                         "is_feasible": not topology_invalid,
+                        "current_point": None,
+                        "recommended_point": None,
+                        "recommended_loss_pct": 0.0,
+                        "remaining_capacity_mw": 0.0,
+                        "feasible_alternatives": [],
+                        "rejected_points": [],
                     }
                 )
 
@@ -347,6 +417,7 @@ def _lot_connection_outlook(
                 "(A/B/C/...)."
             )
             system_fit_score = 0.0
+        connection_block_reasons_count = len(topology_errors) if topology_invalid else 0
         feasible_items_count = max(0, total_items - blocked_items_count)
         return {
             "status": status,
@@ -359,6 +430,8 @@ def _lot_connection_outlook(
             "system_fit_score": float(system_fit_score),
             "topology_invalid": bool(topology_invalid),
             "topology_issues": [issue.to_dict() for issue in topology_issues],
+            "recommended_points": sorted(recommended_points),
+            "connection_block_reasons_count": int(connection_block_reasons_count),
         }
 
     items: List[Dict[str, Any]] = []
@@ -367,6 +440,8 @@ def _lot_connection_outlook(
     feasible_items_count = 0
     weighted_loss_total = 0.0
     weight_total = 0.0
+    recommended_points: set[str] = set()
+    connection_block_reasons_count = 0
 
     for lot in lots:
         for item in _lot_items(lot):
@@ -385,12 +460,20 @@ def _lot_connection_outlook(
             )
             estimated_delta = float(rec.get("estimated_delta", 0.0) or 0.0) * qty
             ranked_points = list(rec.get("ranked_points") or [])
+            feasible_alternatives = list(rec.get("feasible_alternatives") or [])
+            rejected_points = list(rec.get("rejected_points") or [])
             recommended_loss_pct = float(rec.get("recommended_loss_pct", 0.0) or 0.0)
             feasible = bool(ranked_points) and math.isfinite(float(rec.get("recommended_score", 0.0)))
+            recommended_point = str(rec.get("recommended_point") or "").strip()
+            if recommended_point:
+                recommended_points.add(recommended_point)
             if feasible:
                 feasible_items_count += qty
             else:
                 blocked_items_count += qty
+            connection_block_reasons_count += int(len(rejected_points))
+            if not feasible and not rejected_points:
+                connection_block_reasons_count += 1
             estimated_delta_total += estimated_delta
             weighted_loss_total += recommended_loss_pct * qty
             weight_total += qty
@@ -414,6 +497,8 @@ def _lot_connection_outlook(
                     "forecast_model_type": rec.get("forecast_model_type") or "",
                     "message": rec.get("message") or "",
                     "is_feasible": feasible,
+                    "feasible_alternatives": feasible_alternatives,
+                    "rejected_points": rejected_points,
                 }
             )
 
@@ -462,6 +547,8 @@ def _lot_connection_outlook(
         "system_fit_score": float(system_fit_score),
         "topology_invalid": bool(topology_invalid),
         "topology_issues": [issue.to_dict() for issue in topology_issues],
+        "recommended_points": sorted(recommended_points),
+        "connection_block_reasons_count": int(connection_block_reasons_count),
     }
 
 
@@ -754,11 +841,22 @@ def _simulate_scenario(
     def asset_connection_point(asset: Asset) -> str:
         if sector_agnostic:
             return default_connection_point
-        return str(
+        explicit_point = str(
             asset.parameters.get("connection_point")
-            or asset.parameters.get("district")
-            or default_connection_point
-        ).strip().upper() or default_connection_point
+            or asset.parameters.get("point")
+            or asset.parameters.get("cell")
+            or asset.parameters.get("slot")
+            or ""
+        ).strip().upper()
+        if explicit_point:
+            return explicit_point
+
+        # Backward compatibility for legacy payloads that stored connection point
+        # in district. Accept it only when district matches configured points.
+        district_point = str(asset.parameters.get("district") or "").strip().upper()
+        if district_point and district_point in point_loss_by_connection:
+            return district_point
+        return default_connection_point
 
     def asset_connection_loss(asset: Asset) -> float:
         point = asset_connection_point(asset)
@@ -1252,7 +1350,7 @@ def _scenario_row(
     pwin: float,
     remaining_budget: float,
 ) -> Dict[str, Any]:
-    del pwin, remaining_budget
+    del pwin
     market_delta = float(getattr(delta_obj, "delta_market_net", 0.0) or 0.0)
     served_load_revenue = float(
         getattr(delta_obj, "delta_served_load_revenue", getattr(delta_obj, "delta_income", 0.0))
@@ -1285,9 +1383,7 @@ def _scenario_row(
     )
     utility_total = float(delta_obj.delta_total)
     net_profit = income_total - expenses_total - penalties_total - losses_total
-    reserve_margin = max(5.0, 0.10 * max(0.0, net_profit))
-    recommended_bid = max(0.0, net_profit - reserve_margin)
-    bid_ceiling = max(recommended_bid, net_profit)
+    gross_profit_before_bid = _gross_profit_before_bid(net_profit, current_price)
     return {
         "label": label,
         "revenue_total": float(income_total),
@@ -1295,14 +1391,18 @@ def _scenario_row(
         "penalties_total": float(penalties_total),
         "losses_total": float(losses_total),
         "net_profit": float(net_profit),
+        "gross_profit_before_bid": float(gross_profit_before_bid),
         "utility_score": float(utility_total),
-        "bid_ceiling": float(bid_ceiling),
-        "recommended_bid": float(recommended_bid),
+        "bid_ceiling": 0.0,
+        "recommended_bid": 0.0,
+        "net_profit_at_recommended_bid": float(gross_profit_before_bid),
+        "net_profit_at_bid_ceiling": float(gross_profit_before_bid),
+        "remaining_budget_after_recommended_bid": max(0.0, float(remaining_budget)),
         "explanation": _scenario_comment(
             scenario=scenario,
             utility_total=float(utility_total),
             net_profit=float(net_profit),
-            recommended_bid=float(recommended_bid),
+            recommended_bid=0.0,
             penalties_total=float(penalties_total),
             losses_total=float(losses_total),
         ),
@@ -1315,11 +1415,55 @@ def _scenario_row(
             scenario=scenario,
             utility_total=float(utility_total),
             net_profit=float(net_profit),
-            recommended_bid=float(recommended_bid),
+            recommended_bid=0.0,
             penalties_total=float(penalties_total),
             losses_total=float(losses_total),
         ),
     }
+
+
+def _populate_scenario_bid_metrics(
+    *,
+    row: Dict[str, Any],
+    scenario: str,
+    risk_band: str,
+    remaining_budget: float,
+) -> Dict[str, Any]:
+    payload = dict(row)
+    bid_metrics = _value_bid_metrics(
+        gross_profit_before_bid=float(payload.get("gross_profit_before_bid", 0.0) or 0.0),
+        remaining_budget=remaining_budget,
+        risk_band=risk_band,
+    )
+    payload.update(
+        {
+            "recommended_bid": float(bid_metrics["recommended_bid"]),
+            "bid_ceiling": float(bid_metrics["hard_ceiling_bid"]),
+            "net_profit_at_recommended_bid": float(
+                bid_metrics["net_profit_at_recommended_bid"]
+            ),
+            "net_profit_at_bid_ceiling": float(
+                _profit_after_bid(
+                    float(payload.get("gross_profit_before_bid", 0.0) or 0.0),
+                    float(bid_metrics["hard_ceiling_bid"]),
+                )
+            ),
+            "remaining_budget_after_recommended_bid": float(
+                bid_metrics["remaining_budget_after_recommended_bid"]
+            ),
+        }
+    )
+    explanation = _scenario_comment(
+        scenario=scenario,
+        utility_total=float(payload.get("utility_score", 0.0) or 0.0),
+        net_profit=float(payload.get("net_profit", 0.0) or 0.0),
+        recommended_bid=float(payload["recommended_bid"]),
+        penalties_total=float(payload.get("penalties_total", 0.0) or 0.0),
+        losses_total=float(payload.get("losses_total", 0.0) or 0.0),
+    )
+    payload["explanation"] = explanation
+    payload["comment"] = explanation
+    return payload
 
 
 def _financial_breakdown(
@@ -1327,6 +1471,9 @@ def _financial_breakdown(
     base_delta: Any,
     current_price: float,
     hard_bid: float,
+    recommended_bid: float,
+    max_bid: float,
+    remaining_budget: float,
     model_risk_premium: float = 0.0,
 ) -> Dict[str, Any]:
     market_delta = float(getattr(base_delta, "delta_market_net", 0.0) or 0.0)
@@ -1391,11 +1538,24 @@ def _financial_breakdown(
     }
 
     net_profit = float(income["total"] - expenses["total"] - total_losses_and_risks)
+    gross_profit_before_bid = float(_gross_profit_before_bid(net_profit, current_price))
+    net_profit_at_recommended_bid = float(
+        _profit_after_bid(gross_profit_before_bid, recommended_bid)
+    )
+    net_profit_at_max_bid = float(_profit_after_bid(gross_profit_before_bid, max_bid))
     roi = float(net_profit / current_price) if current_price > 0 else 0.0
     payback = float(current_price / net_profit) if net_profit > 0 else None
     result = {
         "utility_total": float(base_delta.delta_total),
         "net_profit": net_profit,
+        "net_profit_at_current_price": net_profit,
+        "gross_profit_before_bid": gross_profit_before_bid,
+        "net_profit_at_recommended_bid": net_profit_at_recommended_bid,
+        "net_profit_at_max_bid": net_profit_at_max_bid,
+        "remaining_budget_after_recommended_bid": float(
+            _retained_budget(remaining_budget, recommended_bid)
+        ),
+        "remaining_budget_after_max_bid": float(_retained_budget(remaining_budget, max_bid)),
         "roi": roi,
         "payback_ratio": payback,
         "threshold_bid": float(hard_bid),
@@ -1521,11 +1681,39 @@ def _financial_breakdown(
     )
     push_row(
         key="net_profit",
-        label="Итоговая чистая прибыль",
+        label="Чистая прибыль при текущей цене",
         value=net_profit,
         group="result",
         always=True,
         emphasis=True,
+    )
+    push_row(
+        key="net_profit_after_recommended_bid",
+        label="Чистая прибыль после рекомендуемой ставки",
+        value=net_profit_at_recommended_bid,
+        group="result",
+        always=True,
+    )
+    push_row(
+        key="net_profit_after_max_bid",
+        label="Чистая прибыль после максимальной ставки",
+        value=net_profit_at_max_bid,
+        group="result",
+        always=True,
+    )
+    push_row(
+        key="remaining_budget_after_recommended_bid",
+        label="Остаток бюджета после рекомендуемой ставки",
+        value=_retained_budget(remaining_budget, recommended_bid),
+        group="result",
+        always=True,
+    )
+    push_row(
+        key="remaining_budget_after_max_bid",
+        label="Остаток бюджета после максимальной ставки",
+        value=_retained_budget(remaining_budget, max_bid),
+        group="result",
+        always=True,
     )
     return {
         "income": income,
@@ -1542,11 +1730,8 @@ def resolve_working_bid(
     decision_summary: Dict[str, Any],
     financial_breakdown: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
+    del financial_breakdown
     summary = dict(decision_summary or {})
-    breakdown = dict(financial_breakdown or {})
-    result = dict(breakdown.get("result") or {})
-    losses = dict(breakdown.get("losses_and_risks") or {})
-
     cautious_bid = max(0.0, _as_float(summary.get("cautious_bid"), 0.0))
     target_bid = max(0.0, _as_float(summary.get("target_bid"), 0.0))
     hard_ceiling_bid = max(0.0, _as_float(summary.get("hard_ceiling_bid"), 0.0))
@@ -1554,85 +1739,70 @@ def resolve_working_bid(
         0.0,
         _as_float(summary.get("budget_adjusted_bid"), 0.0),
     )
-    model_working_bid = max(0.0, _as_float(summary.get("model_working_bid"), 0.0))
     remaining_budget = max(0.0, _as_float(summary.get("budget_remaining"), 0.0))
     expected_net_profit = _as_float(summary.get("expected_net_profit"), 0.0)
-    risk_adjusted_net_profit = _as_float(summary.get("risk_adjusted_net_profit"), 0.0)
-    net_profit = _as_float(result.get("net_profit"), 0.0)
-    risk_total = _as_float(losses.get("risk_total"), 0.0)
+    bid_share = max(0.0, _as_float(summary.get("bid_share"), 0.0))
+    gross_expected_profit_before_bid = max(
+        0.0,
+        _as_float(summary.get("gross_expected_profit_before_bid"), 0.0),
+    )
+
+    share_pct = int(round(bid_share * 100.0))
 
     if remaining_budget <= 0.0:
         return {
             "working_bid": 0.0,
             "working_bid_source": "zero",
-            "working_bid_reason": "Рабочая цена равна 0: бюджет сессии исчерпан.",
+            "working_bid_reason": "Рекомендуемая ставка равна 0: бюджет сессии исчерпан.",
         }
 
-    if expected_net_profit <= 0.0:
+    if expected_net_profit <= 0.0 or gross_expected_profit_before_bid <= 0.0:
         return {
             "working_bid": 0.0,
             "working_bid_source": "zero",
             "working_bid_reason": (
-                "Рабочая цена равна 0: взвешенная маржинальная прибыль неположительная, "
-                "поэтому лот не даёт честной аукционной цены в текущем портфеле."
+                "Рекомендуемая ставка равна 0: ожидаемая прибыль после текущей цены неположительная, "
+                "поэтому лот не даёт честной цены входа в текущем портфеле."
             ),
         }
 
     if budget_adjusted_bid > 0.0:
-        chosen_bid = min(budget_adjusted_bid, model_working_bid) if model_working_bid > 0.0 else budget_adjusted_bid
         if budget_adjusted_bid + 1e-9 < target_bid:
+            reason = (
+                f"Рекомендуемая ставка ограничена бюджетом: экономически оправданная value-цена "
+                f"считалась как {share_pct}% от прибыли за горизонт, но доступный остаток меньше. "
+                f"{BUDGET_PRESERVATION_NOTE}"
+            )
             source = "budget_adjusted"
-            if chosen_bid + 1e-9 < budget_adjusted_bid:
-                reason = (
-                    "Рабочая цена ограничена бюджетом и дополнительно снижена риск-буфером: "
-                    "целевой bid не помещается в остаток и модель оставляет запас по сценарию."
-                )
-            else:
-                reason = (
-                    "Рабочая цена ограничена бюджетом: целевая ставка выше доступного остатка, "
-                    "поэтому в аукцион идёт budget-adjusted цена."
-                )
         else:
+            preserved_budget = max(0.0, remaining_budget - budget_adjusted_bid)
+            reason = (
+                f"Рекомендуемая ставка рассчитана как value-цена: {share_pct}% от прибыли за "
+                f"горизонт ({gross_expected_profit_before_bid:.2f}). Она не пытается выбрать весь "
+                f"бюджет: после сделки сохранится {preserved_budget:.2f}. {BUDGET_PRESERVATION_NOTE}"
+            )
             source = "target"
-            if chosen_bid + 1e-9 < target_bid:
-                reason = (
-                    "Рабочая цена ниже target: модель сохраняет риск-буфер между target и рабочей "
-                    "ставкой, чтобы ставка оставалась реалистичной по всем сценариям."
-                )
-            else:
-                reason = "Рабочая цена совпадает с целевой ставкой: экономика и бюджет не конфликтуют."
         return {
-            "working_bid": float(chosen_bid),
+            "working_bid": float(budget_adjusted_bid),
             "working_bid_source": source,
             "working_bid_reason": reason,
         }
 
-    if cautious_bid > 0.0 and remaining_budget + 1e-9 >= cautious_bid:
-        return {
-            "working_bid": float(cautious_bid),
-            "working_bid_source": "cautious",
-            "working_bid_reason": (
-                "Рабочая цена переведена на осторожный уровень: target недоступен после учёта "
-                "риска, синергии или бюджета."
-            ),
-        }
-
-    if net_profit <= 0.0:
-        reason = "Рабочая цена равна 0: ожидаемая чистая прибыль неположительная."
-    elif risk_adjusted_net_profit <= 0.0:
+    if hard_ceiling_bid <= 0.0:
         reason = (
-            "Рабочая цена равна 0: после учёта риска и резервов лот не оставляет положительной "
-            "маржинальной прибыли."
+            "Рекомендуемая ставка равна 0: даже агрессивный потолок не оставляет положительной "
+            "прибыли после покупки."
         )
-    elif hard_ceiling_bid > 0.0 and remaining_budget + 1e-9 < cautious_bid:
+    elif cautious_bid > 0.0 and remaining_budget + 1e-9 < cautious_bid:
         reason = (
-            "Рабочая цена равна 0: даже осторожная ставка выше доступного остатка бюджета; "
-            "лот можно только пропустить."
+            "Рекомендуемая ставка равна 0: доступный остаток ниже даже осторожного входа, "
+            "поэтому лот лучше пропустить."
         )
-    elif risk_total > 0.0:
-        reason = "Рабочая цена равна 0: риск-премия перекрывает экономический эффект."
     else:
-        reason = "Рабочая цена равна 0: лот не формирует допустимую ставку в текущем контексте."
+        reason = (
+            "Рекомендуемая ставка равна 0: лот не формирует допустимую value-цену в текущем "
+            "контексте."
+        )
     return {
         "working_bid": 0.0,
         "working_bid_source": "zero",
@@ -1646,6 +1816,7 @@ def _valuation_model_v3(
     p_base: float,
     p_best: float,
     p_exp: float,
+    entry_price_total: float,
     horizon_ticks: int,
     remaining_budget: float,
     evaluation_cfg: Dict[str, Any],
@@ -1676,10 +1847,7 @@ def _valuation_model_v3(
         risk_band = "low"
 
     payback_ticks_map = {"low": 25, "medium": 20, "high": 15}
-    cap_share_map = {"low": 0.30, "medium": 0.24, "high": 0.18}
-    cautious_share_map = {"low": 0.40, "medium": 0.32, "high": 0.24}
     risk_buffer_map = {"low": 0.30, "medium": 0.55, "high": 0.85}
-    working_share_map = {"low": 1.00, "medium": 0.88, "high": 0.70}
 
     role_payload = dict(role_profile or {})
     role_multipliers = dict(role_payload.get("multipliers") or {})
@@ -1688,65 +1856,33 @@ def _valuation_model_v3(
     ceiling_multiplier = float(role_multipliers.get("ceiling", 1.0) or 1.0)
 
     payback_ticks = int(payback_ticks_map[risk_band])
-    cap_share = float(cap_share_map[risk_band])
     synergy_bonus = _clamp(float(portfolio_synergy), -abs(float(p_base)) * 0.25, abs(float(p_base)) * 0.25)
     system_bonus = _clamp(float(system_fit_score), -abs(float(p_base)) * 0.20, abs(float(p_base)) * 0.20)
+    bid_share = _value_bid_share(risk_band)
 
     positive_expected = max(0.0, float(p_exp))
-    positive_base = max(0.0, float(p_base))
-    positive_best = max(0.0, float(p_best))
-    payback_value = positive_expected / float(horizon) * float(payback_ticks)
-    capped_value = positive_expected * cap_share
-    anchor_value = max(0.0, min(payback_value, capped_value))
+    gross_expected_profit_before_bid = max(
+        0.0,
+        float(p_exp) + max(0.0, float(entry_price_total)),
+    )
 
     reserve_margin = float(max(reserve_margin_abs, reserve_margin_share * positive_expected))
     risk_buffer = float(risk_premium * risk_buffer_map[risk_band])
-
-    cautious_base = max(0.0, min(anchor_value * 0.55, max(0.0, float(p_worst)) * cautious_share_map[risk_band]))
-    cautious_bid = max(0.0, cautious_base * cautious_multiplier)
-
-    target_core = max(0.0, positive_expected - risk_premium - reserve_margin)
-    if target_core <= 0.0 and positive_expected > 0.0 and positive_base > 0.0:
-        base_support = max(0.0, positive_base - reserve_margin * 0.35 - risk_premium * 0.10)
-        target_core = min(
-            positive_base,
-            max(0.0, base_support * 0.35 + anchor_value * 0.25 + positive_best * 0.08),
-        )
-
-    if positive_expected > 0.0:
-        target_candidate = (
-            target_core
-            + max(0.0, synergy_bonus) * 0.20
-            - max(0.0, -synergy_bonus) * 0.45
-            + max(0.0, system_bonus) * 0.15
-            - max(0.0, -system_bonus) * 0.40
-        )
-        target_candidate = min(positive_base or target_candidate, max(0.0, target_candidate))
-    else:
-        target_candidate = 0.0
-    target_bid = max(cautious_bid, target_candidate * target_multiplier)
-
-    if positive_expected > 0.0 and target_bid > 0.0:
-        ceiling_candidate = max(
-            target_bid,
-            positive_base - 0.10 * reserve_margin + max(0.0, synergy_bonus) * 0.12 + max(0.0, system_bonus) * 0.08,
-        )
-        hard_ceiling_bid = max(target_bid, ceiling_candidate * ceiling_multiplier)
-    else:
-        hard_ceiling_bid = 0.0
-
-    budget_adjusted_bid = min(target_bid, max(0.0, float(remaining_budget)))
-    working_share = float(working_share_map[risk_band])
-    if budget_adjusted_bid > cautious_bid:
-        working_candidate = cautious_bid + (budget_adjusted_bid - cautious_bid) * working_share
-    else:
-        working_candidate = budget_adjusted_bid
-    working_bid = max(0.0, min(budget_adjusted_bid, working_candidate))
+    value_bids = _value_bid_metrics(
+        gross_profit_before_bid=gross_expected_profit_before_bid,
+        remaining_budget=remaining_budget,
+        risk_band=risk_band,
+    )
+    cautious_bid = float(value_bids["cautious_bid"])
+    target_bid = float(value_bids["target_bid"])
+    hard_ceiling_bid = float(value_bids["hard_ceiling_bid"])
+    budget_adjusted_bid = float(value_bids["budget_adjusted_bid"])
+    working_bid = float(value_bids["working_bid"])
     risk_adjusted_net_profit = float(
         float(p_exp) - risk_premium - reserve_margin + 0.30 * synergy_bonus + 0.20 * system_bonus
     )
 
-    if positive_expected <= 0.0:
+    if positive_expected <= 0.0 or gross_expected_profit_before_bid <= 0.0:
         cautious_bid = 0.0
         target_bid = 0.0
         hard_ceiling_bid = 0.0
@@ -1767,7 +1903,8 @@ def _valuation_model_v3(
         "risk_ratio": float(risk_ratio),
         "risk_premium": float(risk_premium),
         "payback_ticks": int(payback_ticks),
-        "cap_share": float(cap_share),
+        "cap_share": float(bid_share),
+        "bid_share": float(bid_share),
         "role_multipliers": {
             "target": float(target_multiplier),
             "cautious": float(cautious_multiplier),
@@ -1775,11 +1912,22 @@ def _valuation_model_v3(
         },
         "portfolio_synergy": float(portfolio_synergy),
         "system_fit_score": float(system_fit_score),
-        "anchor_value": float(anchor_value),
+        "anchor_value": float(gross_expected_profit_before_bid * bid_share),
         "synergy_bonus": float(synergy_bonus),
         "system_bonus": float(system_bonus),
         "reserve_margin": float(reserve_margin),
         "risk_buffer": float(risk_buffer),
+        "gross_expected_profit_before_bid": float(gross_expected_profit_before_bid),
+        "net_profit_at_recommended_bid": float(
+            value_bids["net_profit_at_recommended_bid"]
+        ),
+        "net_profit_at_max_bid": float(value_bids["net_profit_at_max_bid"]),
+        "remaining_budget_after_recommended_bid": float(
+            value_bids["remaining_budget_after_recommended_bid"]
+        ),
+        "remaining_budget_after_max_bid": float(
+            value_bids["remaining_budget_after_max_bid"]
+        ),
         "cautious_bid": float(cautious_bid),
         "target_bid": float(target_bid),
         "hard_ceiling_bid": float(hard_ceiling_bid),
@@ -1959,6 +2107,7 @@ def evaluate_lot_bundle(
         p_base=float(net_profit_base),
         p_best=float(net_profit_best),
         p_exp=float(expected_net_profit),
+        entry_price_total=float(entry_price_total),
         horizon_ticks=len(ticks),
         remaining_budget=float(remaining_budget),
         evaluation_cfg=evaluation_cfg,
@@ -1973,6 +2122,10 @@ def evaluate_lot_bundle(
     risk_premium = float(valuation_model["risk_premium"])
     reserve_margin = float(valuation_model["reserve_margin"])
     risk_adjusted_net_profit = float(valuation_model["risk_adjusted_net_profit"])
+    bid_share = float(valuation_model.get("bid_share", 0.0) or 0.0)
+    gross_expected_profit_before_bid = float(
+        valuation_model.get("gross_expected_profit_before_bid", 0.0) or 0.0
+    )
     if bool(system_check.get("topology_invalid")):
         cautious_bid = 0.0
         target_bid = 0.0
@@ -1985,6 +2138,40 @@ def evaluate_lot_bundle(
         valuation_model["budget_adjusted_bid"] = 0.0
         valuation_model["working_bid"] = 0.0
         valuation_model["risk_adjusted_net_profit"] = float(risk_adjusted_net_profit)
+        valuation_model["net_profit_at_recommended_bid"] = float(gross_expected_profit_before_bid)
+        valuation_model["net_profit_at_max_bid"] = float(gross_expected_profit_before_bid)
+        valuation_model["remaining_budget_after_recommended_bid"] = float(remaining_budget)
+        valuation_model["remaining_budget_after_max_bid"] = float(remaining_budget)
+
+    risk_band = str(valuation_model.get("risk_band") or "high")
+    if bool(system_check.get("topology_invalid")):
+        scenario_breakdown = {
+            key: {
+                **dict(row),
+                "recommended_bid": 0.0,
+                "bid_ceiling": 0.0,
+                "net_profit_at_recommended_bid": float(
+                    row.get("gross_profit_before_bid", 0.0) or 0.0
+                ),
+                "net_profit_at_bid_ceiling": float(
+                    row.get("gross_profit_before_bid", 0.0) or 0.0
+                ),
+                "remaining_budget_after_recommended_bid": float(remaining_budget),
+                "explanation": str(row.get("explanation") or ""),
+                "comment": str(row.get("comment") or ""),
+            }
+            for key, row in scenario_breakdown.items()
+        }
+    else:
+        scenario_breakdown = {
+            key: _populate_scenario_bid_metrics(
+                row=dict(row),
+                scenario=key,
+                risk_band=risk_band,
+                remaining_budget=remaining_budget,
+            )
+            for key, row in scenario_breakdown.items()
+        }
 
     weights = strategy_weights(rules_cfg, selected_strategy)
     delta_profit = (
@@ -2017,12 +2204,6 @@ def evaluate_lot_bundle(
     confidence = _clamp(
         1.0 - min(0.6, abs(d_best.delta_total - d_worst.delta_total) / 1200.0), 0.0, 1.0
     )
-    financial_breakdown = _financial_breakdown(
-        base_delta=d_base,
-        current_price=entry_price_total,
-        hard_bid=hard_ceiling_bid,
-        model_risk_premium=risk_premium,
-    )
     reasons = _human_reasons(d_base, top_k=5)
     risk_commentary = (
         "Риск контролируемый: прогноз совместим, запас по худшему сценарию положительный."
@@ -2036,35 +2217,112 @@ def evaluate_lot_bundle(
         )
     elif str(system_check.get("status") or "") == "blocked":
         risk_commentary = (
-            "Риск повышен: часть объектов не проходит по сетевым лимитам, поэтому рабочая цена "
-            "дополнительно снижена."
+            "Риск повышен: часть объектов не проходит по сетевым лимитам, поэтому рекомендуемая "
+            "ставка дополнительно снижена."
         )
     if bool(system_check.get("topology_invalid")):
         strategy_fit_text = "Единый анализ: расчёт заблокирован из-за некорректной топологии сети."
     else:
         strategy_fit_text = (
-            "Единый анализ: приоритет риск-скорректированной прибыли соблюдается."
+            "Единый анализ: ставка считается по value-модели и сохраняет часть бюджета для "
+            "следующих аукционов."
             if target_bid > 0
-            else "Единый анализ: лот не поддерживает рабочую ставку в текущих условиях."
+            else "Единый анализ: лот не поддерживает рекомендуемую ставку в текущих условиях."
         )
-
+    decision_summary = {
+        "cautious_bid": float(cautious_bid),
+        "target_bid": float(target_bid),
+        "hard_ceiling_bid": float(hard_ceiling_bid),
+        "budget_adjusted_bid": float(budget_adjusted_bid),
+        "budget_remaining": float(remaining_budget),
+        "expected_net_profit": float(expected_net_profit),
+        "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
+        "model_working_bid": float(valuation_model["working_bid"]),
+        "portfolio_synergy": float(portfolio_synergy),
+        "system_fit_score": float(system_check.get("system_fit_score", 0.0) or 0.0),
+        "bid_formula": "fixed_profit_share_15_25",
+        "bid_share": float(bid_share),
+        "gross_expected_profit_before_bid": float(gross_expected_profit_before_bid),
+        "budget_preservation_note": BUDGET_PRESERVATION_NOTE,
+    }
+    working_bid_payload = resolve_working_bid(
+        decision_summary=decision_summary,
+        financial_breakdown=None,
+    )
+    recommended_bid = float(working_bid_payload.get("working_bid", 0.0) or 0.0)
+    max_bid = float(min(max(0.0, hard_ceiling_bid), max(0.0, remaining_budget)))
+    financial_breakdown = _financial_breakdown(
+        base_delta=d_base,
+        current_price=entry_price_total,
+        hard_bid=hard_ceiling_bid,
+        recommended_bid=recommended_bid,
+        max_bid=max_bid,
+        remaining_budget=remaining_budget,
+        model_risk_premium=risk_premium,
+    )
+    if max_bid <= 0.0:
+        max_bid_reason = (
+            "Максимальная ставка равна 0: либо бюджет исчерпан, либо модель блокирует ставку."
+        )
+    elif max_bid + 1e-9 < hard_ceiling_bid:
+        max_bid_reason = (
+            "Максимальная ставка ограничена остатком бюджета сессии. "
+            + BUDGET_PRESERVATION_NOTE
+        )
+    else:
+        max_bid_reason = (
+            "Максимальная ставка ограничена агрессивным потолком: после покупки должна оставаться "
+            "положительная ожидаемая прибыль."
+        )
+    recommended_bid_reason = str(
+        working_bid_payload.get("working_bid_reason")
+        or (
+            "Рекомендуемая ставка рассчитана как value-цена по доле прибыли за горизонт и не "
+            "обязана тратить весь доступный бюджет."
+        )
+    )
+    decision_summary.update(
+        {
+            **working_bid_payload,
+            "recommended_bid": recommended_bid,
+            "max_bid": max_bid,
+            "recommended_bid_reason": recommended_bid_reason,
+            "max_bid_reason": max_bid_reason,
+            "net_profit_at_recommended_bid": float(
+                valuation_model.get("net_profit_at_recommended_bid", 0.0) or 0.0
+            ),
+            "net_profit_at_max_bid": float(
+                valuation_model.get("net_profit_at_max_bid", 0.0) or 0.0
+            ),
+            "remaining_budget_after_recommended_bid": float(
+                valuation_model.get("remaining_budget_after_recommended_bid", 0.0) or 0.0
+            ),
+            "remaining_budget_after_max_bid": float(
+                valuation_model.get("remaining_budget_after_max_bid", 0.0) or 0.0
+            ),
+        }
+    )
     decision_factors = {
         "analysis_mode": "unified",
         "entry_price": float(entry_price_total),
         "remaining_budget_before_bid": float(remaining_budget),
-        "max_affordable_bid": float(min(hard_ceiling_bid, remaining_budget)),
+        "max_affordable_bid": float(max_bid),
         "expected_net_profit": float(expected_net_profit),
+        "gross_expected_profit_before_bid": float(gross_expected_profit_before_bid),
         "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
         "portfolio_synergy": float(portfolio_synergy),
         "system_fit_score": float(system_check.get("system_fit_score", 0.0) or 0.0),
-        "risk_band": str(valuation_model.get("risk_band") or "low"),
+        "risk_band": risk_band,
         "scenario_volatility": float(valuation_model.get("scenario_volatility", 0.0) or 0.0),
         "downside_gap": float(valuation_model.get("downside_gap", 0.0) or 0.0),
         "risk_premium": float(risk_premium),
         "reserve_margin": float(reserve_margin),
+        "bid_share": float(bid_share),
         "target_bid": float(target_bid),
         "hard_ceiling_bid": float(hard_ceiling_bid),
         "budget_adjusted_bid": float(budget_adjusted_bid),
+        "recommended_bid": float(recommended_bid),
+        "max_bid": float(max_bid),
         "worst_case_profit": float(net_profit_worst),
         "base_case_profit": float(net_profit_base),
         "best_case_profit": float(net_profit_best),
@@ -2095,14 +2353,34 @@ def evaluate_lot_bundle(
             "budget_adjusted_bid": float(budget_adjusted_bid),
             "budget_remaining": float(remaining_budget),
             "expected_net_profit": float(expected_net_profit),
+            "gross_expected_profit_before_bid": float(gross_expected_profit_before_bid),
+            "bid_share": float(bid_share),
             "model_working_bid": float(valuation_model["working_bid"]),
             "risk_premium": float(risk_premium),
             "reserve_margin": float(reserve_margin),
             "portfolio_synergy": float(portfolio_synergy),
             "system_fit_score": float(system_check.get("system_fit_score", 0.0) or 0.0),
             "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
-            "valuation_basis": "fair_value",
+            "recommended_bid": float(recommended_bid),
+            "max_bid": float(max_bid),
+            "recommended_bid_reason": str(recommended_bid_reason),
+            "max_bid_reason": str(max_bid_reason),
+            "net_profit_at_recommended_bid": float(
+                valuation_model.get("net_profit_at_recommended_bid", 0.0) or 0.0
+            ),
+            "net_profit_at_max_bid": float(
+                valuation_model.get("net_profit_at_max_bid", 0.0) or 0.0
+            ),
+            "remaining_budget_after_recommended_bid": float(
+                valuation_model.get("remaining_budget_after_recommended_bid", 0.0) or 0.0
+            ),
+            "remaining_budget_after_max_bid": float(
+                valuation_model.get("remaining_budget_after_max_bid", 0.0) or 0.0
+            ),
+            "budget_preservation_note": BUDGET_PRESERVATION_NOTE,
+            "valuation_basis": "fixed_profit_share_15_25",
             "valuation_model": valuation_model,
+            **working_bid_payload,
         },
         "portfolio_delta": {
             "net_profit_base": float(net_profit_base),
@@ -2126,25 +2404,14 @@ def evaluate_lot_bundle(
         "system_check": dict(system_check),
         "role_profile": dict(role_profile),
     }
-
-    decision_summary = {
-        "cautious_bid": float(cautious_bid),
-        "target_bid": float(target_bid),
-        "hard_ceiling_bid": float(hard_ceiling_bid),
-        "budget_adjusted_bid": float(budget_adjusted_bid),
-        "budget_remaining": float(remaining_budget),
-        "expected_net_profit": float(expected_net_profit),
-        "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
-        "model_working_bid": float(valuation_model["working_bid"]),
-        "portfolio_synergy": float(portfolio_synergy),
-        "system_fit_score": float(system_check.get("system_fit_score", 0.0) or 0.0),
-    }
-    working_bid_payload = resolve_working_bid(
-        decision_summary=decision_summary,
-        financial_breakdown=financial_breakdown,
+    metrics["bids"].update(
+        {
+            "recommended_bid": recommended_bid,
+            "max_bid": max_bid,
+            "recommended_bid_reason": recommended_bid_reason,
+            "max_bid_reason": max_bid_reason,
+        }
     )
-    decision_summary.update(working_bid_payload)
-    metrics["bids"].update(working_bid_payload)
 
     return {
         "summary_score": float(score),
@@ -2183,6 +2450,11 @@ def evaluate_lot_bundle(
         "target_bid": float(target_bid),
         "hard_ceiling_bid": float(hard_ceiling_bid),
         "budget_adjusted_bid": float(budget_adjusted_bid),
+        "recommended_bid": float(recommended_bid),
+        "max_bid": float(max_bid),
+        "recommended_bid_reason": str(recommended_bid_reason),
+        "max_bid_reason": str(max_bid_reason),
+        "budget_preservation_note": BUDGET_PRESERVATION_NOTE,
         "working_bid": float(working_bid_payload["working_bid"]),
         "working_bid_source": str(working_bid_payload["working_bid_source"]),
         "working_bid_reason": str(working_bid_payload["working_bid_reason"]),
@@ -2308,12 +2580,12 @@ def recommend_best_lot(
     alternatives = ranked[1:4]
     text = (
         f"Лучший доступный лот по единой оценке: "
-        f"полезность {best['summary_score']:.1f}, рабочая ставка {best['working_bid']:.1f}."
+        f"полезность {best['summary_score']:.1f}, рекомендуемая ставка {best['working_bid']:.1f}."
     )
     return {
         "best": best,
         "alternatives": alternatives,
-        "recommended_bid": best["working_bid"],
+        "recommended_bid": best.get("recommended_bid", best["working_bid"]),
         "decision_summary": best["decision_summary"],
         "analysis_mode": "unified",
         "strategy": "unified",

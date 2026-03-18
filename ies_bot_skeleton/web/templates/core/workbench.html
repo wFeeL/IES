@@ -205,7 +205,7 @@
         <option value="utility_desc" {{ 'selected' if sort_key == 'utility_desc' else '' }}>Полезность ↓</option>
         <option value="profit_desc" {{ 'selected' if sort_key == 'profit_desc' else '' }}>Чистая прибыль ↓</option>
         <option value="risk_asc" {{ 'selected' if sort_key == 'risk_asc' else '' }}>Риск ↑</option>
-        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Рабочая ставка ↓</option>
+        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Рекомендуемая ставка ↓</option>
         <option value="price_asc" {{ 'selected' if sort_key == 'price_asc' else '' }}>Цена ↑</option>
         <option value="price_desc" {{ 'selected' if sort_key == 'price_desc' else '' }}>Цена ↓</option>
       </select>
@@ -237,7 +237,7 @@
           <th class="col-num">Полезность</th>
           <th class="col-num">Чистая прибыль</th>
           <th class="col-num">Риск</th>
-          <th class="col-num">Рабочая ставка</th>
+          <th class="col-num">Рекомендуемая / Макс.</th>
           <th class="col-text">Статус</th>
           <th class="col-actions">Действия</th>
         </tr>
@@ -263,16 +263,30 @@
           <td class="num">{{ fmt_num(row.risk, 2) }}</td>
           <td class="num lot-bid-cell">
             <div class="lot-bid-stack">
-              <strong>{{ fmt_num(row.working_bid, 1) }}</strong>
-              {% if row.working_bid > 0 %}
-              <span class="lot-bid-meta" title="{{ row.working_bid_reason or ('Ставка с учетом бюджета: ' ~ fmt_num(row.budget_adjusted_bid, 1)) }}">budget {{ fmt_num(row.budget_adjusted_bid, 1) }}</span>
+              <strong>{{ fmt_num(row.recommended_bid or row.working_bid, 1) }}</strong>
+              {% if (row.recommended_bid or row.working_bid) > 0 %}
+              <span class="lot-bid-meta" title="{{ row.max_bid_reason or ('Максимальная ставка: ' ~ fmt_num(row.max_bid, 1)) }}">max {{ fmt_num(row.max_bid, 1) }}</span>
+              {% if row.connection_fit_status and row.connection_fit_status != 'neutral' %}
+              <span class="lot-bid-meta">fit {{ row.connection_fit_status }}</span>
+              {% endif %}
+              <span class="table-secondary" title="{{ row.recommended_bid_reason or row.working_bid_reason }}">
+                profit after bid {{ fmt_num(row.net_profit_at_recommended_bid, 2) }}
+              </span>
+              <span class="table-secondary" title="{{ row.budget_preservation_note or row.recommended_bid_reason }}">
+                budget left {{ fmt_num(row.remaining_budget_after_recommended_bid, 1) }}
+              </span>
               {% else %}
-              <span class="lot-bid-reason text-clamp-2" title="{{ row.working_bid_reason }}">{{ row.working_bid_short_reason or 'Нет рабочей цены' }}</span>
+              <span class="lot-bid-reason text-clamp-2" title="{{ row.recommended_bid_reason or row.working_bid_reason }}">{{ row.working_bid_short_reason or 'Нет рекомендуемой ставки' }}</span>
               {% endif %}
             </div>
           </td>
           <td class="col-text lot-status-cell">
             <span>{{ lot_status_label(row.status) }}</span>
+            {% if row.recommended_points %}
+            <div class="table-secondary text-clamp-2" title="Рекомендованные точки подключения: {{ row.recommended_points|join(', ') }}">
+              Точки: {{ row.recommended_points|join(', ') }}
+            </div>
+            {% endif %}
             {% if row.is_stale %}<div><span class="status-badge status-stale" title="{{ row.stale_reason_label or row.stale_reason }}">Оценка устарела</span></div>{% endif %}
           </td>
           <td class="actions-col lot-actions-cell">
@@ -318,8 +332,22 @@
       <h2 class="h2">Купленные лоты</h2>
     </div>
   </div>
+  {% if network_readiness and network_readiness.action_required %}
+  <div class="flash flash-warning mt-3">
+    <strong>После покупки есть неподключённые объекты.</strong>
+    <div class="mt-2">{{ network_readiness.message }}</div>
+    <div class="mt-2 muted">
+      Неподключённых объектов: {{ network_readiness.unconnected_purchased_objects_count or 0 }} ·
+      затронуто лотов: {{ network_readiness.unconnected_lots_count or 0 }}.
+    </div>
+    <div class="mt-2">
+      <a class="btn btn-secondary" href="{{ url_for('pages.system_view', session_id=session.id) }}">Подключить в энергосистеме</a>
+    </div>
+  </div>
+  {% endif %}
   <div class="insight-grid mt-3">
     <div class="metric-card"><span class="metric-label">Стартовый бюджет</span><strong>{{ fmt_num(portfolio.budget_total, 1) }}</strong></div>
+    <div class="metric-card"><span class="metric-label">All-pay расходы</span><strong>{{ fmt_num(portfolio.allpay_spent, 1) }}</strong></div>
     <div class="metric-card"><span class="metric-label">Потрачено</span><strong>{{ fmt_num(portfolio.spent_total, 1) }}</strong></div>
     <div class="metric-card"><span class="metric-label">Осталось</span><strong>{{ fmt_num(portfolio.remaining_budget, 1) }}</strong></div>
     <div class="metric-card"><span class="metric-label">Куплено лотов</span><strong>{{ portfolio.bought_lots_count }}</strong></div>

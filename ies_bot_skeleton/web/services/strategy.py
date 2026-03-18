@@ -612,7 +612,10 @@ def build_strategy_snapshot(
         remaining_budget=remaining_budget,
         scenario_key="full_budget",
         scenario_title="Полный бюджет",
-        scenario_note="Единая оценка по текущему портфелю и доступному бюджету.",
+        scenario_note=(
+            "Единая оценка по текущему портфелю и доступному бюджету. Value-ставки не обязаны "
+            "тратить весь остаток: сохранённые деньги переходят в следующие аукционы."
+        ),
     )
 
     best_current = next((row for row in rows if float(row.working_bid) > 0.0), None)
@@ -644,7 +647,8 @@ def build_strategy_snapshot(
         scenario_key="after_purchase",
         scenario_title="После покупки лучшей комбинации",
         scenario_note=(
-            "Показывает, что делать следующим шагом, если лучший план уже реализован."
+            "Показывает, что делать следующим шагом, если лучший план уже реализован и "
+            "неиспользованный остаток бюджета сохранён."
             if best_current is not None
             else "Лучшая комбинация не определена, сценарий не рассчитан."
         ),

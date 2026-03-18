@@ -332,7 +332,7 @@ def test_quick_auction_buys_by_field_price_without_confirm_link(client):
     assert quick.status_code == 200
     quick_html = quick.get_data(as_text=True)
     assert f"/lots/item/{lot_id}/buy" not in quick_html
-    assert "Цена покупки (по умолчанию — рабочая цена)" in quick_html
+    assert "Цена покупки (по умолчанию — рекомендуемая ставка)" in quick_html
     assert 'id="purchasePriceInput"' in quick_html
 
     script = client.get("/static/js/analysis/quick_auction.js").get_data(as_text=True)
@@ -594,7 +594,9 @@ def test_lot_detail_marks_scenario_bid_as_non_operational_metric(client):
     _upload_and_select_forecast(client, session_id)
 
     html = client.get(f"/lots/item/{lot_id}").get_data(as_text=True)
-    assert "Сценарный потолок ставки (не цена покупки)" in html
+    assert "Value-ставка по сценарию" in html
+    assert "Чистая прибыль при этой ставке" in html
+    assert "Агрессивный потолок по сценарию" in html
     assert "Рабочая ставка сценария" not in html
 
 

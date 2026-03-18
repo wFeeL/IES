@@ -92,9 +92,13 @@
       "penalties_total": 0.0,
       "losses_total": 0.0,
       "net_profit": 0.0,
+      "gross_profit_before_bid": 0.0,
       "utility_score": 0.0,
       "bid_ceiling": 0.0,
       "recommended_bid": 0.0,
+      "net_profit_at_recommended_bid": 0.0,
+      "net_profit_at_bid_ceiling": 0.0,
+      "remaining_budget_after_recommended_bid": 0.0,
       "explanation": ""
     },
     "base": {},
@@ -104,7 +108,15 @@
     "income": {},
     "expenses": {},
     "losses_and_risks": {},
-    "result": {},
+    "result": {
+      "net_profit": 64.0,
+      "net_profit_at_current_price": 64.0,
+      "gross_profit_before_bid": 164.0,
+      "net_profit_at_recommended_bid": 112.0,
+      "net_profit_at_max_bid": 106.0,
+      "remaining_budget_after_recommended_bid": 18.0,
+      "remaining_budget_after_max_bid": 12.0
+    },
     "ui_rows": [
       {
         "key": "entry_price",
@@ -121,14 +133,26 @@
     "hard_ceiling_bid": 58.0,
     "budget_adjusted_bid": 52.0,
     "budget_remaining": 70.0,
+    "bid_formula": "fixed_profit_share_15_25",
+    "bid_share": 0.2,
+    "gross_expected_profit_before_bid": 164.0,
     "expected_net_profit": 64.0,
     "risk_adjusted_net_profit": 41.5,
-    "model_working_bid": 47.5,
+    "model_working_bid": 52.0,
     "portfolio_synergy": 4.2,
     "system_fit_score": 3.6,
-    "working_bid": 47.5,
-    "working_bid_source": "target|budget_adjusted|cautious|zero",
-    "working_bid_reason": "..."
+    "working_bid": 52.0,
+    "working_bid_source": "target|budget_adjusted|zero",
+    "working_bid_reason": "...",
+    "recommended_bid": 52.0,
+    "recommended_bid_reason": "...",
+    "max_bid": 58.0,
+    "max_bid_reason": "...",
+    "net_profit_at_recommended_bid": 112.0,
+    "net_profit_at_max_bid": 106.0,
+    "remaining_budget_after_recommended_bid": 18.0,
+    "remaining_budget_after_max_bid": 12.0,
+    "budget_preservation_note": "Неиспользованный остаток бюджета сохраняется для следующих аукционов."
   },
   "metrics": {
     "scenarios": {},
@@ -159,7 +183,15 @@
         "hard_ceiling_bid": 0.0,
         "budget_adjusted_bid": 0.0,
         "working_bid": 0.0
-      }
+      },
+      "valuation_basis": "fixed_profit_share_15_25",
+      "budget_remaining": 70.0,
+      "gross_expected_profit_before_bid": 164.0,
+      "net_profit_at_recommended_bid": 112.0,
+      "net_profit_at_max_bid": 106.0,
+      "remaining_budget_after_recommended_bid": 18.0,
+      "remaining_budget_after_max_bid": 12.0,
+      "budget_preservation_note": "Неиспользованный остаток бюджета сохраняется для следующих аукционов."
     },
     "portfolio_delta": {},
     "forecast_compatibility": {},
@@ -194,10 +226,15 @@
 - отдельного режима без прогноза и отдельного compare-flow в схеме продукта нет.
 - исторические `evaluations` сохраняются в БД и экспорте, но не отображаются отдельным экраном в основном пользовательском UX.
 - `financial_breakdown.ui_rows` предназначен для UI: содержит только релевантные/ненулевые строки (`abs(value) > 1e-6`) + обязательные `entry_price` и `net_profit`.
-- `working_bid` - основная пользовательская цена для покупки, а не alias `target_bid`.
-- `budget_adjusted_bid` - потолок по бюджету, полученный из `target_bid` и текущего `budget_remaining`.
-- `model_working_bid` - внутренний риск-буфер между `target_bid` и итоговой рабочей ценой; итоговый `working_bid` берётся из него, если budget/экономика не требуют более жёсткого ограничения.
-- `portfolio_synergy` и `system_fit_score` входят в valuation model и влияют на `working_bid`.
+- `recommended_bid` - основная value-ставка; она зависит от ожидаемой прибыли и risk band, а не от желания потратить весь остаток бюджета.
+- `working_bid` - alias `recommended_bid` для backward compatibility.
+- `budget_adjusted_bid` - технический alias итоговой рекомендуемой ставки; бюджет выступает только как верхний cap.
+- `model_working_bid` сохраняется для совместимости и равен итоговому `working_bid`.
+- `max_bid` - агрессивный потолок для борьбы за текущий аукцион; он обязан оставлять положительную ожидаемую прибыль.
+- `financial_breakdown.result.net_profit` и `financial_breakdown.result.net_profit_at_current_price` показывают прибыль при текущей цене, а не после рекомендуемой ставки.
+- `decision_summary.net_profit_at_recommended_bid` и `decision_summary.remaining_budget_after_recommended_bid` описывают экономику после рекомендуемой ставки на всём горизонте оценки.
+- `portfolio_synergy` и `system_fit_score` входят в valuation model и влияют на рекомендуемую ставку.
+- неиспользованный остаток бюджета сохраняется и может быть использован в следующих аукционах; модель не повышает ставку только потому, что деньги доступны.
 - если `working_bid == 0`, это честно отражается через `working_bid_reason`, а не замещается старым fallback-числом; типичный повод - неположительная взвешенная маржинальная прибыль или исчерпанный бюджет.
 
 ## Forecast canonical schema

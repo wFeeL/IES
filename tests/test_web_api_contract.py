@@ -377,6 +377,10 @@ def test_forecast_compatibility_and_strategy_endpoints(client):
     if strategy_item["best_singles"]:
         assert "budget_adjusted_bid" in strategy_item["best_singles"][0]
         assert "lot_bid_breakdown" in strategy_item["best_singles"][0]
+    for bucket in ("best_singles", "best_pairs", "best_groups"):
+        rows = list(strategy_item.get(bucket) or [])
+        profits = [float(row.get("net_profit_base", row.get("total_profit", 0.0)) or 0.0) for row in rows]
+        assert profits == sorted(profits, reverse=True)
 
 
 def test_incompatible_forecast_blocks_evaluation_and_strategy(client):
@@ -668,20 +672,45 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     item = eval_resp.get_json()["item"]
     assert "budget_adjusted_bid" in item
     assert "working_bid" in item
+    assert "recommended_bid" in item
+    assert "max_bid" in item
     assert "working_bid_source" in item
     assert "working_bid_reason" in item
+    assert "recommended_bid_reason" in item
+    assert "max_bid_reason" in item
     assert item["decision_summary"]["budget_adjusted_bid"] == pytest.approx(
         item["budget_adjusted_bid"]
     )
     assert item["decision_summary"]["working_bid"] == pytest.approx(item["working_bid"])
+    assert item["decision_summary"]["recommended_bid"] == pytest.approx(item["recommended_bid"])
+    assert item["decision_summary"]["max_bid"] == pytest.approx(item["max_bid"])
     assert item["decision_summary"]["working_bid_source"] == item["working_bid_source"]
-    assert item["working_bid_source"] in {"target", "budget_adjusted", "cautious", "zero"}
+    assert item["working_bid_source"] in {"target", "budget_adjusted", "zero"}
     assert item["decision_summary"]["budget_remaining"] == pytest.approx(
         item["portfolio_context"]["remaining_budget"]
     )
     assert item["hard_ceiling_bid"] >= item["target_bid"] >= item["cautious_bid"]
     assert item["budget_adjusted_bid"] == pytest.approx(
         min(item["target_bid"], item["portfolio_context"]["remaining_budget"])
+    )
+    assert item["max_bid"] == pytest.approx(
+        min(item["hard_ceiling_bid"], item["portfolio_context"]["remaining_budget"])
+    )
+    assert item["recommended_bid"] == pytest.approx(item["working_bid"])
+    assert item["recommended_bid"] <= item["max_bid"] + 1e-9
+    assert item["decision_summary"]["budget_preservation_note"]
+    assert item["decision_summary"]["bid_formula"] == "fixed_profit_share_15_25"
+    assert item["decision_summary"]["gross_expected_profit_before_bid"] == pytest.approx(
+        item["metrics"]["bids"]["gross_expected_profit_before_bid"]
+    )
+    assert item["financial_breakdown"]["result"]["net_profit_at_current_price"] == pytest.approx(
+        item["financial_breakdown"]["result"]["net_profit"]
+    )
+    assert item["financial_breakdown"]["result"]["remaining_budget_after_recommended_bid"] == pytest.approx(
+        item["decision_summary"]["remaining_budget_after_recommended_bid"]
+    )
+    assert item["decision_summary"]["net_profit_at_recommended_bid"] == pytest.approx(
+        item["decision_summary"]["gross_expected_profit_before_bid"] - item["recommended_bid"]
     )
     assert "ui_rows" in item["financial_breakdown"]
     assert "valuation_model" in item["metrics"]["bids"]
@@ -695,8 +724,19 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     )
     assert row["budget_adjusted_bid"] == pytest.approx(item["budget_adjusted_bid"])
     assert row["working_bid"] == pytest.approx(item["working_bid"])
+    assert row["recommended_bid"] == pytest.approx(item["recommended_bid"])
+    assert row["max_bid"] == pytest.approx(item["max_bid"])
     assert row["working_bid_source"] == item["working_bid_source"]
     assert row["target_bid"] == pytest.approx(item["target_bid"])
+    assert row["net_profit_at_recommended_bid"] == pytest.approx(
+        item["financial_breakdown"]["result"]["net_profit_at_recommended_bid"]
+    )
+    assert row["remaining_budget_after_recommended_bid"] == pytest.approx(
+        item["financial_breakdown"]["result"]["remaining_budget_after_recommended_bid"]
+    )
+    assert row["budget_preservation_note"] == item["decision_summary"]["budget_preservation_note"]
+    assert "connection_fit_status" in row
+    assert "recommended_points" in row
 
 
 def test_api_returns_structured_csrf_error_for_recalculate(tmp_path):

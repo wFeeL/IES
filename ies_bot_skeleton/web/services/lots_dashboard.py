@@ -105,6 +105,25 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
     losses = dict(financial.get("losses_and_risks") or {})
     decision_summary = dict(evaluation.get("decision_summary") or {})
     working_bid = float(evaluation.get("working_bid") or decision_summary.get("working_bid") or 0.0)
+    recommended_bid = float(
+        decision_summary.get("recommended_bid", working_bid) or working_bid
+    )
+    max_bid = float(
+        decision_summary.get(
+            "max_bid",
+            min(
+                float(decision_summary.get("hard_ceiling_bid", 0.0) or 0.0),
+                float(decision_summary.get("budget_remaining", 0.0) or 0.0),
+            ),
+        )
+        or 0.0
+    )
+    system_check = dict(evaluation.get("system_check") or {})
+    recommended_points = [
+        str(point).strip()
+        for point in list(system_check.get("recommended_points") or [])
+        if str(point).strip()
+    ]
     stale_reason_raw = str(evaluation.get("stale_reason") or "")
     return {
         "lot": lot,
@@ -123,8 +142,45 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         ),
         "utility": float(evaluation.get("summary_score", 0.0) or 0.0),
         "net_profit": float(result.get("net_profit", 0.0) or 0.0),
+        "gross_profit_before_bid": float(
+            decision_summary.get(
+                "gross_expected_profit_before_bid",
+                result.get("gross_profit_before_bid", 0.0),
+            )
+            or 0.0
+        ),
+        "net_profit_at_recommended_bid": float(
+            decision_summary.get(
+                "net_profit_at_recommended_bid",
+                result.get("net_profit_at_recommended_bid", 0.0),
+            )
+            or 0.0
+        ),
+        "net_profit_at_max_bid": float(
+            decision_summary.get(
+                "net_profit_at_max_bid",
+                result.get("net_profit_at_max_bid", 0.0),
+            )
+            or 0.0
+        ),
+        "remaining_budget_after_recommended_bid": float(
+            decision_summary.get(
+                "remaining_budget_after_recommended_bid",
+                result.get("remaining_budget_after_recommended_bid", 0.0),
+            )
+            or 0.0
+        ),
+        "remaining_budget_after_max_bid": float(
+            decision_summary.get(
+                "remaining_budget_after_max_bid",
+                result.get("remaining_budget_after_max_bid", 0.0),
+            )
+            or 0.0
+        ),
         "risk": float(losses.get("risk_total", 0.0) or 0.0),
         "working_bid": float(working_bid),
+        "recommended_bid": float(recommended_bid),
+        "max_bid": float(max_bid),
         "working_bid_source": str(
             evaluation.get("working_bid_source")
             or decision_summary.get("working_bid_source")
@@ -146,7 +202,22 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "budget_adjusted_bid": float(
             decision_summary.get("budget_adjusted_bid", 0.0) or 0.0
         ),
-        "system_check": dict(evaluation.get("system_check") or {}),
+        "recommended_bid_reason": str(
+            decision_summary.get("recommended_bid_reason")
+            or decision_summary.get("working_bid_reason")
+            or evaluation.get("working_bid_reason")
+            or ""
+        ),
+        "budget_preservation_note": str(
+            decision_summary.get("budget_preservation_note") or ""
+        ),
+        "max_bid_reason": str(decision_summary.get("max_bid_reason") or ""),
+        "system_check": system_check,
+        "connection_fit_status": str(system_check.get("status") or "neutral"),
+        "recommended_points": recommended_points,
+        "connection_block_reasons_count": int(
+            system_check.get("connection_block_reasons_count", 0) or 0
+        ),
         "status": lot.status,
         "is_stale": bool(evaluation.get("is_stale")),
         "stale_reason": stale_reason_raw,
@@ -211,7 +282,12 @@ def sort_lot_rows(rows: list[Dict[str, Any]], sort_key: str) -> list[Dict[str, A
     if sort_key == "bid_desc":
         return sorted(
             rows,
-            key=lambda row: float(row.get("working_bid", row.get("target_bid", 0.0)) or 0.0),
+            key=lambda row: float(
+                row.get("recommended_bid")
+                or row.get("working_bid")
+                or row.get("target_bid")
+                or 0.0
+            ),
             reverse=True,
         )
     if sort_key == "price_asc":

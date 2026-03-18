@@ -60,7 +60,7 @@
     </div>
     <div class="stack gap-3 mt-3">
       <label class="label">ID текущего лота <input id="currentLotId" class="input" type="number" /></label>
-      <label class="label">Цена покупки (по умолчанию — рабочая цена) <input id="purchasePriceInput" class="input" type="number" step="0.1" /></label>
+      <label class="label">Цена покупки (по умолчанию — рекомендуемая ставка) <input id="purchasePriceInput" class="input" type="number" step="0.1" /></label>
       <div class="actions">
         <button id="evalCurrent" class="btn btn-primary" type="button" {% if forecast_blocked %}disabled{% endif %}>Оценить</button>
         <button id="refreshRanking" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Пересчитать все лоты</button>
@@ -71,10 +71,14 @@
     <div class="metric-strip mt-4" id="decisionMetrics">
       <div><span class="metric-label">Итоговая полезность</span><strong id="qaScore">—</strong></div>
       <div><span class="metric-label">Риск</span><strong id="qaRisk">—</strong></div>
-      <div><span class="metric-label">Рабочая ставка</span><strong id="qaBid">—</strong></div>
-      <div><span class="metric-label">Ставка с учетом бюджета</span><strong id="qaBudgetBid">—</strong></div>
+      <div><span class="metric-label">Рекомендуемая ставка</span><strong id="qaBid">—</strong></div>
+      <div><span class="metric-label">Максимальная ставка</span><strong id="qaBudgetBid">—</strong></div>
+      <div><span class="metric-label">Прибыль после введённой ставки</span><strong id="qaBidProfit">—</strong></div>
+      <div><span class="metric-label">Остаток бюджета после ставки</span><strong id="qaBudgetLeft">—</strong></div>
     </div>
     <div class="risk-block mt-3" id="qaCommentary">Выберите лот и нажмите «Оценить».</div>
+    <div class="muted mt-2" id="qaBidAdvice">Оставшийся бюджет можно использовать позже.</div>
+    <div class="muted mt-2" id="qaBidWarning"></div>
     <div class="muted mt-3" id="qaStatus">Статус обновления появится здесь.</div>
   </article>
 </section>
@@ -101,7 +105,7 @@
         <option value="utility_desc">Полезность ↓</option>
         <option value="profit_desc">Прибыль ↓</option>
         <option value="risk_asc">Риск ↑</option>
-        <option value="bid_desc">Рабочая ставка ↓</option>
+        <option value="bid_desc">Рекомендуемая ставка ↓</option>
       </select>
     </label>
     <label class="label">Мин. полезность <input id="qaMinUtility" class="input" type="number" step="0.1" /></label>
@@ -141,7 +145,7 @@
           <th>Полезность</th>
           <th>Чистая прибыль</th>
           <th>Риск</th>
-          <th>Рабочая ставка</th>
+          <th>Рекомендуемая / Макс.</th>
           <th>Причины</th>
           <th>Действия</th>
         </tr>
@@ -169,11 +173,20 @@
           <td class="num">{{ fmt_num(row.financial_breakdown.losses_and_risks.risk_total, 2) }}</td>
           <td class="lot-bid-cell">
             <div class="lot-bid-stack">
-              <strong>{{ fmt_num(row.working_bid or row.decision_summary.working_bid, 1) }}</strong>
-              {% if (row.working_bid or row.decision_summary.working_bid) > 0 %}
-              <span class="lot-bid-meta" title="{{ full_reason or ('Ставка с учетом бюджета: ' ~ fmt_num(row.budget_adjusted_bid or row.decision_summary.budget_adjusted_bid, 1)) }}">budget {{ fmt_num(row.budget_adjusted_bid or row.decision_summary.budget_adjusted_bid, 1) }}</span>
+              <strong>{{ fmt_num(row.recommended_bid or row.decision_summary.recommended_bid or row.working_bid or row.decision_summary.working_bid, 1) }}</strong>
+              {% if (row.recommended_bid or row.decision_summary.recommended_bid or row.working_bid or row.decision_summary.working_bid) > 0 %}
+              <span class="lot-bid-meta" title="{{ row.max_bid_reason or row.decision_summary.max_bid_reason or ('Максимальная ставка: ' ~ fmt_num(row.max_bid or row.decision_summary.max_bid, 1)) }}">max {{ fmt_num(row.max_bid or row.decision_summary.max_bid, 1) }}</span>
+              {% if row.connection_fit_status and row.connection_fit_status != 'neutral' %}
+              <span class="lot-bid-meta">fit {{ row.connection_fit_status }}</span>
+              {% endif %}
+              <span class="table-secondary" title="{{ row.recommended_bid_reason or row.working_bid_reason }}">
+                profit after bid {{ fmt_num(row.net_profit_at_recommended_bid, 2) }}
+              </span>
+              <span class="table-secondary" title="{{ row.budget_preservation_note or row.recommended_bid_reason }}">
+                budget left {{ fmt_num(row.remaining_budget_after_recommended_bid, 1) }}
+              </span>
               {% else %}
-              <span class="lot-bid-reason text-clamp-2" title="{{ full_reason }}">{{ row.working_bid_short_reason or 'Нет рабочей цены' }}</span>
+              <span class="lot-bid-reason text-clamp-2" title="{{ full_reason }}">{{ row.working_bid_short_reason or 'Нет рекомендуемой ставки' }}</span>
               {% endif %}
             </div>
           </td>

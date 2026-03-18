@@ -33,7 +33,7 @@ from ..forms import (
     ObjectInstanceForm,
 )
 from ..models import Forecast, GameSession, Lot, ObjectInstance, ObjectType
-from ..services.evaluation import ForecastCompatibilityError
+from ..services.evaluation import BUDGET_PRESERVATION_NOTE, ForecastCompatibilityError
 from ..services.connection_advisor import (
     recommend_connection_for_profile,
     recommendations_for_session_objects,
@@ -158,6 +158,10 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "utility_score": 0.0,
             "bid_ceiling": 0.0,
             "recommended_bid": 0.0,
+            "gross_profit_before_bid": 0.0,
+            "net_profit_at_recommended_bid": 0.0,
+            "net_profit_at_bid_ceiling": 0.0,
+            "remaining_budget_after_recommended_bid": 0.0,
             "explanation": scoped_reason,
             "income_total": 0.0,
             "expenses_total": 0.0,
@@ -192,6 +196,12 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "result": {
                 "utility_total": 0.0,
                 "net_profit": 0.0,
+                "net_profit_at_current_price": 0.0,
+                "gross_profit_before_bid": 0.0,
+                "net_profit_at_recommended_bid": 0.0,
+                "net_profit_at_max_bid": 0.0,
+                "remaining_budget_after_recommended_bid": 0.0,
+                "remaining_budget_after_max_bid": 0.0,
                 "roi": 0.0,
                 "payback_ratio": None,
                 "threshold_bid": 0.0,
@@ -203,7 +213,19 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "target_bid": 0.0,
             "hard_ceiling_bid": 0.0,
             "budget_adjusted_bid": 0.0,
+            "recommended_bid": 0.0,
+            "max_bid": 0.0,
+            "bid_formula": "fixed_profit_share_15_25",
+            "bid_share": 0.0,
+            "gross_expected_profit_before_bid": 0.0,
+            "recommended_bid_reason": reason,
+            "max_bid_reason": reason,
             "budget_remaining": 0.0,
+            "net_profit_at_recommended_bid": 0.0,
+            "net_profit_at_max_bid": 0.0,
+            "remaining_budget_after_recommended_bid": 0.0,
+            "remaining_budget_after_max_bid": 0.0,
+            "budget_preservation_note": BUDGET_PRESERVATION_NOTE,
             "working_bid": 0.0,
             "working_bid_source": "zero",
             "working_bid_reason": reason,
@@ -213,6 +235,11 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
         "reasons": [reason],
         "risk_commentary": reason,
         "strategy_fit_text": "Оценка заблокирована до исправления совместимости прогноза.",
+        "recommended_bid": 0.0,
+        "max_bid": 0.0,
+        "recommended_bid_reason": reason,
+        "max_bid_reason": reason,
+        "budget_preservation_note": BUDGET_PRESERVATION_NOTE,
         "working_bid": 0.0,
         "working_bid_source": "zero",
         "working_bid_reason": reason,
@@ -224,7 +251,18 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "decomposition": {},
             "bids": {
                 "budget_adjusted_bid": 0.0,
+                "recommended_bid": 0.0,
+                "max_bid": 0.0,
+                "bid_share": 0.0,
+                "gross_expected_profit_before_bid": 0.0,
+                "recommended_bid_reason": reason,
+                "max_bid_reason": reason,
                 "budget_remaining": 0.0,
+                "net_profit_at_recommended_bid": 0.0,
+                "net_profit_at_max_bid": 0.0,
+                "remaining_budget_after_recommended_bid": 0.0,
+                "remaining_budget_after_max_bid": 0.0,
+                "budget_preservation_note": BUDGET_PRESERVATION_NOTE,
                 "risk_premium": 0.0,
                 "reserve_margin": 0.0,
                 "valuation_model": {
@@ -254,6 +292,8 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
                     "target_bid": 0.0,
                     "hard_ceiling_bid": 0.0,
                     "budget_adjusted_bid": 0.0,
+                    "recommended_bid": 0.0,
+                    "max_bid": 0.0,
                     "working_bid": 0.0,
                     "risk_adjusted_net_profit": 0.0,
                 },
@@ -785,7 +825,9 @@ def lot_buy_confirm_page(lot_id: int):
     form = LotPurchaseForm()
     if request.method == "GET":
         form.purchase_price.data = float(
-            evaluation.get("working_bid")
+            evaluation.get("recommended_bid")
+            or (evaluation.get("decision_summary") or {}).get("recommended_bid")
+            or evaluation.get("working_bid")
             or (evaluation.get("decision_summary") or {}).get("working_bid")
             or lot.current_bid
             or 0.0
@@ -1125,6 +1167,48 @@ def quick_auction_page(session_id: int):
                     {
                         "target_bid": float(row.get("target_bid", 0.0) or 0.0),
                         "budget_adjusted_bid": float(row.get("budget_adjusted_bid", 0.0) or 0.0),
+                        "recommended_bid": float(
+                            row.get("recommended_bid", row.get("working_bid", 0.0)) or 0.0
+                        ),
+                        "max_bid": float(row.get("max_bid", 0.0) or 0.0),
+                        "bid_formula": str(
+                            row.get("decision_summary", {}).get("bid_formula")
+                            or payload.get("decision_summary", {}).get("bid_formula")
+                            or "fixed_profit_share_15_25"
+                        ),
+                        "bid_share": float(
+                            row.get("decision_summary", {}).get("bid_share")
+                            or payload.get("decision_summary", {}).get("bid_share")
+                            or 0.0
+                        ),
+                        "gross_expected_profit_before_bid": float(
+                            row.get("decision_summary", {}).get("gross_expected_profit_before_bid")
+                            or payload.get("decision_summary", {}).get("gross_expected_profit_before_bid")
+                            or 0.0
+                        ),
+                        "recommended_bid_reason": str(
+                            row.get("recommended_bid_reason")
+                            or row.get("working_bid_reason")
+                            or ""
+                        ),
+                        "max_bid_reason": str(row.get("max_bid_reason") or ""),
+                        "net_profit_at_recommended_bid": float(
+                            row.get("net_profit_at_recommended_bid", 0.0) or 0.0
+                        ),
+                        "net_profit_at_max_bid": float(
+                            row.get("net_profit_at_max_bid", 0.0) or 0.0
+                        ),
+                        "remaining_budget_after_recommended_bid": float(
+                            row.get("remaining_budget_after_recommended_bid", 0.0) or 0.0
+                        ),
+                        "remaining_budget_after_max_bid": float(
+                            row.get("remaining_budget_after_max_bid", 0.0) or 0.0
+                        ),
+                        "budget_preservation_note": str(
+                            row.get("budget_preservation_note")
+                            or payload.get("decision_summary", {}).get("budget_preservation_note")
+                            or BUDGET_PRESERVATION_NOTE
+                        ),
                         "working_bid": float(row.get("working_bid", 0.0) or 0.0),
                         "working_bid_source": str(row.get("working_bid_source") or "none"),
                         "working_bid_reason": str(row.get("working_bid_reason") or ""),
@@ -1140,15 +1224,39 @@ def quick_auction_page(session_id: int):
                         "price": float(row.get("price", 0.0) or 0.0),
                         "risk": float(row.get("risk", 0.0) or 0.0),
                         "net_profit": float(row.get("net_profit", 0.0) or 0.0),
+                        "gross_profit_before_bid": float(
+                            row.get("gross_profit_before_bid", 0.0) or 0.0
+                        ),
+                        "net_profit_at_recommended_bid": float(
+                            row.get("net_profit_at_recommended_bid", 0.0) or 0.0
+                        ),
+                        "net_profit_at_max_bid": float(
+                            row.get("net_profit_at_max_bid", 0.0) or 0.0
+                        ),
+                        "remaining_budget_after_recommended_bid": float(
+                            row.get("remaining_budget_after_recommended_bid", 0.0) or 0.0
+                        ),
+                        "remaining_budget_after_max_bid": float(
+                            row.get("remaining_budget_after_max_bid", 0.0) or 0.0
+                        ),
                         "summary_score": float(
                             payload.get("summary_score", row.get("utility", 0.0)) or 0.0
                         ),
                         "working_bid": float(row.get("working_bid", 0.0) or 0.0),
+                        "recommended_bid": float(
+                            row.get("recommended_bid", row.get("working_bid", 0.0)) or 0.0
+                        ),
+                        "max_bid": float(row.get("max_bid", 0.0) or 0.0),
                         "working_bid_source": str(row.get("working_bid_source") or "none"),
                         "working_bid_reason": str(row.get("working_bid_reason") or ""),
                         "working_bid_short_reason": str(row.get("working_bid_short_reason") or ""),
+                        "budget_preservation_note": str(
+                            row.get("budget_preservation_note") or BUDGET_PRESERVATION_NOTE
+                        ),
                         "budget_adjusted_bid": float(row.get("budget_adjusted_bid", 0.0) or 0.0),
                         "target_bid": float(row.get("target_bid", 0.0) or 0.0),
+                        "connection_fit_status": str(row.get("connection_fit_status") or "neutral"),
+                        "recommended_points": list(row.get("recommended_points") or []),
                         "decision_summary": decision_summary,
                     }
                 )

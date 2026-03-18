@@ -147,12 +147,31 @@
     return Number((row.financial_breakdown || {}).result?.net_profit || row.net_profit || 0);
   }
 
+  function grossProfitBeforeBid(row) {
+    return Number(
+      (row.decision_summary || {}).gross_expected_profit_before_bid ||
+      (row.financial_breakdown || {}).result?.gross_profit_before_bid ||
+      row.gross_profit_before_bid ||
+      0
+    );
+  }
+
+  function remainingBudget(row) {
+    return Number(
+      (row.decision_summary || {}).budget_remaining ||
+      (row.portfolio_context || {}).remaining_budget ||
+      0
+    );
+  }
+
   function riskValue(row) {
     return Number((row.financial_breakdown || {}).losses_and_risks?.risk_total || row.risk || 0);
   }
 
   function workingBid(row) {
     return Number(
+      row.recommended_bid ||
+      (row.decision_summary || {}).recommended_bid ||
       row.working_bid ||
       (row.decision_summary || {}).working_bid ||
       0
@@ -161,6 +180,8 @@
 
   function workingBidReason(row) {
     return (
+      row.recommended_bid_reason ||
+      (row.decision_summary || {}).recommended_bid_reason ||
       row.working_bid_short_reason ||
       row.working_bid_reason ||
       (row.decision_summary || {}).working_bid_reason ||
@@ -200,10 +221,20 @@
 
   function budgetAdjustedBid(row) {
     return Number(
+      (row.decision_summary || {}).max_bid ||
+      row.max_bid ||
       (row.decision_summary || {}).budget_adjusted_bid ||
       row.budget_adjusted_bid ||
       0
     );
+  }
+
+  function profitAfterBid(row, bid) {
+    return grossProfitBeforeBid(row) - Math.max(0, Number(bid || 0));
+  }
+
+  function budgetLeftAfterBid(row, bid) {
+    return Math.max(0, remainingBudget(row) - Math.max(0, Number(bid || 0)));
   }
 
   function structureText(row) {
@@ -384,6 +415,10 @@
     return state.ranking.find((row) => Number(row.lot_id || 0) === targetId) || null;
   }
 
+  function selectedDecisionItem() {
+    return rankingItemByLotId(Number($('currentLotId')?.value || 0));
+  }
+
   function syncPurchasePriceInput(lotId, force = false) {
     const input = $('purchasePriceInput');
     if (!input) return;
@@ -396,6 +431,53 @@
     setCurrentLinks(lotId);
   }
 
+  function updateLiveBidMetrics(item) {
+    if (!item) {
+      return;
+    }
+    const input = $('purchasePriceInput');
+    const rawValue = input?.value || '';
+    const enteredBid = rawValue ? toNumber(rawValue) : workingBid(item);
+    const recommended = workingBid(item);
+    const grossProfit = grossProfitBeforeBid(item);
+    const profit = profitAfterBid(item, enteredBid);
+    const budgetLeft = budgetLeftAfterBid(item, enteredBid);
+    const profitDelta = profitAfterBid(item, recommended) - profit;
+    const budgetDelta = budgetLeftAfterBid(item, recommended) - budgetLeft;
+    if ($('qaBidProfit')) $('qaBidProfit').textContent = formatNumber(profit, 2);
+    if ($('qaBudgetLeft')) $('qaBudgetLeft').textContent = formatNumber(budgetLeft, 1);
+
+    let advice = String(
+      item?.budget_preservation_note ||
+      (item?.decision_summary || {}).budget_preservation_note ||
+      'Оставшийся бюджет можно использовать позже.'
+    ).trim();
+    if (enteredBid > recommended + 1e-9) {
+      advice +=
+        ` По сравнению с рекомендуемой ставкой вы теряете ` +
+        `${formatNumber(profitDelta, 2)} прибыли и ${formatNumber(Math.max(0, budgetDelta), 1)} бюджета.`;
+    }
+    if (enteredBid < recommended - 1e-9 && enteredBid > 0) {
+      advice +=
+        ` Вы оставляете ещё ${formatNumber(Math.max(0, budgetLeft - budgetLeftAfterBid(item, recommended)), 1)} бюджета в резерве.`;
+    }
+    if ($('qaBidAdvice')) $('qaBidAdvice').textContent = advice;
+
+    let warning = '';
+    if (enteredBid <= 0) {
+      warning = 'Ставка должна быть больше нуля, иначе купить лот нельзя.';
+    } else if (profit <= 0) {
+      warning = 'Предупреждение: после введённой ставки ожидаемая прибыль становится неположительной.';
+    } else if (enteredBid > budgetAdjustedBid(item) + 1e-9) {
+      warning = `Предупреждение: введённая цена выше максимальной ставки ${formatNumber(budgetAdjustedBid(item), 1)}.`;
+    }
+    if ($('qaBidWarning')) $('qaBidWarning').textContent = warning;
+    if ($('qaBidWarning')) $('qaBidWarning').hidden = !warning;
+    if (grossProfit <= 0 && !warning && $('qaBidWarning')) {
+      $('qaBidWarning').textContent = '';
+    }
+  }
+
   function updateDecisionPanel(item) {
     if (!item) return;
     $('qaScore').textContent = formatNumber(item.summary_score, 2);
@@ -406,13 +488,14 @@
     const systemMessage = String((item.system_check || {}).message || '');
     $('qaCommentary').textContent = reasons || workingBidReason(item) || systemMessage || 'Нет комментария.';
     if (workingBid(item) <= 0) {
-      $('qaCommentary').textContent = workingBidReason(item) || systemMessage || 'Рабочая цена недоступна для текущего лота.';
+      $('qaCommentary').textContent = workingBidReason(item) || systemMessage || 'Рекомендуемая ставка недоступна для текущего лота.';
     }
     const lotId = Number(item.lot_id || 0);
     $('currentLotId').value = String(lotId || '');
     setCurrentLinks(lotId);
     setActiveAuctionItem(lotId);
     syncPurchasePriceInput(lotId, true);
+    updateLiveBidMetrics(item);
   }
 
   async function evalLot(lotId) {
@@ -437,7 +520,7 @@
       updateDecisionPanel(data.item);
       setStatus(
         `Лот ${id} пересчитан. Полезность ${formatNumber(data.item.summary_score, 2)}, ` +
-        `рабочая ставка ${formatNumber(workingBid(data.item), 1)}.`
+        `рекомендуемая ставка ${formatNumber(workingBid(data.item), 1)}.`
       );
     } catch (_) {
       setStatus('Не удалось пересчитать лот из-за сетевой ошибки.');
@@ -494,6 +577,10 @@
       empty.className = 'muted';
       empty.textContent = 'Нет доступных лотов.';
       list.appendChild(empty);
+      if ($('qaBidWarning')) {
+        $('qaBidWarning').textContent = '';
+        $('qaBidWarning').hidden = true;
+      }
       setActiveAuctionItem(0);
       return;
     }
@@ -517,6 +604,13 @@
       body.innerHTML = '<tr><td colspan="9" class="muted">Нет строк после фильтрации.</td></tr>';
       $('currentLotId').value = '';
       if ($('purchasePriceInput')) $('purchasePriceInput').value = '';
+      if ($('qaBidProfit')) $('qaBidProfit').textContent = '—';
+      if ($('qaBudgetLeft')) $('qaBudgetLeft').textContent = '—';
+      if ($('qaBidAdvice')) $('qaBidAdvice').textContent = 'Оставшийся бюджет можно использовать позже.';
+      if ($('qaBidWarning')) {
+        $('qaBidWarning').textContent = '';
+        $('qaBidWarning').hidden = true;
+      }
       setCurrentLinks(0);
       setStatus('После фильтрации подходящих лотов не осталось.');
       return;
@@ -530,6 +624,21 @@
       const fullReasonText = fullReason(row);
       const shortReasonText = shortReason(row);
       const lotName = escapeHtml(row?.name || `Лот ${lotId || '—'}`);
+      const fitStatus = String(row?.connection_fit_status || '').trim();
+      const fitBadge = fitStatus && fitStatus !== 'neutral'
+        ? `<span class=\"lot-bid-meta\">fit ${escapeHtml(fitStatus)}</span>`
+        : '';
+      const recommendedReason = String(
+        row?.recommended_bid_reason ||
+        (row?.decision_summary || {}).recommended_bid_reason ||
+        row?.working_bid_reason ||
+        ''
+      ).trim();
+      const preservationNote = String(
+        row?.budget_preservation_note ||
+        (row?.decision_summary || {}).budget_preservation_note ||
+        ''
+      ).trim();
       tr.dataset.lotId = String(row.lot_id || '');
       tr.innerHTML = `
         <td class="num">${index + 1}</td>
@@ -548,8 +657,8 @@
             <strong>${formatNumber(bid, 1)}</strong>
             ${
               bid > 0
-                ? `<span class="lot-bid-meta" title="${escapeHtml(fullReasonText || `Ставка с учетом бюджета: ${formatNumber(budgetBid, 1)}`)}">budget ${formatNumber(budgetBid, 1)}</span>`
-                : `<span class="lot-bid-reason text-clamp-2" title="${escapeHtml(fullReasonText)}">${escapeHtml(shortReasonText || 'Нет рабочей цены')}</span>`
+                ? `<span class="lot-bid-meta" title="${escapeHtml(fullReasonText || `Максимальная ставка: ${formatNumber(budgetBid, 1)}`)}">max ${formatNumber(budgetBid, 1)}</span>${fitBadge}<span class="table-secondary" title="${escapeHtml(recommendedReason)}">profit after bid ${formatNumber(Number((row.financial_breakdown || {}).result?.net_profit_at_recommended_bid || row.net_profit_at_recommended_bid || 0), 2)}</span><span class="table-secondary" title="${escapeHtml(preservationNote || recommendedReason)}">budget left ${formatNumber(Number((row.financial_breakdown || {}).result?.remaining_budget_after_recommended_bid || row.remaining_budget_after_recommended_bid || 0), 1)}</span>`
+                : `<span class="lot-bid-reason text-clamp-2" title="${escapeHtml(fullReasonText)}">${escapeHtml(shortReasonText || 'Нет рекомендуемой ставки')}</span>`
             }
           </div>
         </td>
@@ -619,6 +728,13 @@
       } else {
         $('currentLotId').value = '';
         if ($('purchasePriceInput')) $('purchasePriceInput').value = '';
+        if ($('qaBidProfit')) $('qaBidProfit').textContent = '—';
+        if ($('qaBudgetLeft')) $('qaBudgetLeft').textContent = '—';
+        if ($('qaBidAdvice')) $('qaBidAdvice').textContent = 'Оставшийся бюджет можно использовать позже.';
+        if ($('qaBidWarning')) {
+          $('qaBidWarning').textContent = '';
+          $('qaBidWarning').hidden = true;
+        }
         setCurrentLinks(0);
         setActiveAuctionItem(0);
       }
@@ -793,8 +909,23 @@
       persistState();
     });
 
-    $('currentLotId')?.addEventListener('input', persistState);
-    $('purchasePriceInput')?.addEventListener('input', persistState);
+    $('currentLotId')?.addEventListener('input', () => {
+      const item = selectedDecisionItem();
+      if (item) {
+        setActiveAuctionItem(Number(item.lot_id || 0));
+        setCurrentLinks(Number(item.lot_id || 0));
+        syncPurchasePriceInput(Number(item.lot_id || 0), false);
+        updateLiveBidMetrics(item);
+      }
+      persistState();
+    });
+    $('purchasePriceInput')?.addEventListener('input', () => {
+      const item = selectedDecisionItem();
+      if (item) {
+        updateLiveBidMetrics(item);
+      }
+      persistState();
+    });
     $('qaSort')?.addEventListener('change', persistState);
     $('qaMinUtility')?.addEventListener('input', persistState);
     $('qaMaxRisk')?.addEventListener('input', persistState);
