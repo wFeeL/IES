@@ -74,33 +74,37 @@ def build_default_ruleset_config() -> Dict[str, Any]:
     merged = _deep_merge(game_cfg, scoring_cfg)
     merged.setdefault("lot_score_weights", dict(DEFAULT_WEIGHTS))
     merged.setdefault("strategy_profiles", dict(DEFAULT_STRATEGY_PROFILES))
-    merged.setdefault(
-        "evaluation",
-        {
-            "weighted_expected": {
-                "base": 0.50,
-                "worst": 0.35,
-                "best": 0.15,
-                "custom": 0.0,
-            },
-            "risk_lambda": 0.25,
-            "volatility_lambda": 0.15,
-            "reserve_margin_abs": 5.0,
-            "reserve_margin_share": 0.10,
-            "storage_operating_cost_per_mwh_throughput": 0.0,
-        },
-    )
+    evaluation_cfg = dict(merged.get("evaluation", {}) or {})
+    weighted_expected = dict(evaluation_cfg.get("weighted_expected", {}) or {})
+    weighted_expected.setdefault("base", 0.50)
+    weighted_expected.setdefault("worst", 0.35)
+    weighted_expected.setdefault("best", 0.15)
+    weighted_expected.setdefault("custom", 0.0)
+    evaluation_cfg["weighted_expected"] = weighted_expected
+    evaluation_cfg.setdefault("risk_lambda", 0.25)
+    evaluation_cfg.setdefault("volatility_lambda", 0.15)
+    evaluation_cfg.setdefault("reserve_margin_abs", 5.0)
+    evaluation_cfg.setdefault("reserve_margin_share", 0.10)
+    evaluation_cfg.setdefault("storage_operating_cost_per_mwh_throughput", 0.0)
+    evaluation_cfg.setdefault("enable_strategy_profiles", False)
+    evaluation_cfg.setdefault("ignore_connection_sectors", False)
+    evaluation_cfg.setdefault("analysis_mode", "unified")
+    merged["evaluation"] = evaluation_cfg
     merged.setdefault("auction", {}).setdefault("pwin_default", 0.35)
     merged.setdefault("auction", {}).setdefault("starting_budget", 200.0)
     return merged
 
 
-def strategy_weights(config: Dict[str, Any], strategy: str) -> Dict[str, float]:
+def strategy_weights(config: Dict[str, Any], strategy: str | None = None) -> Dict[str, float]:
+    selected_strategy = str(strategy or "")
     base = dict(DEFAULT_WEIGHTS)
     base.update(config.get("lot_score_weights", {}) or {})
 
-    profiles = dict(DEFAULT_STRATEGY_PROFILES)
-    profiles.update(config.get("strategy_profiles", {}) or {})
-    overlay = profiles.get(strategy, {}) or {}
-    base.update(overlay)
+    evaluation_cfg = dict(config.get("evaluation", {}) or {})
+    enable_strategy_profiles = bool(evaluation_cfg.get("enable_strategy_profiles", False))
+    if enable_strategy_profiles:
+        profiles = dict(DEFAULT_STRATEGY_PROFILES)
+        profiles.update(config.get("strategy_profiles", {}) or {})
+        overlay = profiles.get(selected_strategy, {}) or {}
+        base.update(overlay)
     return {k: float(v) for k, v in base.items()}

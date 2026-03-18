@@ -549,3 +549,33 @@ def test_scenario_row_uses_correct_market_sign():
     )
     assert row_sell["income_total"] == pytest.approx(62.0)
     assert row_sell["expenses_total"] == pytest.approx(30.0)
+
+
+def test_session_budget_counts_allpay_spend(app_ctx):
+    session = app_ctx["session"]
+    session.budget_total = 200.0
+    session.allpay_spent = 37.5
+    db.session.add(session)
+    db.session.commit()
+
+    payload = session.to_dict()
+    assert payload["purchase_spent"] == pytest.approx(0.0)
+    assert payload["allpay_spent"] == pytest.approx(37.5)
+    assert payload["spent_total"] == pytest.approx(37.5)
+    assert payload["remaining_budget"] == pytest.approx(162.5)
+
+
+def test_strategy_fit_returns_unified_single_row(app_ctx):
+    from ies_bot_skeleton.web.services.evaluation import strategy_fit
+
+    out = strategy_fit(
+        session=app_ctx["session"],
+        lot=app_ctx["lot"],
+        forecast=app_ctx["forecast"],
+    )
+
+    assert out["analysis_mode"] == "unified"
+    assert out["best_strategy"] == "unified"
+    assert len(out["rows"]) == 1
+    assert out["rows"][0]["strategy"] == "unified"
+    assert "decision_factors" in out["rows"][0]

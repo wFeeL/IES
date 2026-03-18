@@ -119,3 +119,21 @@ def test_build_combo_catalog_keeps_lot_when_working_bid_fits_budget(monkeypatch)
     assert len(rows) == 1
     assert rows[0].lot_ids == (1,)
     assert rows[0].working_bid == pytest.approx(100.0)
+
+
+def test_remaining_budget_subtracts_allpay_spend():
+    session = SimpleNamespace(
+        budget_total=200.0,
+        allpay_spent=35.0,
+        lots=[SimpleNamespace(status="bought", purchase_price=40.0)],
+    )
+
+    assert strategy_service._remaining_budget(session) == pytest.approx(125.0)
+
+
+def test_strategy_weights_are_unified_by_default():
+    from ies_bot_skeleton.web.services.ruleset import strategy_weights
+
+    generation = strategy_weights({}, "generation")
+    aggressive = strategy_weights({}, "aggressive")
+    assert generation == aggressive

@@ -219,13 +219,15 @@ class GameSession(db.Model):
     )
 
     def to_dict(self) -> Dict[str, Any]:
-        spent_total = float(
+        purchase_spent = float(
             sum(
                 float(lot.purchase_price or 0.0)
                 for lot in self.lots
                 if str(lot.status or "") == "bought"
             )
         )
+        allpay_spent = max(0.0, float(self.allpay_spent or 0.0))
+        spent_total = float(purchase_spent + allpay_spent)
         bought_lots_count = int(
             sum(1 for lot in self.lots if str(lot.status or "") == "bought")
         )
@@ -234,12 +236,14 @@ class GameSession(db.Model):
             "title": self.title,
             "ruleset_id": self.ruleset_id,
             "selected_strategy": self.selected_strategy,
+            "analysis_mode": "unified",
             "selected_forecast_id": self.selected_forecast_id,
             "budget_total": self.budget_total,
+            "purchase_spent": purchase_spent,
+            "allpay_spent": allpay_spent,
             "spent_total": spent_total,
             "remaining_budget": max(0.0, float(self.budget_total or 0.0) - spent_total),
             "bought_lots_count": bought_lots_count,
-            "allpay_spent": self.allpay_spent,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

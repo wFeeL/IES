@@ -33,23 +33,36 @@ def _session_lots(session: GameSession) -> Sequence[Lot]:
     return cast(Sequence[Lot], list(session.lots))
 
 
-def _remaining_budget(session: GameSession) -> float:
+def _lot_purchase_spent(session: GameSession) -> float:
     spent = 0.0
     for lot in _session_lots(session):
         if str(lot.status or "") == "bought":
             spent += float(lot.purchase_price or 0.0)
+    return float(spent)
+
+
+def _allpay_spent(session: GameSession) -> float:
+    return max(0.0, float(getattr(session, "allpay_spent", 0.0) or 0.0))
+
+
+def _remaining_budget(session: GameSession) -> float:
+    spent = _lot_purchase_spent(session) + _allpay_spent(session)
     return max(0.0, float(session.budget_total or 0.0) - spent)
 
 
 def _portfolio_context(session: GameSession) -> Dict[str, Any]:
-    spent = 0.0
+    purchase_spent = _lot_purchase_spent(session)
+    allpay_spent = _allpay_spent(session)
+    spent = purchase_spent + allpay_spent
     bought = 0
     for lot in _session_lots(session):
         if str(lot.status or "") == "bought":
             bought += 1
-            spent += float(lot.purchase_price or 0.0)
     return {
+        "analysis_mode": "unified",
         "bought_lots_count": int(bought),
+        "purchase_spent": float(purchase_spent),
+        "allpay_spent": float(allpay_spent),
         "spent_total": float(spent),
         "remaining_budget": float(max(0.0, float(session.budget_total or 0.0) - spent)),
         "budget_total": float(session.budget_total or 0.0),
@@ -322,6 +335,11 @@ def _combo_to_dict(
         f"{lot_names.get(lot_id, f'Лот {lot_id}')} ({lot_id})" for lot_id in combo.lot_ids
     ]
     budget_headroom = float(remaining_budget - combo.working_bid)
+    scenario_breakdown = dict(combo.payload.get("scenario_breakdown") or {})
+    decision_factors = dict(combo.payload.get("decision_factors") or {})
+    worst_case = dict(scenario_breakdown.get("worst") or {})
+    base_case = dict(scenario_breakdown.get("base") or {})
+    best_case = dict(scenario_breakdown.get("best") or {})
     return {
         "lot_ids": list(combo.lot_ids),
         "lot_names": [lot_names.get(lot_id, f"Лот {lot_id}") for lot_id in combo.lot_ids],
@@ -344,7 +362,11 @@ def _combo_to_dict(
         "working_bid": float(combo.working_bid),
         "working_bid_source": str(combo.working_bid_source),
         "working_bid_reason": str(combo.working_bid_reason),
-        "scenario_breakdown": dict(combo.payload.get("scenario_breakdown") or {}),
+        "scenario_breakdown": scenario_breakdown,
+        "decision_factors": decision_factors,
+        "worst_case_profit": float(worst_case.get("net_profit", 0.0) or 0.0),
+        "base_case_profit": float(base_case.get("net_profit", 0.0) or 0.0),
+        "best_case_profit": float(best_case.get("net_profit", 0.0) or 0.0),
         "portfolio_delta": dict((combo.payload.get("metrics") or {}).get("portfolio_delta") or {}),
         "forecast_compatibility": dict(
             (combo.payload.get("metrics") or {}).get("forecast_compatibility") or {}
@@ -525,7 +547,7 @@ def build_strategy_snapshot(
     beam_width: int = 7,
     max_group_size: int = 5,
 ) -> Dict[str, Any]:
-    selected_strategy = strategy or session.selected_strategy
+    selected_strategy = "unified"
     analysis_ctx = resolve_analysis_context(
         session, forecast_id=forecast.id if forecast is not None else None
     )
@@ -554,7 +576,8 @@ def build_strategy_snapshot(
         }
         return {
             "session_id": int(session.id),
-            "strategy": selected_strategy,
+            "strategy": "unified",
+            "analysis_mode": "unified",
             "objective": "risk_adjusted_net_profit",
             "forecast_context": dict(analysis_ctx["forecast_context"]),
             "forecast_compatibility": compatibility,
@@ -589,7 +612,7 @@ def build_strategy_snapshot(
         remaining_budget=remaining_budget,
         scenario_key="full_budget",
         scenario_title="Полный бюджет",
-        scenario_note="Стратегия по текущему портфелю и доступному бюджету.",
+        scenario_note="Единая оценка по текущему портфелю и доступному бюджету.",
     )
 
     best_current = next((row for row in rows if float(row.working_bid) > 0.0), None)
@@ -660,7 +683,8 @@ def build_strategy_snapshot(
 
     return {
         "session_id": int(session.id),
-        "strategy": selected_strategy,
+        "strategy": "unified",
+        "analysis_mode": "unified",
         "objective": "risk_adjusted_net_profit",
         "forecast_context": dict(analysis_ctx["forecast_context"]),
         "forecast_compatibility": compatibility,

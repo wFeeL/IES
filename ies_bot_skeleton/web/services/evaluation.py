@@ -20,7 +20,6 @@ from .connection_advisor import recommend_connection_for_profile
 from .forecast_service import load_bundled_forecast_pack
 from .network import validate_session_network
 from .ruleset import strategy_weights
-from .ui_text import strategy_label
 
 DEFAULT_WEIGHTED = {"base": 0.50, "worst": 0.35, "best": 0.15}
 
@@ -107,15 +106,14 @@ def _as_float(value: Any, default: float = 0.0) -> float:
 
 
 def _ignore_connection_sectors_cfg(cfg: Dict[str, Any]) -> bool:
-    del cfg
-    # Lot valuation is intentionally sector-agnostic:
-    # connection sectors (A/B/C/...) must not alter lot pricing and profit.
-    return True
+    evaluation_cfg = dict((cfg.get("evaluation", {}) or {}))
+    return bool(evaluation_cfg.get("ignore_connection_sectors", False))
 
 
 def _ignore_connection_sectors(session: GameSession) -> bool:
-    del session
-    return True
+    ruleset = getattr(session, "ruleset", None)
+    rules_cfg = dict(getattr(ruleset, "config_json", {}) or {})
+    return _ignore_connection_sectors_cfg(rules_cfg)
 
 
 def _weighted_expected(config: Dict[str, Any], base: float, worst: float, best: float) -> float:
@@ -140,7 +138,7 @@ def _lot_items(lot: Lot) -> Sequence[LotItem]:
     return cast(Sequence[LotItem], list(lot.items))
 
 
-def _spent_total(session: GameSession) -> float:
+def _lot_purchase_spent(session: GameSession) -> float:
     return float(
         sum(
             float(lot.purchase_price or 0.0)
@@ -148,6 +146,14 @@ def _spent_total(session: GameSession) -> float:
             if str(lot.status or "") == "bought"
         )
     )
+
+
+def _allpay_spent(session: GameSession) -> float:
+    return max(0.0, float(getattr(session, "allpay_spent", 0.0) or 0.0))
+
+
+def _spent_total(session: GameSession) -> float:
+    return float(_lot_purchase_spent(session) + _allpay_spent(session))
 
 
 def _lot_reference_price(lot: Lot) -> float:
@@ -186,14 +192,20 @@ def _portfolio_context(
     reserved_spend: float = 0.0,
     extra_portfolio_lots: Sequence[Lot] | None = None,
 ) -> Dict[str, Any]:
-    spent_total = _spent_total(session) + max(0.0, float(reserved_spend))
+    purchase_spent = _lot_purchase_spent(session)
+    allpay_spent = _allpay_spent(session)
+    spent_total = purchase_spent + allpay_spent + max(0.0, float(reserved_spend))
     return {
+        "analysis_mode": "unified",
         "bought_lots_count": sum(
             1 for lot in _session_lots(session) if str(lot.status or "") == "bought"
         )
         + len(list(extra_portfolio_lots or [])),
-        "spent_total": spent_total,
+        "purchase_spent": float(purchase_spent),
+        "allpay_spent": float(allpay_spent),
+        "spent_total": float(spent_total),
         "remaining_budget": max(0.0, float(session.budget_total or 0.0) - spent_total),
+        "budget_total": float(session.budget_total or 0.0),
         "owned_objects_count": sum(1 for obj in _session_objects(session) if obj.is_active)
         + _count_lot_objects(extra_portfolio_lots),
     }
@@ -1844,7 +1856,7 @@ def evaluate_lot_bundle(
     reserved_spend: float = 0.0,
 ) -> Dict[str, Any]:
     rules_cfg = dict(session.ruleset.config_json or {})
-    selected_strategy = strategy or session.selected_strategy
+    selected_strategy = "unified"
     analysis_ctx = resolve_analysis_context(
         session, forecast_id=forecast.id if forecast is not None else None
     )
@@ -2028,15 +2040,35 @@ def evaluate_lot_bundle(
             "дополнительно снижена."
         )
     if bool(system_check.get("topology_invalid")):
-        strategy_fit_text = (
-            f"{strategy_label(selected_strategy)}: расчёт заблокирован из-за некорректной топологии сети."
-        )
+        strategy_fit_text = "Единый анализ: расчёт заблокирован из-за некорректной топологии сети."
     else:
         strategy_fit_text = (
-            f"{strategy_label(selected_strategy)}: приоритет риск-скорректированной прибыли соблюдается."
+            "Единый анализ: приоритет риск-скорректированной прибыли соблюдается."
             if target_bid > 0
-            else f"{strategy_label(selected_strategy)}: лот не поддерживает рабочую ставку в текущих условиях."
+            else "Единый анализ: лот не поддерживает рабочую ставку в текущих условиях."
         )
+
+    decision_factors = {
+        "analysis_mode": "unified",
+        "entry_price": float(entry_price_total),
+        "remaining_budget_before_bid": float(remaining_budget),
+        "max_affordable_bid": float(min(hard_ceiling_bid, remaining_budget)),
+        "expected_net_profit": float(expected_net_profit),
+        "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
+        "portfolio_synergy": float(portfolio_synergy),
+        "system_fit_score": float(system_check.get("system_fit_score", 0.0) or 0.0),
+        "risk_band": str(valuation_model.get("risk_band") or "low"),
+        "scenario_volatility": float(valuation_model.get("scenario_volatility", 0.0) or 0.0),
+        "downside_gap": float(valuation_model.get("downside_gap", 0.0) or 0.0),
+        "risk_premium": float(risk_premium),
+        "reserve_margin": float(reserve_margin),
+        "target_bid": float(target_bid),
+        "hard_ceiling_bid": float(hard_ceiling_bid),
+        "budget_adjusted_bid": float(budget_adjusted_bid),
+        "worst_case_profit": float(net_profit_worst),
+        "base_case_profit": float(net_profit_base),
+        "best_case_profit": float(net_profit_best),
+    }
 
     metrics = {
         "delta_score": float(d_base.delta_total),
@@ -2048,6 +2080,7 @@ def evaluate_lot_bundle(
         "delta_risk": float(delta_risk),
         "weighted_expected": float(expected_net_profit),
         "weights": weights,
+        "decision_factors": decision_factors,
         "scenario_delta": {
             "base": asdict(d_base),
             "worst": asdict(d_worst),
@@ -2130,6 +2163,7 @@ def evaluate_lot_bundle(
         "forecast_summary": forecast_summary,
         "analysis_context": {
             "mode": "forecast",
+            "analysis_mode": "unified",
             "mode_label": "С прогнозом",
             "source": analysis_ctx["forecast_context"]["source"],
             "source_label": analysis_ctx["forecast_context"]["source_label"],
@@ -2137,6 +2171,7 @@ def evaluate_lot_bundle(
             "forecast_name": analysis_ctx["forecast_context"]["forecast_name"],
         },
         "forecast_compatibility": compatibility,
+        "decision_factors": decision_factors,
         "portfolio_context": _portfolio_context(
             session,
             reserved_spend=total_reserved_spend,
@@ -2271,9 +2306,8 @@ def recommend_best_lot(
         }
     best = ranked[0]
     alternatives = ranked[1:4]
-    strategy_name = strategy_label(strategy or session.selected_strategy)
     text = (
-        f"Лучший доступный лот для стратегии «{strategy_name}»: "
+        f"Лучший доступный лот по единой оценке: "
         f"полезность {best['summary_score']:.1f}, рабочая ставка {best['working_bid']:.1f}."
     )
     return {
@@ -2281,7 +2315,8 @@ def recommend_best_lot(
         "alternatives": alternatives,
         "recommended_bid": best["working_bid"],
         "decision_summary": best["decision_summary"],
-        "strategy": strategy or session.selected_strategy,
+        "analysis_mode": "unified",
+        "strategy": "unified",
         "text": text,
         "forecast_context": best["forecast_context"],
         "portfolio_context": best["portfolio_context"],
@@ -2294,41 +2329,29 @@ def strategy_fit(
     lot: Lot,
     forecast: Optional[Forecast] = None,
 ) -> Dict[str, Any]:
-    strategies = [
-        "generation",
-        "consumer",
-        "balanced",
-        "storage",
-        "eco",
-        "risk_averse",
-        "aggressive",
+    out = evaluate_lot(session=session, lot=lot, forecast=forecast, persist=False)
+    decision_factors = dict(out.get("decision_factors") or {})
+    rows = [
+        {
+            "strategy": "unified",
+            "summary_score": out["summary_score"],
+            "recommended_bid_hard": out["recommended_bid_hard"],
+            "recommended_bid_soft": out["recommended_bid_soft"],
+            "working_bid": out.get("working_bid", 0.0),
+            "confidence": out["confidence"],
+            "reason": out["explanation"],
+            "decision_factors": decision_factors,
+            "forecast_context": out["forecast_context"],
+            "portfolio_context": out["portfolio_context"],
+        }
     ]
-    rows: List[Dict[str, Any]] = []
-    for strategy in strategies:
-        out = evaluate_lot(
-            session=session, lot=lot, strategy=strategy, forecast=forecast, persist=False
-        )
-        rows.append(
-            {
-                "strategy": strategy,
-                "summary_score": out["summary_score"],
-                "recommended_bid_hard": out["recommended_bid_hard"],
-                "confidence": out["confidence"],
-                "reason": out["explanation"],
-                "forecast_context": out["forecast_context"],
-                "portfolio_context": out["portfolio_context"],
-            }
-        )
-    rows.sort(key=lambda item: float(item["summary_score"]), reverse=True)
-    analysis_ctx = resolve_analysis_context(session, forecast_id=forecast.id if forecast else None)
     return {
         "lot_id": lot.id,
+        "analysis_mode": "unified",
         "rows": rows,
-        "best_strategy": rows[0]["strategy"] if rows else None,
-        "forecast_context": (
-            rows[0]["forecast_context"] if rows else analysis_ctx["forecast_context"]
-        ),
-        "portfolio_context": rows[0]["portfolio_context"] if rows else _portfolio_context(session),
+        "best_strategy": "unified",
+        "forecast_context": out["forecast_context"],
+        "portfolio_context": out["portfolio_context"],
     }
 
 
