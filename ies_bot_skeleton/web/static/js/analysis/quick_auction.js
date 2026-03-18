@@ -76,9 +76,11 @@
     const budgetTotal = Number(snapshot?.budget_total);
     const spentTotal = Number(snapshot?.spent_total);
     const remainingBudget = Number(snapshot?.remaining_budget);
+    const boughtLotsCount = Number(snapshot?.bought_lots_count);
     const totalNode = document.querySelector('[data-session-budget-total]');
     const spentNode = document.querySelector('[data-session-spent-total]');
     const remainingNode = document.querySelector('[data-session-remaining-budget]');
+    const boughtNode = document.querySelector('[data-session-bought-count]');
     if (totalNode && Number.isFinite(budgetTotal)) {
       totalNode.textContent = formatNumber(budgetTotal, 1);
     }
@@ -87,6 +89,9 @@
     }
     if (remainingNode && Number.isFinite(remainingBudget)) {
       remainingNode.textContent = formatNumber(remainingBudget, 1);
+    }
+    if (boughtNode && Number.isFinite(boughtLotsCount)) {
+      boughtNode.textContent = String(Math.max(0, Math.trunc(boughtLotsCount)));
     }
   }
 
@@ -178,6 +183,19 @@
       return text;
     }
     return `${text.slice(0, 93)}...`;
+  }
+
+  function fullReason(row) {
+    const reasons = Array.isArray(row?.reasons) ? row.reasons.slice(0, 2).join('; ') : '';
+    return String(reasons || workingBidReason(row) || '').trim();
+  }
+
+  function shortReason(row) {
+    const shortLabel = String(row?.working_bid_short_reason || '').trim();
+    if (shortLabel) {
+      return shortLabel;
+    }
+    return compactReason(fullReason(row));
   }
 
   function budgetAdjustedBid(row) {
@@ -366,10 +384,10 @@
 
   function rowActionsHtml(lotId) {
     return `
-      <div class="actions">
+      <div class="qa-row-actions">
         <button class="btn btn-secondary quickEvalRow" data-lot-id="${lotId}" type="button">Оценить</button>
-        <a class="btn btn-secondary" href="/lots/item/${lotId}">Открыть лот</a>
         <button class="btn btn-secondary quickBuyRow" data-lot-id="${lotId}" type="button">Купить</button>
+        <a class="btn btn-secondary" href="/lots/item/${lotId}">Открыть лот</a>
       </div>
     `;
   }
@@ -442,18 +460,38 @@
 
     filtered.forEach((row, index) => {
       const tr = document.createElement('tr');
-      const reasons = Array.isArray(row.reasons) ? row.reasons.slice(0, 2).join('; ') : '';
+      const lotId = Number(row?.lot_id || 0);
+      const bid = workingBid(row);
+      const budgetBid = budgetAdjustedBid(row);
+      const fullReasonText = fullReason(row);
+      const shortReasonText = shortReason(row);
+      const lotName = escapeHtml(row?.name || `Лот ${lotId || '—'}`);
+      const structure = escapeHtml(row?.structure || 'Пустой лот');
       tr.dataset.lotId = String(row.lot_id || '');
       tr.innerHTML = `
-        <td>${index + 1}</td>
-        <td>${row.name || row.lot_id}</td>
-        <td>${row.structure || '—'}</td>
-        <td>${formatNumber(row.summary_score, 2)}</td>
-        <td>${formatNumber(netProfit(row), 2)}</td>
-        <td>${formatNumber(riskValue(row), 2)}</td>
-        <td class="lot-bid-cell"><div class="lot-bid-stack"><strong>${formatNumber(workingBid(row), 1)}</strong><span class="lot-bid-meta">budget ${formatNumber(budgetAdjustedBid(row), 1)}</span></div></td>
-        <td class="col-text">${compactReason(reasons || workingBidReason(row))}</td>
-        <td>${rowActionsHtml(row.lot_id)}</td>
+        <td class="num">${index + 1}</td>
+        <td class="col-text qa-name-cell">
+          <strong class="text-clamp-2" title="${lotName}">${lotName}</strong>
+          <div class="table-secondary">Лот #${lotId || '—'}</div>
+        </td>
+        <td class="col-text qa-structure-cell">
+          <span class="text-clamp-2" title="${structure}">${structure}</span>
+        </td>
+        <td class="num">${formatNumber(row.summary_score, 2)}</td>
+        <td class="num">${formatNumber(netProfit(row), 2)}</td>
+        <td class="num">${formatNumber(riskValue(row), 2)}</td>
+        <td class="lot-bid-cell">
+          <div class="lot-bid-stack">
+            <strong>${formatNumber(bid, 1)}</strong>
+            ${
+              bid > 0
+                ? `<span class="lot-bid-meta" title="${escapeHtml(fullReasonText || `Ставка с учетом бюджета: ${formatNumber(budgetBid, 1)}`)}">budget ${formatNumber(budgetBid, 1)}</span>`
+                : `<span class="lot-bid-reason text-clamp-2" title="${escapeHtml(fullReasonText)}">${escapeHtml(shortReasonText || 'Нет рабочей цены')}</span>`
+            }
+          </div>
+        </td>
+        <td class="col-text qa-reason-cell"><span class="text-clamp-2" title="${escapeHtml(fullReasonText)}">${escapeHtml(shortReasonText || '—')}</span></td>
+        <td class="actions-col qa-actions-cell">${rowActionsHtml(row.lot_id)}</td>
       `;
       body.appendChild(tr);
     });
@@ -594,8 +632,22 @@
       const remaining = formatNumber(data?.item?.remaining_budget, 1);
       const boughtLotId = Number(data?.item?.lot_id || lotId);
       setShortlist(getShortlist().filter((id) => Number(id) !== boughtLotId));
-      setStatus(`Лот ${lotId} куплен. Остаток бюджета: ${remaining}.`);
-      await recalculateAllLots(0);
+      const refresh = data?.refresh || null;
+      if (refresh?.meta) {
+        updateHeroBudget(refresh.meta);
+        state.shortlistSuggested = Array.isArray(refresh?.meta?.shortlist_suggested_ids)
+          ? refresh.meta.shortlist_suggested_ids.map((value) => Number(value || 0)).filter((value) => value > 0)
+          : [];
+      }
+      if (refresh?.strategy) {
+        state.strategy = refresh.strategy;
+        renderStrategySnapshot(state.strategy);
+      }
+      await refreshRanking(0);
+      const refreshedCount = Number(refresh?.meta?.count || state.ranking.length || 0);
+      setStatus(
+        `Лот ${lotId} куплен. Остаток бюджета: ${remaining}. Пересчитано лотов: ${refreshedCount}.`
+      );
     } catch (_) {
       setStatus('Не удалось выполнить покупку из-за сетевой ошибки.');
     } finally {

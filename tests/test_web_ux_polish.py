@@ -182,7 +182,8 @@ def test_quick_auction_script_keeps_selected_lot_after_refresh(client):
     assert "event.preventDefault();" in js
     assert "async function recalculateAllLots(preferredLotId)" in js
     assert "await apiFetchJson(`/api/lots/${lotId}/buy`" in js
-    assert "await recalculateAllLots(0);" in js
+    assert "const refresh = data?.refresh || null;" in js
+    assert "await refreshRanking(0);" in js
     assert "function syncPurchasePriceInput" in js
     assert "apiFetchJson(`/api/lots/${lotId}`, {" not in js
     assert "body: JSON.stringify({current_bid: bid})" not in js
@@ -194,6 +195,38 @@ def test_quick_auction_script_keeps_selected_lot_after_refresh(client):
     assert "state.visibleRanking = filtered;" in js
     assert "const row = state.visibleRanking[index];" in js
     assert "const lotId = Number(row?.lot_id || 0);" in js
+
+
+def test_layout_contract_for_compact_lots_and_quick_auction_tables(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Layout contract session")
+    type_rows = client.get("/api/object-types").get_json()["items"]
+    wind_id = next(row["id"] for row in type_rows if row["code"] == "wind")
+    client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Очень длинное имя лота для проверки компактного рендера в таблице и предотвращения наложения текста",
+            "scope": "normal",
+            "base_bid": 100,
+            "current_bid": 101,
+            "items": [{"object_type_id": wind_id, "quantity": 1}],
+        },
+    )
+
+    lots_html = client.get(f"/lots/{session_id}").get_data(as_text=True)
+    assert ('class="lot-bid-reason text-clamp-2"' in lots_html) or ('class="lot-bid-meta"' in lots_html)
+    assert 'class="row-actions row-actions-inline"' in lots_html
+
+    quick_html = client.get(f"/quick-auction/{session_id}").get_data(as_text=True)
+    assert 'class="col-text qa-name-cell"' in quick_html
+    assert 'class="col-text qa-reason-cell"' in quick_html
+    assert 'class="qa-row-actions"' in quick_html
+
+    css = client.get("/static/css/tailwind.css").get_data(as_text=True)
+    assert "grid-template-columns: 206px minmax(0, 1fr);" in css
+    assert ".table-lots,\n.table-auction-ranking" in css
+    assert ".qa-row-actions" in css
 
 
 def test_forecast_page_shows_compatibility_block(client):

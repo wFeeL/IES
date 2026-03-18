@@ -115,7 +115,7 @@
         <tr>
           <td class="col-text lot-name-cell">
             <strong class="text-clamp-2" title="{{ row.name }}">{{ row.name }}</strong>
-            <div class="muted text-ellipsis" title="{{ row.composition_label }}">{{ row.composition_label }}</div>
+            <div class="table-secondary text-ellipsis" title="{{ row.composition_label }}">{{ row.composition_label }}</div>
           </td>
           <td class="col-text lot-structure-cell">
             <div class="lot-chip-wrap" title="{{ row.structure }}">
@@ -134,21 +134,21 @@
             <div class="lot-bid-stack">
               <strong>{{ fmt_num(row.working_bid, 1) }}</strong>
               {% if row.working_bid > 0 %}
-              <span class="lot-bid-meta" title="Ставка с учетом бюджета">budget {{ fmt_num(row.budget_adjusted_bid, 1) }}</span>
+              <span class="lot-bid-meta" title="{{ row.working_bid_reason or ('Ставка с учетом бюджета: ' ~ fmt_num(row.budget_adjusted_bid, 1)) }}">budget {{ fmt_num(row.budget_adjusted_bid, 1) }}</span>
               {% else %}
-              <span class="lot-bid-reason" title="{{ row.working_bid_reason }}">{{ row.working_bid_short_reason or 'Нет рабочей цены' }}</span>
+              <span class="lot-bid-reason text-clamp-2" title="{{ row.working_bid_reason }}">{{ row.working_bid_short_reason or 'Нет рабочей цены' }}</span>
               {% endif %}
             </div>
           </td>
           <td class="col-text lot-status-cell">
             <span>{{ lot_status_label(row.status) }}</span>
             {% if row.system_check and row.system_check.message %}
-            <div class="muted text-clamp-2" title="{{ row.system_check.message }}">{{ row.system_check.message }}</div>
+            <div class="table-secondary text-clamp-2" title="{{ row.system_check.message }}">{{ row.system_check.message }}</div>
             {% endif %}
             {% if row.is_stale %}<div><span class="status-badge status-stale" title="{{ row.stale_reason_label or row.stale_reason }}">Оценка устарела</span></div>{% endif %}
           </td>
-          <td class="actions-col">
-            <div class="row-actions" data-row-actions>
+          <td class="actions-col lot-actions-cell">
+            <div class="row-actions row-actions-inline" data-row-actions>
               <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть</a>
               <a class="btn btn-secondary {{ '' if row.status == 'available' else 'is-disabled' }}" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=row.lot_id) if row.status == 'available' else '#' }}">Купить</a>
               <button class="btn btn-ghost" type="button" data-actions-toggle aria-haspopup="menu" aria-expanded="false">Ещё</button>

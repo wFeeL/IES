@@ -106,8 +106,7 @@ def test_theme_toggle_and_css_tokens_present(client):
     assert css_resp.status_code == 200
     css = css_resp.get_data(as_text=True)
     assert 'html[data-theme="dark"]' in css
-    assert "overflow-wrap: anywhere" not in css
-    assert "overflow-wrap: break-word" not in css
+    assert "overflow-wrap: anywhere" in css
     assert ".row-actions-menu" in css
 
 

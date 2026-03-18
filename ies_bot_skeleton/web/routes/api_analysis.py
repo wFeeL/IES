@@ -123,6 +123,78 @@ def _unexpected_error(exc: Exception):
     )
 
 
+def _session_recalculation_payload(
+    session: GameSession,
+    *,
+    allow_partial: bool = False,
+):
+    try:
+        rows = rank_session_lots(session=session, lots=session.lots, persist=True)
+        strategy_snapshot = build_strategy_snapshot(session=session)
+    except ForecastCompatibilityError as exc:
+        if not allow_partial:
+            raise
+        portfolio = portfolio_summary(session)
+        return {
+            "items": [],
+            "strategy": None,
+            "meta": {
+                "count": 0,
+                "budget_total": float(portfolio["budget_total"]),
+                "spent_total": float(portfolio["spent_total"]),
+                "remaining_budget": float(portfolio["remaining_budget"]),
+                "bought_lots_count": int(portfolio["bought_lots_count"]),
+                "available_count": sum(
+                    1 for lot in session.lots if str(lot.status or "") == "available"
+                ),
+                "non_zero_working_bid_count": 0,
+                "shortlist_suggested_ids": [],
+            },
+            "error": {
+                "code": "forecast_incompatible",
+                "message": str(exc),
+                "details": {"compatibility_report": dict(exc.report)},
+            },
+        }
+
+    available_lot_ids = {int(lot.id) for lot in session.lots if str(lot.status or "") == "available"}
+    available_rows = [row for row in rows if int(row.get("lot_id") or 0) in available_lot_ids]
+    non_zero_working = [
+        row
+        for row in available_rows
+        if float(row.get("working_bid") or (row.get("decision_summary") or {}).get("working_bid") or 0.0)
+        > 0.0
+    ]
+    shortlist = sorted(
+        non_zero_working,
+        key=lambda row: (
+            float(
+                ((row.get("metrics") or {}).get("portfolio_delta") or {}).get(
+                    "risk_adjusted_net_profit",
+                    0.0,
+                )
+            ),
+            float(row.get("working_bid") or 0.0),
+        ),
+        reverse=True,
+    )
+    portfolio = portfolio_summary(session)
+    return {
+        "items": rows,
+        "strategy": strategy_snapshot,
+        "meta": {
+            "count": len(rows),
+            "budget_total": float(portfolio["budget_total"]),
+            "spent_total": float(portfolio["spent_total"]),
+            "remaining_budget": float(portfolio["remaining_budget"]),
+            "bought_lots_count": int(portfolio["bought_lots_count"]),
+            "available_count": len(available_rows),
+            "non_zero_working_bid_count": len(non_zero_working),
+            "shortlist_suggested_ids": [int(row.get("lot_id") or 0) for row in shortlist[:8]],
+        },
+    }
+
+
 @api_bp.get("/sessions")
 @login_required
 def list_sessions():
@@ -523,47 +595,13 @@ def lots_analytics(session_id: int):
 @login_required
 def recalculate_session_lots(session_id: int):
     session = get_session_or_404(session_id)
-    rows = rank_session_lots(session=session, lots=session.lots, persist=True)
-    strategy_snapshot = build_strategy_snapshot(session=session)
-    available_lot_ids = {
-        int(lot.id) for lot in session.lots if str(lot.status or "") == "available"
-    }
-    available_rows = [row for row in rows if int(row.get("lot_id") or 0) in available_lot_ids]
-    non_zero_working = [
-        row
-        for row in available_rows
-        if float(row.get("working_bid") or (row.get("decision_summary") or {}).get("working_bid") or 0.0)
-        > 0.0
-    ]
-    shortlist = sorted(
-        non_zero_working,
-        key=lambda row: (
-            float(
-                ((row.get("metrics") or {}).get("portfolio_delta") or {}).get(
-                    "risk_adjusted_net_profit",
-                    0.0,
-                )
-            ),
-            float(row.get("working_bid") or 0.0),
-        ),
-        reverse=True,
-    )
-    portfolio = portfolio_summary(session)
+    payload = _session_recalculation_payload(session)
     return jsonify(
         {
             "ok": True,
-            "items": rows,
-            "strategy": strategy_snapshot,
-            "meta": {
-                "count": len(rows),
-                "budget_total": float(portfolio["budget_total"]),
-                "spent_total": float(portfolio["spent_total"]),
-                "remaining_budget": float(portfolio["remaining_budget"]),
-                "bought_lots_count": int(portfolio["bought_lots_count"]),
-                "available_count": len(available_rows),
-                "non_zero_working_bid_count": len(non_zero_working),
-                "shortlist_suggested_ids": [int(row.get("lot_id") or 0) for row in shortlist[:8]],
-            },
+            "items": payload["items"],
+            "strategy": payload["strategy"],
+            "meta": payload["meta"],
         }
     )
 
@@ -702,7 +740,8 @@ def buy_lot_endpoint(lot_id: int):
         purchase_price = float(purchase_price_raw or 0.0)
     summary = buy_lot(session, lot, purchase_price)
     db.session.commit()
-    return jsonify({"ok": True, "item": summary})
+    refresh = _session_recalculation_payload(session, allow_partial=True)
+    return jsonify({"ok": True, "item": summary, "refresh": refresh})
 
 
 @api_bp.post("/lots/<int:lot_id>/undo-buy")
@@ -712,7 +751,8 @@ def undo_buy_lot_endpoint(lot_id: int):
     session = get_session_or_404(lot.session_id)
     summary = undo_lot_purchase(session, lot)
     db.session.commit()
-    return jsonify({"ok": True, "item": summary})
+    refresh = _session_recalculation_payload(session, allow_partial=True)
+    return jsonify({"ok": True, "item": summary, "refresh": refresh})
 
 
 @api_bp.post("/lots/<int:lot_id>/reject")

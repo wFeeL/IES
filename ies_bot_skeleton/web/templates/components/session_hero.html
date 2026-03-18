@@ -14,7 +14,7 @@
     </p>
   </div>
   <div class="hero-badges">
-    <span class="pill">Куплено лотов: {{ bought_count }}</span>
+    <span class="pill">Куплено лотов: <span data-session-bought-count>{{ bought_count }}</span></span>
     <span class="pill">Набор правил: {{ session.ruleset.code if session.ruleset else 'n/a' }}</span>
     <span class="pill">{{ 'Есть стартовый пакет' if session.ruleset and session.ruleset.active_start_pack_template else 'Без стартового пакета' }}</span>
   </div>

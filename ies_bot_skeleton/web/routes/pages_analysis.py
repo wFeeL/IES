@@ -50,6 +50,7 @@ from ..services.lots_dashboard import (
 from ..services.network import validate_session_network
 from ..services.object_instance_editor import parameter_rows, parameters_from_form
 from ..services.stale import mark_stale_for_session
+from ..services.strategy import build_strategy_snapshot
 from ..services.test_game_preset import TEST_GAME_BUNDLED_FORECAST_NAME
 from .api_support import lot_items_from_payload
 from .page_support import (
@@ -127,6 +128,16 @@ def _forecast_line(session: GameSession) -> str:
     name = forecast.get("name") or TEST_GAME_BUNDLED_FORECAST_NAME
     tick_range = format_tick_range(forecast.get("tick_from"), forecast.get("tick_to"))
     return f"Анализ выполнен по прогнозу: {name}, такты {tick_range}."
+
+
+def _refresh_after_portfolio_change(session: GameSession) -> None:
+    try:
+        rank_session_lots(session=session, lots=session.lots, persist=True)
+        build_strategy_snapshot(session=session)
+    except ForecastCompatibilityError:
+        # Покупка/undo уже зафиксированы; если прогноз временно несовместим,
+        # оставляем данные бюджета/портфеля и отдаём блокирующие подсказки в UI.
+        return
 
 
 def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict[str, Any]:
@@ -783,6 +794,7 @@ def lot_buy_confirm_page(lot_id: int):
         try:
             summary = buy_lot(session, lot, float(form.purchase_price.data or 0.0))
             db.session.commit()
+            _refresh_after_portfolio_change(session)
             flash(
                 f"Лот «{lot.name}» куплен по цене {format_number(summary['purchase_price'], 1)}",
                 "success",
@@ -833,6 +845,7 @@ def lot_undo_buy_action(lot_id: int):
         try:
             summary = undo_lot_purchase(session, lot)
             db.session.commit()
+            _refresh_after_portfolio_change(session)
             flash(
                 "Покупка лота «{name}» отменена, бюджет восстановлен до {budget}".format(
                     name=lot.name,
@@ -1090,13 +1103,52 @@ def quick_auction_page(session_id: int):
         (analysis_view["forecast_summary"] or {}).get("is_compatible", True)
     )
     ranking: List[Dict[str, Any]] = []
+    ranking_map: Dict[int, Dict[str, Any]] = {}
     if not forecast_blocked:
         try:
-            ranking = rank_session_lots(
-                session=session,
-                lots=[lot for lot in session.lots if lot.status == "available"],
-                persist=False,
-            )
+            ranking_map = analytics_by_lot_for_session(session)
+            available_rows = [
+                row
+                for row in lot_rows_for_session(session, ranking_map=ranking_map)
+                if str(row.get("status") or "") == "available"
+            ]
+            available_rows = sort_lot_rows(available_rows, "utility_desc")
+            ranking = []
+            for row in available_rows:
+                payload = dict(row.get("evaluation") or {})
+                decision_summary = dict(payload.get("decision_summary") or {})
+                decision_summary.update(
+                    {
+                        "target_bid": float(row.get("target_bid", 0.0) or 0.0),
+                        "budget_adjusted_bid": float(row.get("budget_adjusted_bid", 0.0) or 0.0),
+                        "working_bid": float(row.get("working_bid", 0.0) or 0.0),
+                        "working_bid_source": str(row.get("working_bid_source") or "none"),
+                        "working_bid_reason": str(row.get("working_bid_reason") or ""),
+                    }
+                )
+                payload.update(
+                    {
+                        "lot_id": int(row.get("lot_id") or 0),
+                        "name": str(row.get("name") or ""),
+                        "structure": str(row.get("structure") or "Пустой лот"),
+                        "structure_items": list(row.get("structure_items") or []),
+                        "status": str(row.get("status") or ""),
+                        "price": float(row.get("price", 0.0) or 0.0),
+                        "risk": float(row.get("risk", 0.0) or 0.0),
+                        "net_profit": float(row.get("net_profit", 0.0) or 0.0),
+                        "summary_score": float(
+                            payload.get("summary_score", row.get("utility", 0.0)) or 0.0
+                        ),
+                        "working_bid": float(row.get("working_bid", 0.0) or 0.0),
+                        "working_bid_source": str(row.get("working_bid_source") or "none"),
+                        "working_bid_reason": str(row.get("working_bid_reason") or ""),
+                        "working_bid_short_reason": str(row.get("working_bid_short_reason") or ""),
+                        "budget_adjusted_bid": float(row.get("budget_adjusted_bid", 0.0) or 0.0),
+                        "target_bid": float(row.get("target_bid", 0.0) or 0.0),
+                        "decision_summary": decision_summary,
+                    }
+                )
+                ranking.append(payload)
         except ForecastCompatibilityError as exc:
             compatibility_report = dict(exc.report)
             forecast_blocked = True

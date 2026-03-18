@@ -148,25 +148,37 @@
       </thead>
       <tbody id="rankingTableBody">
         {% for row in ranking %}
+        {% set full_reason = row.working_bid_reason or ((row.reasons[:2]|join('; ')) if row.reasons else row.risk_commentary) %}
         <tr data-lot-id="{{ row.lot_id }}">
-          <td>{{ loop.index }}</td>
-          <td>{{ row.name }}</td>
-          <td>{{ row.structure }}</td>
-          <td>{{ fmt_num(row.summary_score, 2) }}</td>
-          <td>{{ fmt_num(row.financial_breakdown.result.net_profit, 2) }}</td>
-          <td>{{ fmt_num(row.financial_breakdown.losses_and_risks.risk_total, 2) }}</td>
+          <td class="num">{{ loop.index }}</td>
+          <td class="col-text qa-name-cell">
+            <strong class="text-clamp-2" title="{{ row.name }}">{{ row.name }}</strong>
+            <div class="table-secondary">Лот #{{ row.lot_id }}</div>
+          </td>
+          <td class="col-text qa-structure-cell">
+            <span class="text-clamp-2" title="{{ row.structure }}">{{ row.structure or 'Пустой лот' }}</span>
+          </td>
+          <td class="num">{{ fmt_num(row.summary_score, 2) }}</td>
+          <td class="num">{{ fmt_num(row.financial_breakdown.result.net_profit, 2) }}</td>
+          <td class="num">{{ fmt_num(row.financial_breakdown.losses_and_risks.risk_total, 2) }}</td>
           <td class="lot-bid-cell">
             <div class="lot-bid-stack">
               <strong>{{ fmt_num(row.working_bid or row.decision_summary.working_bid, 1) }}</strong>
-              <span class="lot-bid-meta">budget {{ fmt_num(row.budget_adjusted_bid or row.decision_summary.budget_adjusted_bid, 1) }}</span>
+              {% if (row.working_bid or row.decision_summary.working_bid) > 0 %}
+              <span class="lot-bid-meta" title="{{ full_reason or ('Ставка с учетом бюджета: ' ~ fmt_num(row.budget_adjusted_bid or row.decision_summary.budget_adjusted_bid, 1)) }}">budget {{ fmt_num(row.budget_adjusted_bid or row.decision_summary.budget_adjusted_bid, 1) }}</span>
+              {% else %}
+              <span class="lot-bid-reason text-clamp-2" title="{{ full_reason }}">{{ row.working_bid_short_reason or 'Нет рабочей цены' }}</span>
+              {% endif %}
             </div>
           </td>
-          <td class="col-text">{{ row.working_bid_reason or ((row.reasons[:2]|join('; ')) if row.reasons else row.risk_commentary) }}</td>
-          <td>
-            <div class="actions">
+          <td class="col-text qa-reason-cell">
+            <span class="text-clamp-2" title="{{ full_reason }}">{{ (row.working_bid_short_reason or full_reason or '—')[:120] ~ ('…' if (row.working_bid_short_reason or full_reason or '')|length > 120 else '') }}</span>
+          </td>
+          <td class="actions-col qa-actions-cell">
+            <div class="qa-row-actions">
               <button class="btn btn-secondary quickEvalRow" data-lot-id="{{ row.lot_id }}" type="button">Оценить</button>
-              <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть лот</a>
               <button class="btn btn-secondary quickBuyRow" data-lot-id="{{ row.lot_id }}" type="button">Купить</button>
+              <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть лот</a>
             </div>
           </td>
         </tr>

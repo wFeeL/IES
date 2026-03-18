@@ -32,6 +32,18 @@
       .replaceAll("'", '&#39;');
   }
 
+  function compactText(value, maxLength) {
+    const text = String(value ?? '').trim();
+    if (!text) {
+      return '';
+    }
+    const limit = Math.max(8, Number(maxLength || 120));
+    if (text.length <= limit) {
+      return text;
+    }
+    return `${text.slice(0, limit - 1)}...`;
+  }
+
   function names(row) {
     if (row?.display_title) {
       return row.display_title;
@@ -206,6 +218,7 @@
     return rows
       .map((row) => {
         const breakdown = renderLotBidBreakdown(row, true);
+        const reason = String(row.reason || '—');
         return `
           <tr>
             <td class="col-text">${escapeHtml(names(row))}</td>
@@ -213,7 +226,7 @@
             <td class="num">${formatNumber(row.net_profit_base, 2)}</td>
             <td class="num">${formatNumber(row.working_bid, 1)}</td>
             <td class="col-text">${breakdown || '—'}</td>
-            <td class="col-text">${escapeHtml(row.reason || '—')}</td>
+            <td class="col-text"><span class="text-clamp-2" title="${escapeHtml(reason)}">${escapeHtml(compactText(reason, 120) || '—')}</span></td>
           </tr>
         `;
       })

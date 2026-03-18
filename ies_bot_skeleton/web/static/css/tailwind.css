@@ -670,8 +670,8 @@ html[data-theme="dark"] .input {
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
-  overflow-wrap: normal;
-  word-break: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   hyphens: none;
 }
 
@@ -699,13 +699,13 @@ html[data-theme="dark"] .input {
 
 .table .col-actions,
 .table .actions-col {
-  width: 250px;
-  min-width: 250px;
-  white-space: nowrap;
+  width: auto;
+  min-width: 150px;
+  white-space: normal;
 }
 
 .table .col-text {
-  min-width: 160px;
+  min-width: 0;
   white-space: normal;
 }
 
@@ -871,48 +871,6 @@ html[data-theme="dark"] .input {
   white-space: normal;
 }
 
-.table-lots col.lot-name-col {
-  width: 17%;
-}
-
-.table-lots col.lot-structure-col {
-  width: 24%;
-}
-
-.table-lots col.lot-price-col {
-  width: 7%;
-}
-
-.table-lots col.lot-metric-col,
-.table-lots col.lot-profit-col,
-.table-lots col.lot-risk-col {
-  width: 8%;
-}
-
-.table-lots col.lot-bid-col {
-  width: 12%;
-}
-
-.table-lots col.lot-status-col {
-  width: 12%;
-}
-
-.table-lots col.lot-actions-col {
-  width: 12%;
-}
-
-.table-lots.table-lots-compact col.lot-name-col {
-  width: 19%;
-}
-
-.table-lots.table-lots-compact col.lot-structure-col {
-  width: 28%;
-}
-
-.table-lots.table-lots-compact col.lot-bid-col {
-  width: 13%;
-}
-
 .table-lots .lot-name-cell,
 .table-lots .lot-structure-cell,
 .table-lots .lot-status-cell,
@@ -949,34 +907,139 @@ html[data-theme="dark"] .input {
   text-align: right;
 }
 
+.table-primary {
+  display: block;
+  font-weight: 700;
+}
+
+.table-secondary {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.table-lots,
+.table-auction-ranking {
+  min-width: 1220px;
+}
+
+.table-lots th,
+.table-auction-ranking th {
+  white-space: normal;
+  line-height: 1.25;
+}
+
 .table-auction-ranking col.auction-rank-col {
-  width: 5%;
+  width: 3.6rem;
 }
 
 .table-auction-ranking col.auction-name-col {
-  width: 14%;
+  width: 14rem;
 }
 
 .table-auction-ranking col.auction-structure-col {
-  width: 24%;
+  width: 16rem;
 }
 
 .table-auction-ranking col.auction-metric-col,
 .table-auction-ranking col.auction-profit-col,
 .table-auction-ranking col.auction-risk-col {
-  width: 8%;
+  width: 6.25rem;
 }
 
 .table-auction-ranking col.auction-bid-col {
-  width: 10%;
+  width: 9.25rem;
 }
 
 .table-auction-ranking col.auction-reason-col {
-  width: 17%;
+  width: 14rem;
 }
 
 .table-auction-ranking col.auction-actions-col {
-  width: 14%;
+  width: 10.5rem;
+}
+
+.table-auction-ranking {
+  min-width: 1290px;
+}
+
+.table-auction-ranking .qa-name-cell strong,
+.table-auction-ranking .qa-structure-cell span,
+.table-auction-ranking .qa-reason-cell span {
+  display: block;
+}
+
+.qa-row-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.qa-row-actions .btn {
+  width: 100%;
+}
+
+.lot-actions-cell {
+  min-width: 0;
+}
+
+.row-actions.row-actions-inline {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.table-lots .row-actions .btn,
+.table-lots .row-actions .btn-ghost {
+  min-width: 0;
+  padding-inline: 10px;
+}
+
+.table-lots col.lot-name-col {
+  width: 16.5rem;
+}
+
+.table-lots col.lot-structure-col {
+  width: 17rem;
+}
+
+.table-lots col.lot-price-col {
+  width: 6.2rem;
+}
+
+.table-lots col.lot-metric-col,
+.table-lots col.lot-profit-col,
+.table-lots col.lot-risk-col {
+  width: 6.5rem;
+}
+
+.table-lots col.lot-profit-col {
+  width: 7.5rem;
+}
+
+.table-lots col.lot-bid-col {
+  width: 9.2rem;
+}
+
+.table-lots col.lot-status-col {
+  width: 10rem;
+}
+
+.table-lots col.lot-actions-col {
+  width: 10.8rem;
+}
+
+.table-lots.table-lots-compact col.lot-name-col {
+  width: 15.2rem;
+}
+
+.table-lots.table-lots-compact col.lot-structure-col {
+  width: 16.5rem;
+}
+
+.table-lots.table-lots-compact col.lot-bid-col {
+  width: 8.8rem;
 }
 
 .strategy-card,
@@ -1183,8 +1246,8 @@ kbd {
 
   .table .col-actions,
   .table .actions-col {
-    min-width: 200px;
-    width: 200px;
+    min-width: 150px;
+    width: auto;
   }
 }
 
@@ -1204,11 +1267,11 @@ html[data-theme="dark"] body.app-body {
 
 .dashboard-shell {
   min-height: 100vh;
-  max-width: 1500px;
+  max-width: 1660px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: 206px minmax(0, 1fr);
+  gap: 14px;
   padding: 16px;
 }
 
@@ -1218,8 +1281,8 @@ html[data-theme="dark"] body.app-body {
   border-radius: 18px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px 14px;
+  gap: 12px;
+  padding: 16px 12px;
 }
 
 html[data-theme="dark"] .dashboard-sidebar {
@@ -1280,12 +1343,12 @@ html[data-theme="dark"] .sidebar-subtitle {
 .sidebar-link {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   border: 1px solid transparent;
   border-radius: 11px;
-  padding: 9px 10px;
+  padding: 8px 9px;
   color: #7a859a;
-  font-size: 0.9rem;
+  font-size: 0.86rem;
   transition: 160ms ease;
 }
 

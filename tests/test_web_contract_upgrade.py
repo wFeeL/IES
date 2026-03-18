@@ -263,6 +263,118 @@ def test_quick_auction_buys_by_field_price_without_confirm_link(client):
     assert lot_id not in list(meta["shortlist_suggested_ids"] or [])
 
 
+def test_buy_api_returns_full_post_buy_refresh_for_remaining_lots_and_strategy(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Buy refresh payload")
+    tmap = _type_map(client)
+
+    lot_a = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Refresh lot A",
+            "scope": "normal",
+            "base_bid": 80,
+            "current_bid": 80,
+            "items": [{"object_type_id": tmap["wind"], "quantity": 1}],
+        },
+    )
+    assert lot_a.status_code == 200
+    lot_a_id = int(lot_a.get_json()["item"]["id"])
+
+    lot_b = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Refresh lot B",
+            "scope": "normal",
+            "base_bid": 90,
+            "current_bid": 90,
+            "items": [{"object_type_id": tmap["solar"], "quantity": 1}],
+        },
+    )
+    assert lot_b.status_code == 200
+    lot_b_id = int(lot_b.get_json()["item"]["id"])
+    _upload_and_select_forecast(client, session_id)
+
+    buy = client.post(f"/api/lots/{lot_a_id}/buy", json={"purchase_price": 55.0})
+    assert buy.status_code == 200
+    payload = buy.get_json()
+    assert payload["ok"] is True
+    assert float(payload["item"]["purchase_price"]) == pytest.approx(55.0)
+    refresh = payload.get("refresh") or {}
+    meta = refresh.get("meta") or {}
+    assert float(meta.get("spent_total", 0.0)) == pytest.approx(55.0)
+    assert float(meta.get("remaining_budget", 0.0)) == pytest.approx(
+        float(payload["item"]["remaining_budget"])
+    )
+    assert int(meta.get("bought_lots_count", 0)) == 1
+    assert lot_a_id not in list(meta.get("shortlist_suggested_ids") or [])
+
+    refreshed_rows = list(refresh.get("items") or [])
+    remaining_row = next(
+        row for row in refreshed_rows if int(row.get("lot_id") or 0) == lot_b_id
+    )
+    expected_remaining = float(payload["item"]["remaining_budget"])
+    assert float((remaining_row.get("decision_summary") or {}).get("budget_remaining", 0.0)) == pytest.approx(
+        expected_remaining
+    )
+    assert float((remaining_row.get("portfolio_context") or {}).get("remaining_budget", 0.0)) == pytest.approx(
+        expected_remaining
+    )
+    assert float((remaining_row.get("metrics") or {}).get("portfolio_delta", {}).get("net_profit_base", 0.0)) == pytest.approx(
+        float((remaining_row.get("scenario_breakdown") or {}).get("base", {}).get("net_profit", 0.0))
+    )
+
+    strategy = refresh.get("strategy") or {}
+    assert "scenarios" in strategy
+    assert "full_budget" in strategy["scenarios"]
+    assert "after_purchase" in strategy["scenarios"]
+    assert "after_loss" in strategy["scenarios"]
+    assert float((strategy.get("portfolio_context") or {}).get("remaining_budget", 0.0)) == pytest.approx(
+        expected_remaining
+    )
+
+
+def test_undo_buy_api_returns_full_recalculation_snapshot(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Undo refresh payload")
+    tmap = _type_map(client)
+
+    created = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Undo refresh lot",
+            "scope": "normal",
+            "base_bid": 70,
+            "current_bid": 70,
+            "items": [{"object_type_id": tmap["wind"], "quantity": 1}],
+        },
+    )
+    assert created.status_code == 200
+    lot_id = int(created.get_json()["item"]["id"])
+    _upload_and_select_forecast(client, session_id)
+
+    buy = client.post(f"/api/lots/{lot_id}/buy", json={"purchase_price": 45.0})
+    assert buy.status_code == 200
+    budget_total = float((buy.get_json()["item"] or {}).get("budget_total", 0.0))
+
+    undo = client.post(f"/api/lots/{lot_id}/undo-buy", json={})
+    assert undo.status_code == 200
+    payload = undo.get_json()
+    refresh = payload.get("refresh") or {}
+    meta = refresh.get("meta") or {}
+    assert float(meta.get("spent_total", -1.0)) == pytest.approx(0.0)
+    assert float(meta.get("remaining_budget", -1.0)) == pytest.approx(budget_total)
+    assert int(meta.get("bought_lots_count", -1)) == 0
+    rows = list(refresh.get("items") or [])
+    restored_row = next(row for row in rows if int(row.get("lot_id") or 0) == lot_id)
+    assert float((restored_row.get("decision_summary") or {}).get("budget_remaining", 0.0)) == pytest.approx(
+        budget_total
+    )
+
+
 def test_quick_auction_evaluate_does_not_mutate_market_bid(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Quick eval no market mutation")
