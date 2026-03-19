@@ -164,6 +164,36 @@ def test_strategy_snapshot_has_titles_and_per_lot_prices(client):
     assert "После покупки" in strategy_js
     assert "ставить до:" not in strategy_js
     assert "Название группы -" not in strategy_js
+
+
+def test_strategy_snapshot_rows_are_sorted_by_descending_profit(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Strategy sorting")
+    tmap = _type_map(client)
+
+    for idx, object_code in enumerate(("wind", "solar", "house", "office"), start=1):
+        resp = client.post(
+            "/api/lots",
+            json={
+                "session_id": session_id,
+                "name": f"Sort lot {idx}",
+                "scope": "normal",
+                "base_bid": 70 + idx * 4,
+                "current_bid": 70 + idx * 4,
+                "items": [{"object_type_id": tmap[object_code], "quantity": 1}],
+            },
+        )
+        assert resp.status_code == 200
+
+    _upload_and_select_forecast(client, session_id)
+    strategy = client.get(f"/api/sessions/{session_id}/strategy?top_n=10")
+    assert strategy.status_code == 200
+    item = strategy.get_json()["item"]
+
+    for bucket in ("best_singles", "best_pairs", "best_groups"):
+        rows = list(item.get(bucket) or [])
+        profits = [float(row.get("total_profit", 0.0) or 0.0) for row in rows]
+        assert profits == sorted(profits, reverse=True)
     for row in rows:
         assert re.search(r"\(\d+\)", row["display_title"])
         assert "working_bid" in row
@@ -758,10 +788,14 @@ def test_import_export_roundtrip_keeps_bought_lot_links_and_purchase_lifecycle(c
 
     imported_objects = client.get(f"/api/objects?session_id={imported_session_id}")
     assert imported_objects.status_code == 200
-    assert any(
-        int(row.get("source_lot_id") or 0) == imported_lot_id
+    linked_objects = [
+        row
         for row in imported_objects.get_json()["items"]
-    )
+        if int(row.get("source_lot_id") or 0) == imported_lot_id
+    ]
+    assert linked_objects
+    assert all(str(row.get("integration_state")) == "pending_connection" for row in linked_objects)
+    assert all(bool(row.get("requires_integration")) for row in linked_objects)
 
     undo = client.post(f"/api/lots/{imported_lot_id}/undo-buy", json={})
     assert undo.status_code == 200
@@ -851,6 +885,53 @@ def test_evaluation_does_not_use_district_as_connection_point_without_explicit_f
     assert "NORTH" not in [str(point).upper() for point in (payload["system_check"].get("recommended_points") or [])]
 
 
+def test_evaluation_never_uses_district_even_if_it_matches_point_code(client, app):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="District point strict split")
+    tmap = _type_map(client)
+
+    with app.app_context():
+        session = db.session.get(GameSession, session_id)
+        assert session is not None
+        rules_cfg = dict(session.ruleset.config_json or {})
+        network_cfg = dict(rules_cfg.get("network", {}) or {})
+        network_cfg["default_connection_point"] = "B"
+        network_cfg["connection_loss_pct_by_point"] = {"A": 0.0, "B": 10.0}
+        rules_cfg["network"] = network_cfg
+        session.ruleset.config_json = rules_cfg
+        db.session.add(session.ruleset)
+        db.session.commit()
+
+    created = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "District A only",
+            "scope": "normal",
+            "base_bid": 30,
+            "current_bid": 30,
+            "items": [
+                {
+                    "object_type_id": tmap["house"],
+                    "quantity": 1,
+                    "overrides": {"district": "A"},
+                }
+            ],
+        },
+    )
+    assert created.status_code == 200
+    lot_id = int(created.get_json()["item"]["id"])
+
+    evaluation = client.post(f"/api/lots/{lot_id}/evaluate", json={})
+    assert evaluation.status_code == 200
+    payload = evaluation.get_json()["item"]
+    items = list((payload.get("system_check") or {}).get("items") or [])
+    assert items
+    item = dict(items[0] or {})
+    assert str(item.get("current_point") or "").upper() == "B"
+    assert str(item.get("recommended_point") or "").upper() == "B"
+
+
 def test_recalculate_meta_contains_shortlist_and_multiple_non_zero_working_bids(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Recalc shortlist meta")
@@ -875,6 +956,7 @@ def test_recalculate_meta_contains_shortlist_and_multiple_non_zero_working_bids(
     assert recalc.status_code == 200
     payload = recalc.get_json()
     meta = payload["meta"]
+    assert "start_budget" in meta
     assert "purchase_spent" in meta
     assert "allpay_spent" in meta
     assert "remaining_budget" in meta
@@ -883,6 +965,7 @@ def test_recalculate_meta_contains_shortlist_and_multiple_non_zero_working_bids(
     assert "shortlist_suggested_ids" in meta
     assert isinstance(meta["shortlist_suggested_ids"], list)
     assert int(meta["non_zero_working_bid_count"]) >= 2
+    assert float(meta["start_budget"]) == pytest.approx(float(meta["budget_total"]))
     assert "strategy" in payload
     assert "scenarios" in payload["strategy"]
 

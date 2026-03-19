@@ -9,6 +9,7 @@ GEN_CATEGORIES = {"generator", "storage"}
 LOAD_CATEGORIES = {"consumer"}
 MAIN_CODES = {"main", "main_substation", "main_substation_hq"}
 MINI_CODES = {"minia", "mini_substation_a", "minib", "mini_substation_b", "mini"}
+INFRA_PARENT_CODES = MAIN_CODES | MINI_CODES
 
 
 @dataclass
@@ -35,6 +36,21 @@ def validate_session_network(objects: List[ObjectInstance]) -> List[ValidationIs
     if not active:
         return [ValidationIssue("EMPTY_SYSTEM", "В сессии нет объектов", "warning")]
 
+    object_by_id: Dict[int, ObjectInstance] = {int(obj.id): obj for obj in active}
+
+    for obj in active:
+        if obj.object_type is not None:
+            continue
+        issues.append(
+            ValidationIssue(
+                "OBJECT_TYPE_MISSING",
+                f"Объект #{int(obj.id)} не имеет типа и не может участвовать в расчёте сети",
+                "error",
+            )
+        )
+    if any(issue.code == "OBJECT_TYPE_MISSING" for issue in issues):
+        return issues
+
     main_nodes = [obj for obj in active if _norm(obj.object_type.code) in MAIN_CODES]
     if not main_nodes:
         issues.append(
@@ -46,8 +62,67 @@ def validate_session_network(objects: List[ObjectInstance]) -> List[ValidationIs
 
     children: Dict[int, List[int]] = {obj.id: [] for obj in active}
     for obj in active:
-        if obj.parent_instance_id and obj.parent_instance_id in children:
-            children[obj.parent_instance_id].append(obj.id)
+        object_code = _norm(obj.object_type.code)
+        parent_id = int(obj.parent_instance_id) if obj.parent_instance_id else None
+        if object_code in MAIN_CODES and parent_id is not None:
+            issues.append(
+                ValidationIssue(
+                    "MAIN_WITH_PARENT",
+                    f"Главная подстанция #{int(obj.id)} не должна иметь родителя",
+                    "error",
+                )
+            )
+        if parent_id is None:
+            if object_code not in MAIN_CODES:
+                issues.append(
+                    ValidationIssue(
+                        "DANGLING_OBJECT",
+                        f"Объект #{int(obj.id)} не подключен: не задан родитель",
+                        "error",
+                    )
+                )
+            if obj.source_lot_id is not None and object_code not in MAIN_CODES:
+                issues.append(
+                    ValidationIssue(
+                        "PURCHASED_OBJECT_PENDING_INTEGRATION",
+                        f"Объект #{int(obj.id)} из купленного лота не встроен в энергосистему",
+                        "warning",
+                    )
+                )
+            continue
+
+        parent = object_by_id.get(int(parent_id))
+        if parent is None:
+            issues.append(
+                ValidationIssue(
+                    "MISSING_PARENT_OBJECT",
+                    f"Объект #{int(obj.id)} ссылается на отсутствующего родителя #{int(parent_id)}",
+                    "error",
+                )
+            )
+            continue
+        if not bool(parent.is_active):
+            issues.append(
+                ValidationIssue(
+                    "PARENT_INACTIVE",
+                    f"Объект #{int(obj.id)} ссылается на неактивного родителя #{int(parent_id)}",
+                    "error",
+                )
+            )
+            continue
+        parent_code = _norm(parent.object_type.code if parent.object_type else "")
+        parent_category = _norm(parent.object_type.category if parent.object_type else "")
+        if parent_code not in INFRA_PARENT_CODES and parent_category != "infrastructure":
+            issues.append(
+                ValidationIssue(
+                    "INVALID_PARENT_TYPE",
+                    f"Объект #{int(obj.id)} подключен к недопустимому родителю #{int(parent.id)}",
+                    "error",
+                )
+            )
+            continue
+        if parent_id in children:
+            children[parent_id].append(obj.id)
 
     visited: Set[int] = set()
     stack: Set[int] = set()

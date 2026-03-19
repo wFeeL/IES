@@ -4,7 +4,8 @@ from typing import Any, Dict, List
 
 from ..web.extensions import db
 from ..web.models import GameSession, ObjectInstance, ObjectType
-from ..web.services.network import MAIN_CODES
+from ..web.services.network import MAIN_CODES, MINI_CODES
+from ..web.services.purchased_objects import refresh_integration_state
 from ..web.services.stale import mark_stale_for_session
 
 
@@ -119,6 +120,7 @@ def _ensure_parent_write_valid(
         else []
     )
     type_code_by_id = {int(row.id): _norm(row.code) for row in types}
+    type_category_by_id = {int(row.id): _norm(row.category) for row in types}
     main_ids = {
         object_id
         for object_id, type_id in object_type_by_id.items()
@@ -137,6 +139,18 @@ def _ensure_parent_write_valid(
     if parent_instance_id is None:
         raise ValueError(
             "Объект должен быть подключен к главной подстанции: выберите родительский объект."
+        )
+
+    parent_type_id = object_type_by_id.get(int(parent_instance_id))
+    parent_code = str(type_code_by_id.get(int(parent_type_id or 0), ""))
+    parent_category = str(type_category_by_id.get(int(parent_type_id or 0), ""))
+    if (
+        parent_code not in MAIN_CODES
+        and parent_code not in MINI_CODES
+        and parent_category != "infrastructure"
+    ):
+        raise ValueError(
+            "Родителем может быть только подстанция или инфраструктурный объект."
         )
 
     cursor = int(parent_instance_id)
@@ -197,6 +211,7 @@ def create_session_object(payload: Dict[str, Any]) -> ObjectInstance:
         district=str(payload.get("district", "default")),
         is_active=is_active,
     )
+    refresh_integration_state(row)
     db.session.add(row)
     db.session.commit()
     mark_stale_for_session(session.id, reason="object_changed")
@@ -238,6 +253,7 @@ def update_session_object(row: ObjectInstance, payload: Dict[str, Any]) -> Objec
         row.current_parameters_json = _normalize_parameters(payload["current_parameters"])
     if "is_active" in payload:
         row.is_active = next_is_active
+    refresh_integration_state(row)
     db.session.add(row)
     db.session.commit()
     mark_stale_for_session(row.session_id, reason="object_changed")
@@ -253,6 +269,7 @@ def delete_session_object(row: ObjectInstance) -> Dict[str, Any]:
     }
     for child in list(row.children):
         child.parent_instance_id = None
+        refresh_integration_state(child)
         db.session.add(child)
     db.session.delete(row)
     db.session.commit()

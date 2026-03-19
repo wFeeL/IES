@@ -628,17 +628,6 @@
       const fitBadge = fitStatus && fitStatus !== 'neutral'
         ? `<span class=\"lot-bid-meta\">fit ${escapeHtml(fitStatus)}</span>`
         : '';
-      const recommendedReason = String(
-        row?.recommended_bid_reason ||
-        (row?.decision_summary || {}).recommended_bid_reason ||
-        row?.working_bid_reason ||
-        ''
-      ).trim();
-      const preservationNote = String(
-        row?.budget_preservation_note ||
-        (row?.decision_summary || {}).budget_preservation_note ||
-        ''
-      ).trim();
       tr.dataset.lotId = String(row.lot_id || '');
       tr.innerHTML = `
         <td class="num">${index + 1}</td>
@@ -657,7 +646,7 @@
             <strong>${formatNumber(bid, 1)}</strong>
             ${
               bid > 0
-                ? `<span class="lot-bid-meta" title="${escapeHtml(fullReasonText || `Максимальная ставка: ${formatNumber(budgetBid, 1)}`)}">max ${formatNumber(budgetBid, 1)}</span>${fitBadge}<span class="table-secondary" title="${escapeHtml(recommendedReason)}">profit after bid ${formatNumber(Number((row.financial_breakdown || {}).result?.net_profit_at_recommended_bid || row.net_profit_at_recommended_bid || 0), 2)}</span><span class="table-secondary" title="${escapeHtml(preservationNote || recommendedReason)}">budget left ${formatNumber(Number((row.financial_breakdown || {}).result?.remaining_budget_after_recommended_bid || row.remaining_budget_after_recommended_bid || 0), 1)}</span>`
+                ? `<span class="lot-bid-meta" title="${escapeHtml(fullReasonText || `Максимальная ставка: ${formatNumber(budgetBid, 1)}`)}">max ${formatNumber(budgetBid, 1)}</span>${fitBadge}`
                 : `<span class="lot-bid-reason text-clamp-2" title="${escapeHtml(fullReasonText)}">${escapeHtml(shortReasonText || 'Нет рекомендуемой ставки')}</span>`
             }
           </div>

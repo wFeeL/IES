@@ -4,6 +4,28 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}IES Аналитика лотов{% endblock %}</title>
+    <script>
+      (() => {
+        const KEY = "ies-theme";
+        const LEGACY_KEYS = ["theme", "ies-ui-theme", "ies_theme"];
+        const normalize = (value) => (value === "light" || value === "dark" ? value : null);
+        try {
+          let theme = normalize(localStorage.getItem(KEY));
+          if (!theme) {
+            for (const legacyKey of LEGACY_KEYS) {
+              const legacy = normalize(localStorage.getItem(legacyKey));
+              if (!legacy) continue;
+              theme = legacy;
+              localStorage.setItem(KEY, legacy);
+              break;
+            }
+          }
+          document.documentElement.setAttribute("data-theme", theme || "light");
+        } catch (_) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}" />
     <script>
       window.IES_CSRF_TOKEN = "{{ csrf_token() }}";

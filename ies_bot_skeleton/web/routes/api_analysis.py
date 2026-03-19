@@ -140,6 +140,7 @@ def _session_recalculation_payload(
             "strategy": None,
             "meta": {
                 "count": 0,
+                "start_budget": float(portfolio["start_budget"]),
                 "budget_total": float(portfolio["budget_total"]),
                 "purchase_spent": float(portfolio["purchase_spent"]),
                 "allpay_spent": float(portfolio["allpay_spent"]),
@@ -186,6 +187,7 @@ def _session_recalculation_payload(
         "strategy": strategy_snapshot,
         "meta": {
             "count": len(rows),
+            "start_budget": float(portfolio["start_budget"]),
             "budget_total": float(portfolio["budget_total"]),
             "purchase_spent": float(portfolio["purchase_spent"]),
             "allpay_spent": float(portfolio["allpay_spent"]),

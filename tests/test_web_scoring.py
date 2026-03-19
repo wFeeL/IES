@@ -10,6 +10,7 @@ from ies_bot_skeleton.web.models import (
     GameSession,
     Lot,
     LotItem,
+    ObjectInstance,
     ObjectType,
 )
 from ies_bot_skeleton.web.services.evaluation import (
@@ -131,6 +132,7 @@ def test_recommended_bid_is_within_budget(app_ctx):
     soft = float(out["recommended_bid_soft"])
     ceiling = float(out["hard_ceiling_bid"])
     remaining = float(out["portfolio_context"]["remaining_budget"])
+    assert float(out["portfolio_context"]["start_budget"]) == pytest.approx(float(session.budget_total))
     budget_adjusted = float(out["budget_adjusted_bid"])
     decision_summary = dict(out["decision_summary"])
     result = dict((out["financial_breakdown"] or {}).get("result") or {})
@@ -619,6 +621,7 @@ def test_session_budget_counts_allpay_spend(app_ctx):
     db.session.commit()
 
     payload = session.to_dict()
+    assert payload["start_budget"] == pytest.approx(200.0)
     assert payload["purchase_spent"] == pytest.approx(0.0)
     assert payload["allpay_spent"] == pytest.approx(37.5)
     assert payload["spent_total"] == pytest.approx(37.5)
@@ -633,18 +636,34 @@ def test_adapter_budget_mapping_keeps_purchase_and_allpay_separate(app_ctx):
     session.allpay_spent = 27.5
     lot.status = "bought"
     lot.purchase_price = 61.0
+    pending = ObjectInstance(
+        session_id=session.id,
+        object_type_id=lot.items[0].object_type_id,
+        custom_name="Pending from bought lot",
+        current_parameters_json={"generation_mw": 2.0},
+        source_lot_id=lot.id,
+        parent_instance_id=None,
+        district="default",
+        is_active=True,
+    )
     db.session.add(session)
     db.session.add(lot)
+    db.session.add(pending)
     db.session.commit()
 
     cfg = dict((session.ruleset.config_json or {}) if session.ruleset is not None else {})
-    state, _ = session_to_state(session, cfg)
+    state, owned_items = session_to_state(session, cfg)
+    session_payload = session.to_dict()
 
     assert state.budget.cash == pytest.approx(300.0)
     assert state.budget.allpay_spent == pytest.approx(27.5)
     assert state.budget.allpay_spent != pytest.approx(61.0)
     assert state.budget.allpay_spent != pytest.approx(88.5)
     assert f"LOT{int(lot.id)}" in list(state.owned_lots or [])
+    assert session_payload["purchase_spent"] == pytest.approx(61.0)
+    assert session_payload["allpay_spent"] == pytest.approx(27.5)
+    assert session_payload["spent_total"] == pytest.approx(88.5)
+    assert all(str(item.meta.get("source_lot_id") or "") != str(lot.id) for item in owned_items)
 
 
 def test_strategy_fit_returns_unified_single_row(app_ctx):

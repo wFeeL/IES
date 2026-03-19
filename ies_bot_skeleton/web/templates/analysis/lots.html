@@ -138,12 +138,6 @@
               {% if row.connection_fit_status and row.connection_fit_status != 'neutral' %}
               <span class="lot-bid-meta">fit {{ row.connection_fit_status }}</span>
               {% endif %}
-              <span class="table-secondary" title="{{ row.recommended_bid_reason or row.working_bid_reason }}">
-                profit after bid {{ fmt_num(row.net_profit_at_recommended_bid, 2) }}
-              </span>
-              <span class="table-secondary" title="{{ row.budget_preservation_note or row.recommended_bid_reason }}">
-                budget left {{ fmt_num(row.remaining_budget_after_recommended_bid, 1) }}
-              </span>
               {% else %}
               <span class="lot-bid-reason text-clamp-2" title="{{ row.recommended_bid_reason or row.working_bid_reason }}">{{ row.working_bid_short_reason or 'Нет рекомендуемой ставки' }}</span>
               {% endif %}

@@ -18,6 +18,7 @@ from ..models import (
     Ruleset,
     StartPackTemplate,
 )
+from .purchased_objects import refresh_integration_state
 
 
 def export_session_payload(session: GameSession) -> Dict[str, Any]:
@@ -163,7 +164,9 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
         ruleset_id=ruleset.id,
         selected_strategy="unified",
         selected_forecast_id=None,
-        budget_total=float(session_payload.get("budget_total", 9999.0) or 9999.0),
+        budget_total=float(
+            session_payload.get("start_budget", session_payload.get("budget_total", 9999.0)) or 9999.0
+        ),
         allpay_spent=float(session_payload.get("allpay_spent", 0.0) or 0.0),
     )
     db.session.add(out_session)
@@ -194,6 +197,7 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
             district=str(row.get("district", "default")),
             is_active=bool(row.get("is_active", True)),
         )
+        refresh_integration_state(item)
         db.session.add(item)
         db.session.flush()
         if row.get("id"):
@@ -264,6 +268,7 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
         if new_source_lot_id is None:
             continue
         new_object.source_lot_id = int(new_source_lot_id)
+        refresh_integration_state(new_object)
         db.session.add(new_object)
 
     imported_forecasts_by_old_id: Dict[int, int] = {}

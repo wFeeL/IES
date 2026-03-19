@@ -219,6 +219,7 @@ class GameSession(db.Model):
     )
 
     def to_dict(self) -> Dict[str, Any]:
+        start_budget = float(self.budget_total or 0.0)
         purchase_spent = float(
             sum(
                 float(lot.purchase_price or 0.0)
@@ -238,11 +239,12 @@ class GameSession(db.Model):
             "selected_strategy": self.selected_strategy,
             "analysis_mode": "unified",
             "selected_forecast_id": self.selected_forecast_id,
-            "budget_total": self.budget_total,
+            "start_budget": start_budget,
+            "budget_total": start_budget,
             "purchase_spent": purchase_spent,
             "allpay_spent": allpay_spent,
             "spent_total": spent_total,
-            "remaining_budget": max(0.0, float(self.budget_total or 0.0) - spent_total),
+            "remaining_budget": max(0.0, start_budget - spent_total),
             "bought_lots_count": bought_lots_count,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
@@ -331,6 +333,8 @@ class ObjectInstance(db.Model):
         return base
 
     def to_dict(self) -> Dict[str, Any]:
+        from .services.purchased_objects import integration_state, is_pending_integration
+
         return {
             "id": self.id,
             "session_id": self.session_id,
@@ -343,6 +347,8 @@ class ObjectInstance(db.Model):
             "parent_instance_id": self.parent_instance_id,
             "district": self.district,
             "is_active": self.is_active,
+            "integration_state": integration_state(self),
+            "requires_integration": bool(is_pending_integration(self)),
         }
 
 

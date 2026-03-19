@@ -55,22 +55,6 @@ def _resolve_point(
         out = str(explicit).strip().upper()
         return out or default_point
 
-    allowed = {
-        str(point or "").strip().upper()
-        for point in list(allowed_points or [])
-        if str(point or "").strip()
-    }
-    allowed.add(str(default_point or "").strip().upper() or "A")
-
-    # Backward compatibility: legacy datasets sometimes stored "A/B/C"
-    # in district. Use it only when it exactly matches known points.
-    district_candidate = str(district or "").strip().upper()
-    if district_candidate and district_candidate in allowed:
-        return district_candidate
-    params_district = str(params.get("district") or "").strip().upper()
-    if params_district and params_district in allowed:
-        return params_district
-
     out = str(default_point or "A").strip().upper()
     return out or default_point
 

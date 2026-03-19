@@ -5,6 +5,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Sequence, Set
 
 from ..models import GameSession, ObjectInstance
 from .network import MAIN_CODES
+from .purchased_objects import integration_state, is_pending_integration
 
 
 def _norm(value: Any) -> str:
@@ -94,7 +95,11 @@ def network_readiness_summary(session: GameSession) -> Dict[str, Any]:
     if main_ids:
         reachable = _reachable_ids(objects, root_id=int(main_ids[0]))
 
-    unconnected = [obj for obj in purchased_objects if int(obj.id) not in reachable]
+    unconnected = [
+        obj
+        for obj in purchased_objects
+        if bool(is_pending_integration(obj)) or int(obj.id) not in reachable
+    ]
     grouped: Dict[int, List[ObjectInstance]] = defaultdict(list)
     for obj in unconnected:
         if obj.source_lot_id is None:
@@ -114,6 +119,7 @@ def network_readiness_summary(session: GameSession) -> Dict[str, Any]:
                     {
                         "object_id": int(obj.id),
                         "label": _object_label(obj),
+                        "integration_state": integration_state(obj),
                     }
                     for obj in rows
                 ],

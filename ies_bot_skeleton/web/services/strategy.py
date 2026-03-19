@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
+from ...common.budgeting import (
+    allpay_spent_total,
+    budget_snapshot,
+    purchase_spent_total,
+    remaining_budget as session_remaining_budget,
+)
 from ..models import Forecast, GameSession, Lot
 from .analysis_context import resolve_analysis_context
 from .evaluation import ForecastCompatibilityError, evaluate_lot_bundle
@@ -34,26 +40,19 @@ def _session_lots(session: GameSession) -> Sequence[Lot]:
 
 
 def _lot_purchase_spent(session: GameSession) -> float:
-    spent = 0.0
-    for lot in _session_lots(session):
-        if str(lot.status or "") == "bought":
-            spent += float(lot.purchase_price or 0.0)
-    return float(spent)
+    return purchase_spent_total(session)
 
 
 def _allpay_spent(session: GameSession) -> float:
-    return max(0.0, float(getattr(session, "allpay_spent", 0.0) or 0.0))
+    return allpay_spent_total(session)
 
 
 def _remaining_budget(session: GameSession) -> float:
-    spent = _lot_purchase_spent(session) + _allpay_spent(session)
-    return max(0.0, float(session.budget_total or 0.0) - spent)
+    return session_remaining_budget(session)
 
 
 def _portfolio_context(session: GameSession) -> Dict[str, Any]:
-    purchase_spent = _lot_purchase_spent(session)
-    allpay_spent = _allpay_spent(session)
-    spent = purchase_spent + allpay_spent
+    budget = budget_snapshot(session)
     bought = 0
     for lot in _session_lots(session):
         if str(lot.status or "") == "bought":
@@ -61,11 +60,7 @@ def _portfolio_context(session: GameSession) -> Dict[str, Any]:
     return {
         "analysis_mode": "unified",
         "bought_lots_count": int(bought),
-        "purchase_spent": float(purchase_spent),
-        "allpay_spent": float(allpay_spent),
-        "spent_total": float(spent),
-        "remaining_budget": float(max(0.0, float(session.budget_total or 0.0) - spent)),
-        "budget_total": float(session.budget_total or 0.0),
+        **budget,
     }
 
 

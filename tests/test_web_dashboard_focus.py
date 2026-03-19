@@ -59,6 +59,8 @@ def test_lots_table_uses_compact_headers_and_actions_menu(client):
     assert 'class="table table-fixed table-lots"' in html
     assert 'class="lot-bid-stack"' in html
     assert html.count('class="lot-chip"') >= 5
+    assert "profit after bid" not in html
+    assert "budget left" not in html
     assert f'{type_name["wind"]} ×1' in html
     assert f'{type_name["storage"]} ×1' in html
     assert f'{type_name["office"]} ×1' in html
@@ -101,6 +103,8 @@ def test_theme_toggle_and_css_tokens_present(client):
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
     assert 'id="themeToggle"' in html
+    assert 'const KEY = "ies-theme";' in html
+    assert 'document.documentElement.setAttribute("data-theme", theme || "light");' in html
 
     css_resp = client.get("/static/css/tailwind.css")
     assert css_resp.status_code == 200

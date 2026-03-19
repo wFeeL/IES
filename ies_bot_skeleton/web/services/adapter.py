@@ -4,6 +4,7 @@ from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from ..models import GameSession, Lot, LotItem, ObjectInstance
+from .purchased_objects import integration_state, is_pending_integration
 from ies_bot_skeleton.domain.lot_analysis.types import (
     Assumptions,
     Branch,
@@ -87,6 +88,9 @@ def instance_to_object_item(instance: ObjectInstance) -> Optional[ObjectItem]:
         "instance_id": instance.id,
         "district": instance.district,
         "object_type_code": instance.object_type.code,
+        "source_lot_id": instance.source_lot_id,
+        "integration_state": integration_state(instance),
+        "requires_network_integration": bool(is_pending_integration(instance)),
     }
     if connection_point:
         meta["connection_point"] = str(connection_point).strip().upper()
@@ -159,6 +163,8 @@ def collect_owned_items(session: GameSession) -> List[ObjectItem]:
     for obj in session.objects:
         if not obj.is_active:
             continue
+        if is_pending_integration(obj):
+            continue
         mapped = instance_to_object_item(obj)
         if mapped is not None:
             out.append(mapped)
@@ -174,6 +180,8 @@ def _build_network_plan(objects: Iterable[ObjectInstance], cfg: Dict) -> Network
 
     for obj in objects:
         if not obj.is_active:
+            continue
+        if is_pending_integration(obj):
             continue
         item = instance_to_object_item(obj)
         if item is None:

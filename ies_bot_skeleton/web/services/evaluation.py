@@ -15,10 +15,18 @@ from ..models import (
     LotItem,
     ObjectInstance,
 )
+from ...common.budgeting import (
+    allpay_spent_total,
+    budget_snapshot,
+    purchase_spent_total,
+    remaining_budget as session_remaining_budget,
+    spent_total as session_spent_total,
+)
 from .analysis_context import resolve_analysis_context
 from .connection_advisor import recommend_connection_for_profile
 from .forecast_service import load_bundled_forecast_pack
 from .network import validate_session_network
+from .network_readiness import network_readiness_summary
 from .ruleset import strategy_weights
 
 DEFAULT_WEIGHTED = {"base": 0.50, "worst": 0.35, "best": 0.15}
@@ -202,21 +210,15 @@ def _lot_items(lot: Lot) -> Sequence[LotItem]:
 
 
 def _lot_purchase_spent(session: GameSession) -> float:
-    return float(
-        sum(
-            float(lot.purchase_price or 0.0)
-            for lot in _session_lots(session)
-            if str(lot.status or "") == "bought"
-        )
-    )
+    return purchase_spent_total(session)
 
 
 def _allpay_spent(session: GameSession) -> float:
-    return max(0.0, float(getattr(session, "allpay_spent", 0.0) or 0.0))
+    return allpay_spent_total(session)
 
 
 def _spent_total(session: GameSession) -> float:
-    return float(_lot_purchase_spent(session) + _allpay_spent(session))
+    return session_spent_total(session)
 
 
 def _lot_reference_price(lot: Lot) -> float:
@@ -243,10 +245,7 @@ def _count_lot_objects(lots: Sequence[Lot] | None) -> int:
 
 
 def _remaining_budget(session: GameSession, *, reserved_spend: float = 0.0) -> float:
-    return max(
-        0.0,
-        float(session.budget_total or 0.0) - _spent_total(session) - max(0.0, float(reserved_spend)),
-    )
+    return session_remaining_budget(session, reserved_spend=reserved_spend)
 
 
 def _portfolio_context(
@@ -255,20 +254,14 @@ def _portfolio_context(
     reserved_spend: float = 0.0,
     extra_portfolio_lots: Sequence[Lot] | None = None,
 ) -> Dict[str, Any]:
-    purchase_spent = _lot_purchase_spent(session)
-    allpay_spent = _allpay_spent(session)
-    spent_total = purchase_spent + allpay_spent + max(0.0, float(reserved_spend))
+    budget = budget_snapshot(session, reserved_spend=reserved_spend)
     return {
         "analysis_mode": "unified",
         "bought_lots_count": sum(
             1 for lot in _session_lots(session) if str(lot.status or "") == "bought"
         )
         + len(list(extra_portfolio_lots or [])),
-        "purchase_spent": float(purchase_spent),
-        "allpay_spent": float(allpay_spent),
-        "spent_total": float(spent_total),
-        "remaining_budget": max(0.0, float(session.budget_total or 0.0) - spent_total),
-        "budget_total": float(session.budget_total or 0.0),
+        **budget,
         "owned_objects_count": sum(1 for obj in _session_objects(session) if obj.is_active)
         + _count_lot_objects(extra_portfolio_lots),
     }
@@ -850,12 +843,6 @@ def _simulate_scenario(
         ).strip().upper()
         if explicit_point:
             return explicit_point
-
-        # Backward compatibility for legacy payloads that stored connection point
-        # in district. Accept it only when district matches configured points.
-        district_point = str(asset.parameters.get("district") or "").strip().upper()
-        if district_point and district_point in point_loss_by_connection:
-            return district_point
         return default_connection_point
 
     def asset_connection_loss(asset: Asset) -> float:
@@ -2229,6 +2216,16 @@ def evaluate_lot_bundle(
             if target_bid > 0
             else "Единый анализ: лот не поддерживает рекомендуемую ставку в текущих условиях."
         )
+    network_readiness = network_readiness_summary(session)
+    analysis_warnings: List[str] = []
+    if bool(network_readiness.get("action_required")):
+        network_warning = (
+            "После покупки лота добавленные объекты нужно подключить в разделе энергосистемы, "
+            "иначе оценка полезности и ставок других лотов может быть занижена или некорректна."
+        )
+        analysis_warnings.append(network_warning)
+        if not bool(system_check.get("topology_invalid")):
+            risk_commentary = f"{risk_commentary} {network_warning}".strip()
     decision_summary = {
         "cautious_bid": float(cautious_bid),
         "target_bid": float(target_bid),
@@ -2402,6 +2399,7 @@ def evaluate_lot_bundle(
             "marginal_expected_net_profit": float(expected_net_profit),
         },
         "system_check": dict(system_check),
+        "network_readiness": dict(network_readiness),
         "role_profile": dict(role_profile),
     }
     metrics["bids"].update(
@@ -2422,9 +2420,11 @@ def evaluate_lot_bundle(
         "explanation": " ".join(reasons) if reasons else "Нет подробного объяснения.",
         "risk_commentary": risk_commentary,
         "strategy_fit_text": strategy_fit_text,
+        "analysis_warnings": list(analysis_warnings),
         "confidence": float(confidence),
         "metrics": metrics,
         "system_check": dict(system_check),
+        "network_readiness": dict(network_readiness),
         "role_profile": dict(role_profile),
         "forecast_context": dict(analysis_ctx["forecast_context"]),
         "forecast_summary": forecast_summary,

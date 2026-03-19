@@ -3,10 +3,19 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Mapping
 
+from .budget import (
+    budget_snapshot,
+    purchase_spent_total as _purchase_spent_total,
+    allpay_spent_total as _allpay_spent_total,
+    spent_total as _spent_total,
+    remaining_budget as _remaining_budget,
+)
 from ..web.extensions import db
 from ..web.models import GameSession, Lot, ObjectInstance
 from ..web.services.analysis_context import resolve_analysis_context
 from ..web.services.evaluation import ForecastCompatibilityError
+from ..web.services.purchased_objects import mark_generated_from_lot
+from ..web.services.network_readiness import network_readiness_summary
 from ..web.services.stale import mark_results_stale
 from ..web.services.ui_text import lot_status_label
 
@@ -16,24 +25,19 @@ def _utcnow() -> datetime:
 
 
 def purchase_spent_total(session: GameSession) -> float:
-    total = 0.0
-    for lot in session.lots:
-        if lot.status != "bought":
-            continue
-        total += float(lot.purchase_price or 0.0)
-    return float(total)
+    return _purchase_spent_total(session)
 
 
 def allpay_spent_total(session: GameSession) -> float:
-    return max(0.0, float(getattr(session, "allpay_spent", 0.0) or 0.0))
+    return _allpay_spent_total(session)
 
 
 def spent_total(session: GameSession) -> float:
-    return float(purchase_spent_total(session) + allpay_spent_total(session))
+    return _spent_total(session)
 
 
 def remaining_budget(session: GameSession) -> float:
-    return max(0.0, float(session.budget_total or 0.0) - spent_total(session))
+    return _remaining_budget(session)
 
 
 def _merge_item_parameters(lot_item) -> Dict[str, Any]:
@@ -50,18 +54,17 @@ def _portfolio_objects_for_lot(lot: Lot) -> list[ObjectInstance]:
     for item in lot.items:
         params = _merge_item_parameters(item)
         district = str(params.get("district") or "default")
-        rows.append(
-            ObjectInstance(
-                session_id=lot.session_id,
-                object_type_id=item.object_type_id,
-                custom_name=str(item.object_type.name if item.object_type else "").strip(),
-                current_parameters_json=params,
-                source_lot_id=lot.id,
-                is_from_start_pack=False,
-                district=district,
-                is_active=True,
-            )
+        row = ObjectInstance(
+            session_id=lot.session_id,
+            object_type_id=item.object_type_id,
+            custom_name=str(item.object_type.name if item.object_type else "").strip(),
+            current_parameters_json=params,
+            source_lot_id=lot.id,
+            is_from_start_pack=False,
+            district=district,
+            is_active=True,
         )
+        rows.append(mark_generated_from_lot(row, lot_id=int(lot.id)))
     return rows
 
 
@@ -101,6 +104,7 @@ def buy_lot(session: GameSession, lot: Lot, purchase_price: float) -> Dict[str, 
     created = _portfolio_objects_for_lot(lot)
     for row in created:
         db.session.add(row)
+    db.session.flush()
 
     _mark_portfolio_changed(session)
     available_lots_count = sum(
@@ -112,9 +116,8 @@ def buy_lot(session: GameSession, lot: Lot, purchase_price: float) -> Dict[str, 
         "status": lot.status,
         "purchase_price": float(price),
         "created_objects": len(created),
-        "budget_total": float(session.budget_total or 0.0),
-        "spent_total": spent_total(session),
-        "remaining_budget": remaining_budget(session),
+        "generated_object_ids": [int(row.id or 0) for row in created],
+        **budget_snapshot(session),
         "available_lots_count": int(available_lots_count),
         "refresh_required": True,
         "refresh_reason": "portfolio_changed",
@@ -146,9 +149,7 @@ def undo_lot_purchase(session: GameSession, lot: Lot) -> Dict[str, Any]:
         "lot_id": int(lot.id),
         "status": lot.status,
         "removed_objects": removed_objects,
-        "budget_total": float(session.budget_total or 0.0),
-        "spent_total": spent_total(session),
-        "remaining_budget": remaining_budget(session),
+        **budget_snapshot(session),
         "available_lots_count": int(available_lots_count),
         "refresh_required": True,
         "refresh_reason": "portfolio_changed",
@@ -207,9 +208,7 @@ def portfolio_summary(
     analytics_by_lot: Mapping[int, Mapping[str, Any]] | None = None,
 ) -> Dict[str, Any]:
     rows = portfolio_rows(session, analytics_by_lot=analytics_by_lot)
-    purchase_spent = purchase_spent_total(session)
-    allpay_spent = allpay_spent_total(session)
-    spent = float(purchase_spent + allpay_spent)
+    budget = budget_snapshot(session)
     expected_income = 0.0
     expected_expenses = 0.0
     expected_net_profit = 0.0
@@ -232,14 +231,12 @@ def portfolio_summary(
         risk_profile = "Умеренный"
     else:
         risk_profile = "Низкий"
+    readiness = network_readiness_summary(session)
+    warning_message = str(readiness.get("message") or "") if readiness.get("action_required") else ""
 
     return {
         "analysis_mode": "unified",
-        "budget_total": float(session.budget_total or 0.0),
-        "purchase_spent": float(purchase_spent),
-        "allpay_spent": float(allpay_spent),
-        "spent_total": spent,
-        "remaining_budget": max(0.0, float(session.budget_total or 0.0) - spent),
+        **budget,
         "bought_lots_count": len(rows),
         "owned_objects_count": sum(
             max(1, int(obj.current_parameters_json.get("qty", 1) or 1))
@@ -255,4 +252,9 @@ def portfolio_summary(
         "aggregate_risk": float(aggregate_risk),
         "risk_profile": risk_profile,
         "risk_profile_label": risk_profile,
+        "network_action_required": bool(readiness.get("action_required")),
+        "unconnected_purchased_objects_count": int(
+            readiness.get("unconnected_purchased_objects_count", 0) or 0
+        ),
+        "network_readiness_message": warning_message,
     }

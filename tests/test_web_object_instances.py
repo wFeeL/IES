@@ -106,3 +106,46 @@ def test_api_object_create_validates_session_and_type(client):
     )
     assert bad_type.status_code == 400
     assert "Тип объекта 999999 не найден" in bad_type.get_json()["error"]["message"]
+
+
+def test_object_parent_must_be_substation_or_infrastructure(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Parent type validation")
+    type_map = _type_map(client)
+
+    start_pack = client.post(f"/api/sessions/{session_id}/add-start-pack", json={})
+    assert start_pack.status_code == 200
+
+    objects = client.get(f"/api/objects?session_id={session_id}").get_json()["items"]
+    main_parent = next(
+        row
+        for row in objects
+        if str(row.get("object_type_code") or "")
+        in {"main_substation", "main", "main_substation_hq", "mini_substation_a", "mini_substation_b", "mini"}
+    )
+
+    consumer = client.post(
+        "/api/objects",
+        json={
+            "session_id": session_id,
+            "object_type_id": type_map["house"],
+            "custom_name": "Consumer parent",
+            "parent_instance_id": int(main_parent["id"]),
+            "current_parameters": {"expected_consumption_mw": 1.0},
+        },
+    )
+    assert consumer.status_code == 200
+    consumer_id = int(consumer.get_json()["item"]["id"])
+
+    invalid_child = client.post(
+        "/api/objects",
+        json={
+            "session_id": session_id,
+            "object_type_id": type_map["wind"],
+            "custom_name": "Wind with invalid parent",
+            "parent_instance_id": consumer_id,
+            "current_parameters": {"generation_mw": 2.0},
+        },
+    )
+    assert invalid_child.status_code == 400
+    assert "Родителем может быть только подстанция" in invalid_child.get_json()["error"]["message"]

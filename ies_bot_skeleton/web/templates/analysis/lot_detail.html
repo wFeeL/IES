@@ -203,10 +203,6 @@
         <tbody>
           <tr><th class="col-text">Рекомендуемая ставка</th><td class="num">{{ fmt_num(evaluation.recommended_bid or evaluation.decision_summary.recommended_bid or evaluation.working_bid or evaluation.decision_summary.working_bid, 1) }}</td></tr>
           <tr><th class="col-text">Максимальная ставка</th><td class="num">{{ fmt_num(evaluation.max_bid or evaluation.decision_summary.max_bid, 1) }}</td></tr>
-          <tr><th class="col-text">Чистая прибыль после рекомендуемой ставки</th><td class="num">{{ fmt_num(evaluation.decision_summary.net_profit_at_recommended_bid or evaluation.financial_breakdown.result.net_profit_at_recommended_bid, 2) }}</td></tr>
-          <tr><th class="col-text">Чистая прибыль после максимальной ставки</th><td class="num">{{ fmt_num(evaluation.decision_summary.net_profit_at_max_bid or evaluation.financial_breakdown.result.net_profit_at_max_bid, 2) }}</td></tr>
-          <tr><th class="col-text">Остаток бюджета после рекомендуемой ставки</th><td class="num">{{ fmt_num(evaluation.decision_summary.remaining_budget_after_recommended_bid or evaluation.financial_breakdown.result.remaining_budget_after_recommended_bid, 1) }}</td></tr>
-          <tr><th class="col-text">Остаток бюджета после максимальной ставки</th><td class="num">{{ fmt_num(evaluation.decision_summary.remaining_budget_after_max_bid or evaluation.financial_breakdown.result.remaining_budget_after_max_bid, 1) }}</td></tr>
           <tr><th class="col-text">Почему рекомендована</th><td>{{ evaluation.recommended_bid_reason or evaluation.decision_summary.recommended_bid_reason or evaluation.working_bid_reason or evaluation.decision_summary.working_bid_reason }}</td></tr>
           <tr><th class="col-text">Что ограничивает максимум</th><td>{{ evaluation.max_bid_reason or evaluation.decision_summary.max_bid_reason or 'Ограничение определяется бюджетом и риском.' }}</td></tr>
           <tr><th class="col-text">Почему бюджет можно не тратить полностью</th><td>{{ evaluation.decision_summary.budget_preservation_note }}</td></tr>
@@ -225,6 +221,10 @@
       <div class="table-wrap mt-2">
         <table class="table">
           <tbody>
+            <tr><th class="col-text">Чистая прибыль после рекомендуемой ставки</th><td class="num">{{ fmt_num(evaluation.decision_summary.net_profit_at_recommended_bid or evaluation.financial_breakdown.result.net_profit_at_recommended_bid, 2) }}</td></tr>
+            <tr><th class="col-text">Чистая прибыль после максимальной ставки</th><td class="num">{{ fmt_num(evaluation.decision_summary.net_profit_at_max_bid or evaluation.financial_breakdown.result.net_profit_at_max_bid, 2) }}</td></tr>
+            <tr><th class="col-text">Остаток бюджета после рекомендуемой ставки</th><td class="num">{{ fmt_num(evaluation.decision_summary.remaining_budget_after_recommended_bid or evaluation.financial_breakdown.result.remaining_budget_after_recommended_bid, 1) }}</td></tr>
+            <tr><th class="col-text">Остаток бюджета после максимальной ставки</th><td class="num">{{ fmt_num(evaluation.decision_summary.remaining_budget_after_max_bid or evaluation.financial_breakdown.result.remaining_budget_after_max_bid, 1) }}</td></tr>
             <tr><th class="col-text">Осторожная цена</th><td class="num">{{ fmt_num(evaluation.decision_summary.cautious_bid, 1) }}</td></tr>
             <tr><th class="col-text">Target bid</th><td class="num">{{ fmt_num(evaluation.decision_summary.target_bid, 1) }}</td></tr>
             <tr><th class="col-text">Hard ceiling bid</th><td class="num">{{ fmt_num(evaluation.decision_summary.hard_ceiling_bid, 1) }}</td></tr>
@@ -244,6 +244,9 @@
       Сетевой анализ неполон: у купленных лотов есть неподключённые объекты. Подключите их в энергосистеме, чтобы восстановить корректную оценку ставок.
     </div>
     {% endif %}
+    {% for warning in evaluation.analysis_warnings or [] %}
+    <div class="flash flash-warning mt-3">{{ warning }}</div>
+    {% endfor %}
     {% if lot.note %}<div class="risk-block mt-3">{{ lot.note }}</div>{% endif %}
     {% if lot.status == 'bought' %}<div class="risk-block mt-3">Лот куплен по цене {{ fmt_num(lot.purchase_price, 1) }}.</div>{% endif %}
   </article>

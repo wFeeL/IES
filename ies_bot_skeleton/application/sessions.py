@@ -40,7 +40,7 @@ def create_session_record(payload: Dict[str, Any]) -> GameSession:
     cfg = dict((ruleset.config_json or {}) if ruleset is not None else {})
     auction_cfg = dict(cfg.get("auction", {}) or {})
     default_budget = float(auction_cfg.get("starting_budget", 200.0) or 200.0)
-    budget_raw = payload.get("budget_total", None)
+    budget_raw = payload.get("start_budget", payload.get("budget_total", None))
     budget_value = float(default_budget if budget_raw is None else budget_raw)
 
     row = GameSession(

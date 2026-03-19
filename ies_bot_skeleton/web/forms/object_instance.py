@@ -9,7 +9,7 @@ class ObjectInstanceForm(FlaskForm):
     session_id = HiddenField("ID сессии", validators=[DataRequired()])
     object_type_id = SelectField("Тип объекта", coerce=int, validators=[DataRequired()], choices=[])
     custom_name = StringField("Имя", validators=[Optional()])
-    district = StringField("Энергорайон", validators=[Optional()])
+    district = StringField("Энергорайон (не точка подключения)", validators=[Optional()])
     parent_instance_id = SelectField(
         "Родитель", coerce=int, validators=[Optional()], choices=[(0, "Без родителя")]
     )
