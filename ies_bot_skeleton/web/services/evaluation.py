@@ -473,50 +473,84 @@ def build_bid_recommendations(
     }
 
 
-def _value_bid_share(risk_band: str) -> float:
-    band = _norm(risk_band)
-    if band == "low":
-        return 0.25
-    if band == "medium":
-        return 0.20
-    return 0.15
+def _risk_band(*, p_worst: float, risk_ratio: float) -> str:
+    if float(p_worst) <= 0.0 or float(risk_ratio) >= 0.60:
+        return "high"
+    if float(risk_ratio) >= 0.30:
+        return "medium"
+    return "low"
 
 
-def _value_bid_metrics(
+def _fit_multiplier(*, system_fit_score: float, evaluation_cfg: Dict[str, Any]) -> float:
+    slope = float(evaluation_cfg.get("fit_multiplier_slope", 0.005))
+    low = float(evaluation_cfg.get("fit_multiplier_min", 0.55))
+    high = float(evaluation_cfg.get("fit_multiplier_max", 1.35))
+    return _clamp(1.0 + float(system_fit_score) * slope, low, high)
+
+
+def _reserve_requirements(
     *,
-    gross_profit_before_bid: float,
     remaining_budget: float,
-    risk_band: str,
-) -> Dict[str, float]:
-    share = _value_bid_share(risk_band)
-    hard_ceiling_bid = max(0.0, float(gross_profit_before_bid) - MIN_POSITIVE_PROFIT_FLOOR)
-    target_bid = max(0.0, float(gross_profit_before_bid) * share)
-    recommended_bid = min(target_bid, hard_ceiling_bid, max(0.0, float(remaining_budget)))
-    cautious_bid = min(recommended_bid * 0.8, recommended_bid)
-    max_bid = min(hard_ceiling_bid, max(0.0, float(remaining_budget)))
-    return {
-        "bid_share": float(share),
-        "gross_profit_before_bid": float(max(0.0, float(gross_profit_before_bid))),
-        "cautious_bid": float(max(0.0, cautious_bid)),
-        "target_bid": float(max(0.0, target_bid)),
-        "hard_ceiling_bid": float(max(0.0, hard_ceiling_bid)),
-        "budget_adjusted_bid": float(max(0.0, recommended_bid)),
-        "working_bid": float(max(0.0, recommended_bid)),
-        "recommended_bid": float(max(0.0, recommended_bid)),
-        "max_bid": float(max(0.0, max_bid)),
-        "net_profit_at_recommended_bid": float(
-            _profit_after_bid(max(0.0, float(gross_profit_before_bid)), recommended_bid)
-        ),
-        "net_profit_at_max_bid": float(
-            _profit_after_bid(max(0.0, float(gross_profit_before_bid)), max_bid)
-        ),
-        "remaining_budget_after_recommended_bid": float(
-            _retained_budget(max(0.0, float(remaining_budget)), recommended_bid)
-        ),
-        "remaining_budget_after_max_bid": float(
-            _retained_budget(max(0.0, float(remaining_budget)), max_bid)
-        ),
-    }
+    p_exp: float,
+    evaluation_cfg: Dict[str, Any],
+) -> float:
+    reserve_abs = float(evaluation_cfg.get("reserve_budget_abs", 10.0))
+    reserve_share = float(evaluation_cfg.get("reserve_budget_share", 0.12))
+    baseline = max(0.0, float(remaining_budget), float(p_exp))
+    return min(max(0.0, float(remaining_budget)), max(reserve_abs, reserve_share * baseline))
+
+
+def _reserve_impact(
+    *,
+    reserve_required: float,
+    remaining_budget: float,
+    entry_price_total: float,
+    evaluation_cfg: Dict[str, Any],
+) -> float:
+    reserve_penalty = float(evaluation_cfg.get("reserve_impact_lambda", 0.45))
+    liquidity_after_entry = max(0.0, float(remaining_budget) - max(0.0, float(entry_price_total)))
+    reserve_gap = max(0.0, float(reserve_required) - liquidity_after_entry)
+    return float(reserve_gap * reserve_penalty)
+
+
+def _opportunity_cost(
+    *,
+    entry_price_total: float,
+    remaining_budget: float,
+    marginal_value: float,
+    evaluation_cfg: Dict[str, Any],
+) -> float:
+    if remaining_budget <= 0.0:
+        return float(max(0.0, marginal_value))
+    free_ratio = float(evaluation_cfg.get("opportunity_free_ratio", 0.35))
+    slope = float(evaluation_cfg.get("opportunity_cost_slope", 0.40))
+    burn_ratio = max(0.0, float(entry_price_total)) / max(float(remaining_budget), 1e-9)
+    pressure = max(0.0, burn_ratio - free_ratio)
+    return float(max(0.0, float(marginal_value)) * pressure * slope)
+
+
+def _scarcity_phase_multiplier(
+    *,
+    p_win: float,
+    scarcity_signal: float,
+    available_lots_count: int,
+    rules_cfg: Dict[str, Any],
+    evaluation_cfg: Dict[str, Any],
+) -> float:
+    auction_cfg = _auction_bid_cfg(rules_cfg)
+    scarcity_weight = float(evaluation_cfg.get("scarcity_multiplier_weight", 0.10))
+    scarcity_component = 1.0 + scarcity_weight * _clamp(float(scarcity_signal), 0.0, 1.0)
+
+    late_threshold = int(evaluation_cfg.get("phase_late_lots_threshold", 8))
+    late_bonus = (
+        float(evaluation_cfg.get("phase_late_bonus", 0.08))
+        if int(max(0, available_lots_count)) <= max(1, late_threshold)
+        else 0.0
+    )
+    pwin_discount = float(evaluation_cfg.get("pwin_value_discount", 0.18))
+    pwin_component = 1.0 - pwin_discount * max(0.0, 0.50 - _clamp(float(p_win), 0.0, 1.0))
+    scope_component = 1.0 + max(0.0, float(auction_cfg.get("scope_weight", 0.0))) * 0.02
+    return _clamp(scarcity_component * (1.0 + late_bonus) * pwin_component * scope_component, 0.70, 1.40)
 
 
 def _ignore_connection_sectors_cfg(cfg: Dict[str, Any]) -> bool:
@@ -2194,7 +2228,7 @@ def resolve_working_bid(
         else:
             preserved_budget = max(0.0, remaining_budget - budget_adjusted_bid)
             reason = (
-                "Balanced bid рассчитана по pwin-aware all-pay модели "
+                "Balanced bid рассчитана по маржинальной портфельной модели "
                 f"(p_win={p_win:.2f}, k={serious_competitors}). "
                 f"После сделки сохранится {preserved_budget:.2f}. {BUDGET_PRESERVATION_NOTE}"
             )
@@ -2244,6 +2278,8 @@ def _valuation_model_v3(
     serious_competitors: int | None = None,
     conservative_utility_meta: Dict[str, Any] | None = None,
     rules_cfg: Dict[str, Any] | None = None,
+    scarcity_signal: float = 0.0,
+    available_lots_count: int = 0,
 ) -> Dict[str, Any]:
     merged_cfg = dict(rules_cfg or {})
     merged_cfg["evaluation"] = dict(evaluation_cfg or {})
@@ -2263,12 +2299,48 @@ def _valuation_model_v3(
     downside_gap = max(0.0, float(p_base) - float(p_worst))
     risk_lambda = float(evaluation_cfg.get("risk_lambda", 0.25))
     volatility_lambda = float(evaluation_cfg.get("volatility_lambda", 0.15))
-    reserve_margin_abs = float(evaluation_cfg.get("reserve_margin_abs", 5.0))
-    reserve_margin_share = float(evaluation_cfg.get("reserve_margin_share", 0.10))
     risk_premium = float(risk_lambda * downside_gap + volatility_lambda * scenario_volatility)
     risk_ratio = float(risk_premium / max(abs(float(p_exp)), abs(float(p_base)), 1.0))
-    reserve_margin = float(max(reserve_margin_abs, reserve_margin_share * max(0.0, float(p_exp))))
-    gross_expected_profit_before_bid = max(0.0, float(p_exp) + max(0.0, float(entry_price_total)))
+    risk_band = _risk_band(p_worst=float(p_worst), risk_ratio=float(risk_ratio))
+    reserve_required = _reserve_requirements(
+        remaining_budget=float(remaining_budget),
+        p_exp=float(p_exp),
+        evaluation_cfg=evaluation_cfg,
+    )
+    reserve_impact = _reserve_impact(
+        reserve_required=float(reserve_required),
+        remaining_budget=float(remaining_budget),
+        entry_price_total=float(entry_price_total),
+        evaluation_cfg=evaluation_cfg,
+    )
+    fit_multiplier = _fit_multiplier(
+        system_fit_score=float(system_fit_score),
+        evaluation_cfg=evaluation_cfg,
+    )
+    scarcity_phase_multiplier = _scarcity_phase_multiplier(
+        p_win=float(
+            p_win
+            if p_win is not None
+            else auction_cfg.get("pwin_default", DEFAULT_AUCTION_BID_CFG["pwin_default"])
+        ),
+        scarcity_signal=float(scarcity_signal),
+        available_lots_count=int(available_lots_count),
+        rules_cfg=merged_cfg,
+        evaluation_cfg=evaluation_cfg,
+    )
+    marginal_portfolio_value = max(0.0, float(p_exp))
+    fit_adjusted_value = float(marginal_portfolio_value * fit_multiplier)
+    scarcity_adjusted_value = float(fit_adjusted_value * scarcity_phase_multiplier)
+    opportunity_cost = _opportunity_cost(
+        entry_price_total=float(entry_price_total),
+        remaining_budget=float(remaining_budget),
+        marginal_value=float(scarcity_adjusted_value),
+        evaluation_cfg=evaluation_cfg,
+    )
+    target_raw = float(
+        scarcity_adjusted_value - float(risk_premium) - float(reserve_impact) - float(opportunity_cost)
+    )
+    gross_expected_profit_before_bid = float(max(0.0, float(p_exp) + max(0.0, float(entry_price_total))))
     p_win_value = (
         float(p_win)
         if p_win is not None
@@ -2279,23 +2351,91 @@ def _valuation_model_v3(
         if serious_competitors is not None
         else int(round(auction_cfg.get("serious_competitors_default", 3.0)))
     )
-    bid_pack = build_bid_recommendations(
-        conservative_utility_value=conservative_value,
-        gross_profit_before_bid=gross_expected_profit_before_bid,
-        remaining_budget=float(remaining_budget),
-        p_win=p_win_value,
-        serious_competitors=competitors_value,
-        cfg=merged_cfg,
+    positive_profit_floor = float(
+        max(
+            0.0,
+            auction_cfg.get(
+                "min_positive_profit_floor",
+                DEFAULT_AUCTION_BID_CFG["min_positive_profit_floor"],
+            ),
+        )
+    )
+    safe_factor = float(evaluation_cfg.get("safe_factor", auction_cfg.get("safe_multiplier", 0.82)))
+    aggressive_factor = float(
+        evaluation_cfg.get("aggressive_factor", auction_cfg.get("aggressive_multiplier", 1.22))
+    )
+    extra_risk_guard = float(
+        max(0.0, risk_premium) * float(evaluation_cfg.get("safe_risk_guard_share", 0.35))
+        + max(0.0, scenario_volatility) * float(evaluation_cfg.get("safe_volatility_guard_lambda", 0.10))
+    )
+    economic_cap = max(
+        0.0,
+        min(
+            gross_expected_profit_before_bid - positive_profit_floor,
+            scarcity_adjusted_value - max(0.0, risk_premium),
+            conservative_value,
+        ),
+    )
+    cash_available = max(0.0, float(remaining_budget))
+    hard_cap = _clamp(min(economic_cap, cash_available), 0.0, cash_available)
+    target_cap = min(hard_cap, max(0.0, cash_available - reserve_required))
+    target_bid = _clamp(target_raw, 0.0, target_cap)
+    safe_bid = _clamp(target_raw * safe_factor - extra_risk_guard, 0.0, target_cap)
+    aggressive_bid = _clamp(max(target_bid, target_raw * aggressive_factor), 0.0, hard_cap)
+    bid_share = (
+        float(target_bid / max(1.0, scarcity_adjusted_value))
+        if scarcity_adjusted_value > 0
+        else 0.0
     )
     risk_adjusted_net_profit = float(
-        float(p_exp) - risk_premium - reserve_margin + 0.20 * float(portfolio_synergy)
+        float(p_exp)
+        - float(risk_premium)
+        - float(reserve_impact)
+        - float(opportunity_cost)
+        + 0.20 * float(portfolio_synergy)
     )
-    if float(p_worst) <= 0.0 or risk_ratio >= 0.60:
-        risk_band = "high"
-    elif risk_ratio >= 0.30:
-        risk_band = "medium"
-    else:
-        risk_band = "low"
+    reason_codes: List[str] = []
+    if fit_multiplier < 0.99:
+        reason_codes.append("low_system_fit")
+    if fit_multiplier > 1.01:
+        reason_codes.append("strong_system_fit")
+    if reserve_impact > 0.0:
+        reason_codes.append("reserve_protection")
+    if opportunity_cost > 0.0:
+        reason_codes.append("liquidity_opportunity_cost")
+    if risk_premium > 0.0:
+        reason_codes.append("risk_premium")
+    if scarcity_phase_multiplier > 1.02:
+        reason_codes.append("scarcity_bonus")
+    elif scarcity_phase_multiplier < 0.98:
+        reason_codes.append("scarcity_discount")
+    if target_cap + 1e-9 < hard_cap:
+        reason_codes.append("target_cap_by_reserve")
+    if hard_cap + 1e-9 < economic_cap:
+        reason_codes.append("hard_cap_by_cash")
+    if target_bid <= 0.0:
+        reason_codes.append("no_positive_target_bid")
+    explainability = {
+        "portfolio_delta_value": float(marginal_portfolio_value),
+        "system_fit_adjustment": {
+            "score": float(system_fit_score),
+            "multiplier": float(fit_multiplier),
+            "adjusted_value": float(fit_adjusted_value),
+        },
+        "risk_premium": float(risk_premium),
+        "reserve_required": float(reserve_required),
+        "reserve_impact": float(reserve_impact),
+        "opportunity_cost": float(opportunity_cost),
+        "scarcity_phase_multiplier": float(scarcity_phase_multiplier),
+        "final_caps": {
+            "cash_available": float(cash_available),
+            "economic_cap": float(max(0.0, economic_cap)),
+            "target_cap": float(max(0.0, target_cap)),
+            "hard_cap": float(max(0.0, hard_cap)),
+        },
+        "reason_codes": reason_codes,
+    }
+    recommended_bid = float(target_bid)
     return {
         "model": "valuation_model_v3",
         "model_name": "auction_bid_model",
@@ -2313,31 +2453,57 @@ def _valuation_model_v3(
         "downside_gap": float(downside_gap),
         "risk_ratio": float(risk_ratio),
         "risk_premium": float(risk_premium),
-        "reserve_margin": float(reserve_margin),
+        "reserve_margin": float(reserve_required),
+        "reserve_required": float(reserve_required),
+        "reserve_impact": float(reserve_impact),
+        "opportunity_cost": float(opportunity_cost),
         "conservative_utility": dict(conservative_utility_meta),
         "portfolio_synergy": float(portfolio_synergy),
+        "portfolio_delta_value": float(marginal_portfolio_value),
         "system_fit_score": float(system_fit_score),
+        "system_fit_multiplier": float(fit_multiplier),
+        "scarcity_signal": float(scarcity_signal),
+        "scarcity_phase_multiplier": float(scarcity_phase_multiplier),
         "p_win": float(p_win_value),
         "serious_competitors": int(competitors_value),
         "gross_expected_profit_before_bid": float(gross_expected_profit_before_bid),
-        "cap_share": float(bid_pack["base_share"]),
-        "bid_share": float(bid_pack["base_share"]),
-        "cautious_bid": float(bid_pack["recommended_bid_safe"]),
-        "target_bid": float(bid_pack["recommended_bid_balanced"]),
-        "hard_ceiling_bid": float(bid_pack["hard_ceiling_bid"]),
-        "budget_adjusted_bid": float(bid_pack["recommended_bid_balanced"]),
-        "working_bid": float(bid_pack["recommended_bid_balanced"]),
-        "recommended_bid_safe": float(bid_pack["recommended_bid_safe"]),
-        "recommended_bid_balanced": float(bid_pack["recommended_bid_balanced"]),
-        "recommended_bid_aggressive": float(bid_pack["recommended_bid_aggressive"]),
-        "max_bid": float(bid_pack["max_bid"]),
-        "net_profit_at_recommended_bid": float(bid_pack["net_profit_at_recommended_bid"]),
-        "net_profit_at_max_bid": float(bid_pack["net_profit_at_max_bid"]),
-        "remaining_budget_after_recommended_bid": float(
-            bid_pack["remaining_budget_after_recommended_bid"]
+        "cap_share": float(bid_share),
+        "bid_share": float(bid_share),
+        "target_raw": float(target_raw),
+        "safe_bid": float(safe_bid),
+        "target_bid": float(target_bid),
+        "hard_cap": float(hard_cap),
+        "cautious_bid": float(safe_bid),
+        "hard_ceiling_bid": float(hard_cap),
+        "budget_adjusted_bid": float(target_bid),
+        "working_bid": float(recommended_bid),
+        "recommended_bid": float(recommended_bid),
+        "recommended_bid_safe": float(safe_bid),
+        "recommended_bid_balanced": float(target_bid),
+        "recommended_bid_aggressive": float(aggressive_bid),
+        "max_bid": float(hard_cap),
+        "net_profit_at_safe_bid": float(_profit_after_bid(gross_expected_profit_before_bid, safe_bid)),
+        "net_profit_at_balanced_bid": float(
+            _profit_after_bid(gross_expected_profit_before_bid, target_bid)
         ),
-        "remaining_budget_after_max_bid": float(bid_pack["remaining_budget_after_max_bid"]),
+        "net_profit_at_aggressive_bid": float(
+            _profit_after_bid(gross_expected_profit_before_bid, aggressive_bid)
+        ),
+        "net_profit_at_recommended_bid": float(
+            _profit_after_bid(gross_expected_profit_before_bid, recommended_bid)
+        ),
+        "net_profit_at_max_bid": float(_profit_after_bid(gross_expected_profit_before_bid, hard_cap)),
+        "remaining_budget_after_safe_bid": float(_retained_budget(cash_available, safe_bid)),
+        "remaining_budget_after_balanced_bid": float(_retained_budget(cash_available, target_bid)),
+        "remaining_budget_after_aggressive_bid": float(
+            _retained_budget(cash_available, aggressive_bid)
+        ),
+        "remaining_budget_after_recommended_bid": float(
+            _retained_budget(cash_available, recommended_bid)
+        ),
+        "remaining_budget_after_max_bid": float(_retained_budget(cash_available, hard_cap)),
         "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
+        "explainability": explainability,
     }
 
 
@@ -2388,6 +2554,46 @@ def _simulate_portfolio_with_lots(
     return snapshots, ticks, factors, profiles
 
 
+def _simulate_portfolio_with_prepared_series(
+    *,
+    session: GameSession,
+    lots: Sequence[Lot],
+    cfg: Dict[str, Any],
+    ticks: Sequence[int],
+    factors: Dict[str, Dict[int, float]],
+    profiles: Dict[str, Dict[int, float]],
+    portfolio_lots: Sequence[Lot] | None = None,
+) -> Dict[str, ScenarioSnapshot]:
+    simulated_lots = [*list(portfolio_lots or []), *list(lots)]
+    assets = _collect_assets(session, simulated_lots)
+    return {
+        "base": _simulate_scenario(
+            assets=assets,
+            factors=factors,
+            profiles=profiles,
+            ticks=list(ticks),
+            cfg=cfg,
+            scenario="base",
+        ),
+        "worst": _simulate_scenario(
+            assets=assets,
+            factors=factors,
+            profiles=profiles,
+            ticks=list(ticks),
+            cfg=cfg,
+            scenario="worst",
+        ),
+        "best": _simulate_scenario(
+            assets=assets,
+            factors=factors,
+            profiles=profiles,
+            ticks=list(ticks),
+            cfg=cfg,
+            scenario="best",
+        ),
+    }
+
+
 def _build_delta_pack(
     base_state: Dict[str, ScenarioSnapshot], with_state: Dict[str, ScenarioSnapshot]
 ) -> Dict[str, DeltaSnapshot]:
@@ -2395,6 +2601,54 @@ def _build_delta_pack(
         "base": _to_delta(base_state["base"], with_state["base"]),
         "worst": _to_delta(base_state["worst"], with_state["worst"]),
         "best": _to_delta(base_state["best"], with_state["best"]),
+    }
+
+
+def prepare_fast_scoring_context(
+    *,
+    session: GameSession,
+    forecast: Optional[Forecast] = None,
+    portfolio_lots: Sequence[Lot] | None = None,
+    reserved_spend: float = 0.0,
+    available_lots: Sequence[Lot] | None = None,
+) -> Dict[str, Any]:
+    analysis_ctx = resolve_analysis_context(
+        session, forecast_id=forecast.id if forecast is not None else None
+    )
+    selected_forecast = analysis_ctx["forecast"]
+    forecast_summary = dict(analysis_ctx["forecast_summary"])
+    compatibility = dict(forecast_summary.get("compatibility_report") or {})
+    if not bool(forecast_summary.get("is_compatible", True)):
+        raise ForecastCompatibilityError(compatibility)
+    rules_cfg = dict(session.ruleset.config_json or {})
+    portfolio_lots_list = list(portfolio_lots or [])
+    portfolio_reserved_spend = _reserved_lot_spend(portfolio_lots_list)
+    total_reserved_spend = float(max(0.0, reserved_spend) + portfolio_reserved_spend)
+    base_state, ticks, factors, profiles = _simulate_portfolio_with_lots(
+        session=session,
+        lots=[],
+        forecast=selected_forecast,
+        cfg=rules_cfg,
+        portfolio_lots=portfolio_lots_list,
+    )
+    reference_available_lots = list(available_lots or [])
+    if not reference_available_lots:
+        reference_available_lots = [
+            lot for lot in _session_lots(session) if str(lot.status or "") == "available"
+        ]
+    return {
+        "analysis_ctx": analysis_ctx,
+        "forecast": selected_forecast,
+        "forecast_summary": forecast_summary,
+        "compatibility": compatibility,
+        "rules_cfg": rules_cfg,
+        "base_state": base_state,
+        "ticks": list(ticks),
+        "factors": factors,
+        "profiles": profiles,
+        "portfolio_lots": portfolio_lots_list,
+        "total_reserved_spend": float(total_reserved_spend),
+        "reference_available_lots": reference_available_lots,
     }
 
 
@@ -2407,45 +2661,59 @@ def evaluate_lot_bundle(
     portfolio_lots: Sequence[Lot] | None = None,
     reserved_spend: float = 0.0,
     available_lots: Sequence[Lot] | None = None,
+    fast_context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     del strategy
-    rules_cfg = dict(session.ruleset.config_json or {})
-    auction_cfg = _auction_bid_cfg(rules_cfg)
     selected_strategy = "unified"
-    analysis_ctx = resolve_analysis_context(
-        session, forecast_id=forecast.id if forecast is not None else None
-    )
-    forecast = analysis_ctx["forecast"]
-    forecast_summary = dict(analysis_ctx["forecast_summary"])
-    compatibility = dict(forecast_summary.get("compatibility_report") or {})
+    if fast_context is None:
+        fast_context = prepare_fast_scoring_context(
+            session=session,
+            forecast=forecast,
+            portfolio_lots=portfolio_lots,
+            reserved_spend=reserved_spend,
+            available_lots=available_lots,
+        )
+    analysis_ctx = dict(fast_context.get("analysis_ctx") or {})
+    forecast = cast(Optional[Forecast], fast_context.get("forecast"))
+    forecast_summary = dict(fast_context.get("forecast_summary") or {})
+    compatibility = dict(fast_context.get("compatibility") or {})
     if not bool(forecast_summary.get("is_compatible", True)):
         raise ForecastCompatibilityError(compatibility)
-
-    portfolio_lots = list(portfolio_lots or [])
+    rules_cfg = dict(fast_context.get("rules_cfg") or {})
+    auction_cfg = _auction_bid_cfg(rules_cfg)
+    portfolio_lots = list(fast_context.get("portfolio_lots") or portfolio_lots or [])
     candidate_lots = list(lots)
-    reference_available_lots = list(available_lots or [])
+    reference_available_lots = list(available_lots or fast_context.get("reference_available_lots") or [])
     if not reference_available_lots:
         reference_available_lots = [
             lot for lot in _session_lots(session) if str(lot.status or "") == "available"
         ]
     if not reference_available_lots:
         reference_available_lots = list(candidate_lots)
-
-    portfolio_reserved_spend = _reserved_lot_spend(portfolio_lots)
-    total_reserved_spend = float(max(0.0, reserved_spend) + portfolio_reserved_spend)
-
-    base_state, ticks, factors, profiles = _simulate_portfolio_with_lots(
-        session=session,
-        lots=[],
-        forecast=forecast,
-        cfg=rules_cfg,
-        portfolio_lots=portfolio_lots,
+    total_reserved_spend = float(
+        fast_context.get("total_reserved_spend")
+        if fast_context.get("total_reserved_spend") is not None
+        else max(0.0, reserved_spend) + _reserved_lot_spend(portfolio_lots)
     )
-    with_state, _, _, _ = _simulate_portfolio_with_lots(
+    base_state = cast(Dict[str, ScenarioSnapshot], fast_context.get("base_state") or {})
+    ticks = list(cast(Sequence[int], fast_context.get("ticks") or []))
+    factors = cast(Dict[str, Dict[int, float]], fast_context.get("factors") or {})
+    profiles = cast(Dict[str, Dict[int, float]], fast_context.get("profiles") or {})
+    if not base_state or not ticks:
+        base_state, ticks, factors, profiles = _simulate_portfolio_with_lots(
+            session=session,
+            lots=[],
+            forecast=forecast,
+            cfg=rules_cfg,
+            portfolio_lots=portfolio_lots,
+        )
+    with_state = _simulate_portfolio_with_prepared_series(
         session=session,
         lots=candidate_lots,
-        forecast=forecast,
         cfg=rules_cfg,
+        ticks=ticks,
+        factors=factors,
+        profiles=profiles,
         portfolio_lots=portfolio_lots,
     )
     deltas = _build_delta_pack(base_state, with_state)
@@ -2550,6 +2818,8 @@ def evaluate_lot_bundle(
         serious_competitors=int(competitors_payload["serious_competitors"]),
         conservative_utility_meta=conservative_utility_meta,
         rules_cfg=rules_cfg,
+        scarcity_signal=float(pwin_payload.get("scarcity_signal", 0.0) or 0.0),
+        available_lots_count=len(reference_available_lots),
     )
 
     recommended_bid_safe = float(valuation_model.get("recommended_bid_safe", 0.0) or 0.0)
@@ -2675,9 +2945,9 @@ def evaluate_lot_bundle(
             "консервативной полезности и ставки."
         )
     strategy_fit_text = (
-        "Единый анализ: balanced bid рассчитывается по pwin-aware all-pay модели."
+        "Единый анализ: target bid рассчитывается как маржинальная портфельная оценка."
         if recommended_bid_balanced > 0
-        else "Единый анализ: лот не формирует оправданную balanced bid в текущих условиях."
+        else "Единый анализ: лот не формирует оправданную target bid в текущих условиях."
     )
     network_readiness = network_readiness_summary(session)
     analysis_warnings: List[str] = []
@@ -2688,7 +2958,7 @@ def evaluate_lot_bundle(
         )
         analysis_warnings.append(network_warning)
 
-    budget_adjusted_bid = float(min(recommended_bid_balanced, max(0.0, remaining_budget)))
+    budget_adjusted_bid = float(max(0.0, recommended_bid_balanced))
     working_bid = float(recommended_bid_balanced)
     if remaining_budget <= 0.0:
         working_bid_source = "zero"
@@ -2713,12 +2983,12 @@ def evaluate_lot_bundle(
         )
     elif working_bid <= 0.0:
         working_bid_reason = (
-            "Ставка равна 0: pwin-aware модель не формирует оправданный вход в текущих условиях."
+            "Ставка равна 0: маржинальная портфельная модель не формирует оправданный вход."
         )
     else:
         working_bid_reason = (
-            "Balanced bid рассчитан из консервативной полезности с учётом p_win "
-            f"{p_win:.2f} и {serious_competitors} серьёзных претендентов."
+            "Target bid рассчитан из маржинальной ценности портфеля с учётом fit, "
+            "риска, резерва и стоимости ликвидности."
         )
 
     if max_bid <= 0.0:
@@ -2734,8 +3004,8 @@ def evaluate_lot_bundle(
         )
 
     recommended_bid_reason = (
-        "Balanced bid — рабочая ставка по умолчанию: компромисс между безопасным входом "
-        "и максимизацией value."
+        "Target bid — рабочая ставка по умолчанию: компромисс между безопасным входом "
+        "и маржинальной ценностью портфеля."
         if working_bid > 0.0
         else working_bid_reason
     )
@@ -2754,8 +3024,10 @@ def evaluate_lot_bundle(
         "recommended_bid_safe": float(recommended_bid_safe),
         "recommended_bid_balanced": float(recommended_bid_balanced),
         "recommended_bid_aggressive": float(recommended_bid_aggressive),
+        "safe_bid": float(recommended_bid_safe),
         "cautious_bid": float(recommended_bid_safe),
         "target_bid": float(recommended_bid_balanced),
+        "hard_cap": float(hard_ceiling_bid),
         "hard_ceiling_bid": float(hard_ceiling_bid),
         "max_bid": float(max_bid),
         "budget_adjusted_bid": float(budget_adjusted_bid),
@@ -2771,17 +3043,26 @@ def evaluate_lot_bundle(
         "model_working_bid": float(valuation_model.get("working_bid", 0.0) or 0.0),
         "portfolio_synergy": float(portfolio_synergy),
         "system_fit_score": float(system_check.get("system_fit_score", 0.0) or 0.0),
-        "bid_formula": "pwin_aware_allpay",
+        "system_fit_multiplier": float(valuation_model.get("system_fit_multiplier", 1.0) or 1.0),
+        "bid_formula": "portfolio_marginal_allpay_v2",
+        "legacy_bid_formula": "pwin_aware_allpay",
         "bid_share": float(bid_share),
         "base_share": float(bid_share),
         "gross_expected_profit_before_bid": float(gross_expected_profit_before_bid),
         "p_win": float(p_win),
         "serious_competitors": int(serious_competitors),
         "conservative_utility": dict(conservative_utility_meta),
+        "reserve_required": float(valuation_model.get("reserve_required", 0.0) or 0.0),
+        "reserve_impact": float(valuation_model.get("reserve_impact", 0.0) or 0.0),
+        "opportunity_cost": float(valuation_model.get("opportunity_cost", 0.0) or 0.0),
+        "scarcity_phase_multiplier": float(
+            valuation_model.get("scarcity_phase_multiplier", 1.0) or 1.0
+        ),
         "auction_bid_model_version": str(
             auction_cfg.get("auction_bid_model_version", DEFAULT_AUCTION_BID_CFG["auction_bid_model_version"])
         ),
         "budget_preservation_note": BUDGET_PRESERVATION_NOTE,
+        "explainability": dict(valuation_model.get("explainability") or {}),
         "net_profit_at_recommended_bid": float(
             financial_breakdown.get("result", {}).get("net_profit_at_recommended_bid", 0.0) or 0.0
         ),
@@ -2831,8 +3112,17 @@ def evaluate_lot_bundle(
         "downside_gap": float(valuation_model.get("downside_gap", 0.0) or 0.0),
         "risk_premium": float(risk_premium),
         "reserve_margin": float(reserve_margin),
+        "reserve_required": float(valuation_model.get("reserve_required", 0.0) or 0.0),
+        "reserve_impact": float(valuation_model.get("reserve_impact", 0.0) or 0.0),
+        "opportunity_cost": float(valuation_model.get("opportunity_cost", 0.0) or 0.0),
+        "system_fit_multiplier": float(valuation_model.get("system_fit_multiplier", 1.0) or 1.0),
+        "scarcity_phase_multiplier": float(
+            valuation_model.get("scarcity_phase_multiplier", 1.0) or 1.0
+        ),
         "bid_share": float(bid_share),
+        "safe_bid": float(recommended_bid_safe),
         "target_bid": float(recommended_bid_balanced),
+        "hard_cap": float(hard_ceiling_bid),
         "hard_ceiling_bid": float(hard_ceiling_bid),
         "budget_adjusted_bid": float(budget_adjusted_bid),
         "recommended_bid": float(working_bid),
@@ -2869,8 +3159,10 @@ def evaluate_lot_bundle(
             "recommended_bid_safe": float(recommended_bid_safe),
             "recommended_bid_balanced": float(recommended_bid_balanced),
             "recommended_bid_aggressive": float(recommended_bid_aggressive),
+            "safe_bid": float(recommended_bid_safe),
             "cautious_bid": float(recommended_bid_safe),
             "target_bid": float(recommended_bid_balanced),
+            "hard_cap": float(hard_ceiling_bid),
             "hard_ceiling_bid": float(hard_ceiling_bid),
             "max_bid": float(max_bid),
             "budget_adjusted_bid": float(budget_adjusted_bid),
@@ -2881,6 +3173,15 @@ def evaluate_lot_bundle(
             "model_working_bid": float(valuation_model.get("working_bid", 0.0) or 0.0),
             "risk_premium": float(risk_premium),
             "reserve_margin": float(reserve_margin),
+            "reserve_required": float(valuation_model.get("reserve_required", 0.0) or 0.0),
+            "reserve_impact": float(valuation_model.get("reserve_impact", 0.0) or 0.0),
+            "opportunity_cost": float(valuation_model.get("opportunity_cost", 0.0) or 0.0),
+            "system_fit_multiplier": float(
+                valuation_model.get("system_fit_multiplier", 1.0) or 1.0
+            ),
+            "scarcity_phase_multiplier": float(
+                valuation_model.get("scarcity_phase_multiplier", 1.0) or 1.0
+            ),
             "portfolio_synergy": float(portfolio_synergy),
             "system_fit_score": float(system_check.get("system_fit_score", 0.0) or 0.0),
             "risk_adjusted_net_profit": float(risk_adjusted_net_profit),
@@ -2913,12 +3214,16 @@ def evaluate_lot_bundle(
                         DEFAULT_AUCTION_BID_CFG["auction_bid_model_version"],
                     )
                 ),
-                "name": "pwin-aware all-pay",
-                "formula": "bid = U_eff * ((k - 1) / k) * p_win * multiplier",
+                "name": "portfolio-marginal all-pay",
+                "formula": (
+                    "target_raw = delta_portfolio * fit * scarcity"
+                    " - risk_premium - reserve_impact - opportunity_cost"
+                ),
             },
             "budget_preservation_note": BUDGET_PRESERVATION_NOTE,
-            "valuation_basis": "pwin_aware_allpay",
+            "valuation_basis": "portfolio_marginal_allpay_v2",
             "valuation_model": valuation_model,
+            "explainability": dict(valuation_model.get("explainability") or {}),
         },
         "portfolio_delta": {
             "net_profit_base": float(net_profit_base),
@@ -2982,8 +3287,10 @@ def evaluate_lot_bundle(
         "recommended_bid_aggressive": float(recommended_bid_aggressive),
         "recommended_bid_soft": float(recommended_bid_safe),
         "recommended_bid_hard": float(recommended_bid_balanced),
+        "safe_bid": float(recommended_bid_safe),
         "cautious_bid": float(recommended_bid_safe),
         "target_bid": float(recommended_bid_balanced),
+        "hard_cap": float(hard_ceiling_bid),
         "hard_ceiling_bid": float(hard_ceiling_bid),
         "budget_adjusted_bid": float(budget_adjusted_bid),
         "recommended_bid": float(working_bid),
@@ -2997,8 +3304,12 @@ def evaluate_lot_bundle(
                     DEFAULT_AUCTION_BID_CFG["auction_bid_model_version"],
                 )
             ),
-            "formula": "bid = U_eff * ((k - 1) / k) * p_win * multiplier",
+            "formula": (
+                "target_raw = delta_portfolio * fit * scarcity"
+                " - risk_premium - reserve_impact - opportunity_cost"
+            ),
         },
+        "bid_explainability": dict(valuation_model.get("explainability") or {}),
         "conservative_utility": dict(conservative_utility_meta),
         "recommended_bid_reason": str(recommended_bid_reason),
         "max_bid_reason": str(max_bid_reason),
@@ -3018,6 +3329,7 @@ def evaluate_lot(
     mode: Optional[str] = None,
     persist: bool = True,
     available_lots: Sequence[Lot] | None = None,
+    fast_context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     del mode
     payload = evaluate_lot_bundle(
@@ -3026,6 +3338,7 @@ def evaluate_lot(
         strategy=strategy,
         forecast=forecast,
         available_lots=available_lots,
+        fast_context=fast_context,
     )
     stale_state = _latest_eval_state(session, lot)
     payload.update(
@@ -3087,6 +3400,11 @@ def rank_lots(
     results: List[Dict[str, Any]] = []
     lot_list = list(lots)
     available_lots = [lot for lot in lot_list if str(lot.status or "") == "available"]
+    fast_context = prepare_fast_scoring_context(
+        session=session,
+        forecast=forecast,
+        available_lots=available_lots,
+    )
     for lot in lot_list:
         results.append(
             evaluate_lot(
@@ -3096,6 +3414,7 @@ def rank_lots(
                 forecast=forecast,
                 persist=persist,
                 available_lots=available_lots,
+                fast_context=fast_context,
             )
         )
     results.sort(
@@ -3192,6 +3511,7 @@ __all__ = [
     "_scenario_row",
     "evaluate_lot",
     "evaluate_lot_bundle",
+    "prepare_fast_scoring_context",
     "rank_lots",
     "recommend_best_lot",
     "strategy_fit",

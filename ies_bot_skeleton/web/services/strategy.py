@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
@@ -11,7 +15,7 @@ from ...common.budgeting import (
 )
 from ..models import Forecast, GameSession, Lot
 from .analysis_context import resolve_analysis_context
-from .evaluation import ForecastCompatibilityError, evaluate_lot_bundle
+from .evaluation import ForecastCompatibilityError, evaluate_lot_bundle, prepare_fast_scoring_context
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,11 @@ class ComboEvaluation:
     synergy_score: float
     explanation: str
     lot_bid_breakdown: List[Dict[str, Any]]
+
+
+_STRATEGY_SNAPSHOT_CACHE: Dict[str, Dict[str, Any]] = {}
+_COMBO_FAST_CONTEXT_CACHE: Dict[str, Dict[str, Any]] = {}
+_SNAPSHOT_CACHE_MAX_ITEMS = 24
 
 
 def _session_lots(session: GameSession) -> Sequence[Lot]:
@@ -98,6 +107,134 @@ def _presentation_key(item: ComboEvaluation) -> Tuple[float, float, float]:
     )
 
 
+def _snapshot_fingerprint(
+    *,
+    session: GameSession,
+    forecast: Optional[Forecast],
+    top_n: int,
+    beam_width: int,
+    max_group_size: int,
+) -> str:
+    lots_state = [
+        {
+            "id": int(lot.id),
+            "status": str(lot.status or ""),
+            "current_bid": float(lot.current_bid or 0.0),
+            "purchase_price": float(lot.purchase_price or 0.0) if lot.purchase_price is not None else None,
+            "available_round": int(lot.available_round or 1),
+        }
+        for lot in sorted(_session_lots(session), key=lambda row: int(row.id))
+    ]
+    objects_state = [
+        {
+            "id": int(obj.id),
+            "type": int(obj.object_type_id),
+            "parent": int(obj.parent_instance_id) if obj.parent_instance_id else None,
+            "district": str(obj.district or ""),
+            "active": bool(obj.is_active),
+            "params": dict(obj.current_parameters_json or {}),
+        }
+        for obj in sorted(session.objects, key=lambda row: int(row.id))
+    ]
+    payload = {
+        "session_id": int(session.id),
+        "ruleset_id": int(session.ruleset_id),
+        "forecast_id": int(forecast.id) if forecast is not None else None,
+        "budget_total": float(session.budget_total or 0.0),
+        "allpay_spent": float(session.allpay_spent or 0.0),
+        "top_n": int(top_n),
+        "beam_width": int(beam_width),
+        "max_group_size": int(max_group_size),
+        "rules_cfg": dict(getattr(getattr(session, "ruleset", None), "config_json", {}) or {}),
+        "lots": lots_state,
+        "objects": objects_state,
+    }
+    raw = json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha1(raw).hexdigest()
+
+
+def _snapshot_cache_get(*, key: str, ttl_seconds: float) -> Optional[Dict[str, Any]]:
+    cached = _STRATEGY_SNAPSHOT_CACHE.get(str(key))
+    if not cached:
+        return None
+    created_at = float(cached.get("_cached_at", 0.0) or 0.0)
+    if created_at <= 0.0 or (time.time() - created_at) > float(max(1.0, ttl_seconds)):
+        _STRATEGY_SNAPSHOT_CACHE.pop(str(key), None)
+        return None
+    payload = dict(cached.get("payload") or {})
+    return copy.deepcopy(payload)
+
+
+def _snapshot_cache_put(*, key: str, payload: Dict[str, Any]) -> None:
+    _STRATEGY_SNAPSHOT_CACHE[str(key)] = {
+        "_cached_at": time.time(),
+        "payload": copy.deepcopy(dict(payload or {})),
+    }
+    if len(_STRATEGY_SNAPSHOT_CACHE) <= _SNAPSHOT_CACHE_MAX_ITEMS:
+        return
+    oldest_key = min(
+        _STRATEGY_SNAPSHOT_CACHE.keys(),
+        key=lambda cache_key: float(_STRATEGY_SNAPSHOT_CACHE[cache_key].get("_cached_at", 0.0) or 0.0),
+    )
+    _STRATEGY_SNAPSHOT_CACHE.pop(oldest_key, None)
+
+
+def _lot_pre_score(lot: Lot) -> float:
+    role_weight = {
+        "generator": 16.0,
+        "consumer": 12.0,
+        "storage": 11.0,
+        "infrastructure": 9.0,
+    }
+    score = 0.0
+    for item in list(getattr(lot, "items", []) or []):
+        category = str(getattr(getattr(item, "object_type", None), "category", "") or "").lower()
+        qty = max(1, int(getattr(item, "quantity", 1) or 1))
+        score += float(role_weight.get(category, 8.0)) * float(qty)
+    # Fallback for synthetic rows in unit tests and partially loaded lots.
+    if score <= 0.0:
+        score = 10.0
+    return float(score - max(0.0, float(lot.current_bid or 0.0)) * 0.05)
+
+
+def _combo_fast_context(
+    *,
+    session: GameSession,
+    forecast: Optional[Forecast],
+    portfolio_lots: Sequence[Lot] | None,
+    reserved_spend: float,
+) -> Dict[str, Any]:
+    available_lots = [lot for lot in _session_lots(session) if str(lot.status or "") == "available"]
+    key_payload = {
+        "session_id": int(session.id),
+        "forecast_id": int(forecast.id) if forecast is not None else None,
+        "portfolio_lots": [int(lot.id) for lot in sorted(list(portfolio_lots or []), key=lambda row: int(row.id))],
+        "reserved_spend": round(float(reserved_spend), 4),
+        "available_lots": [int(lot.id) for lot in sorted(available_lots, key=lambda row: int(row.id))],
+    }
+    key = hashlib.sha1(
+        json.dumps(key_payload, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    cached = _COMBO_FAST_CONTEXT_CACHE.get(key)
+    if cached is not None:
+        return cached
+    out = prepare_fast_scoring_context(
+        session=session,
+        forecast=forecast,
+        portfolio_lots=portfolio_lots,
+        reserved_spend=reserved_spend,
+        available_lots=available_lots,
+    )
+    _COMBO_FAST_CONTEXT_CACHE[key] = out
+    return out
+
+
 def _stringify_reasons(payload: Dict[str, Any], *, synergy_score: float) -> str:
     reasons = list(payload.get("reasons") or [])
     metrics = dict(payload.get("metrics") or {})
@@ -141,6 +278,12 @@ def _combo_eval(
     reserved_spend: float = 0.0,
 ) -> ComboEvaluation:
     ordered_lots = sorted(lots, key=lambda row: int(row.id))
+    fast_context = _combo_fast_context(
+        session=session,
+        forecast=forecast,
+        portfolio_lots=portfolio_lots,
+        reserved_spend=reserved_spend,
+    )
     payload = evaluate_lot_bundle(
         session=session,
         lots=ordered_lots,
@@ -151,6 +294,7 @@ def _combo_eval(
         available_lots=[
             lot for lot in _session_lots(session) if str(getattr(lot, "status", "")) == "available"
         ],
+        fast_context=fast_context,
     )
     metrics = dict(payload.get("metrics") or {})
     bids = dict(metrics.get("bids") or {})
@@ -476,12 +620,27 @@ def _build_combo_catalog(
     max_group_size: int,
     portfolio_lots: Sequence[Lot] | None = None,
     reserved_spend: float = 0.0,
+    stats: Dict[str, int] | None = None,
 ) -> List[ComboEvaluation]:
-    lot_map = {int(lot.id): lot for lot in available_lots}
+    counters = stats if stats is not None else {}
+    counters.setdefault("combo_eval_calls", 0)
+    counters.setdefault("pruned_by_budget", 0)
+    counters.setdefault("pruned_by_upper_bound", 0)
+    counters.setdefault("pruned_by_seed_cap", 0)
+
+    max_seed_lots = max(int(beam_width) * 5, 12)
+    ranked_candidates = sorted(available_lots, key=_lot_pre_score, reverse=True)
+    if len(ranked_candidates) > max_seed_lots:
+        counters["pruned_by_seed_cap"] = int(counters.get("pruned_by_seed_cap", 0)) + (
+            len(ranked_candidates) - max_seed_lots
+        )
+        ranked_candidates = ranked_candidates[:max_seed_lots]
+    lot_map = {int(lot.id): lot for lot in ranked_candidates}
     singles: List[ComboEvaluation] = []
     singles_net_profit: Dict[int, float] = {}
     standalone_bids: Dict[int, Dict[str, Any]] = {}
-    for lot in available_lots:
+    for lot in ranked_candidates:
+        counters["combo_eval_calls"] = int(counters.get("combo_eval_calls", 0)) + 1
         row = _combo_eval(
             session=session,
             lots=[lot],
@@ -496,6 +655,7 @@ def _build_combo_catalog(
             price=_combo_operational_price(row),
             remaining_budget=remaining_budget,
         ):
+            counters["pruned_by_budget"] = int(counters.get("pruned_by_budget", 0)) + 1
             continue
         singles.append(row)
         singles_net_profit[int(lot.id)] = float(row.net_profit_base)
@@ -517,8 +677,15 @@ def _build_combo_catalog(
     # exhaustively enumerating every pair/triple on each request.
     keep_per_size = max(int(beam_width) * 3, int(beam_width), 5)
     beam = sorted(singles, key=_objective_key, reverse=True)[: max(2, int(beam_width))]
+    max_single_profit = max(float(row.net_profit_base) for row in singles) if singles else 0.0
     for size in range(2, max_group_size + 1):
         expanded: Dict[Tuple[int, ...], ComboEvaluation] = {}
+        objective_baseline = sorted(combos.values(), key=_objective_key, reverse=True)
+        min_keep_objective = (
+            float(objective_baseline[min(len(objective_baseline), keep_per_size) - 1].risk_adjusted_net_profit)
+            if objective_baseline
+            else float("-inf")
+        )
         for current in beam:
             used = set(current.lot_ids)
             for lot_id, lot in lot_map.items():
@@ -529,7 +696,15 @@ def _build_combo_catalog(
                     continue
                 if candidate_ids in expanded or candidate_ids in combos:
                     continue
+                optimistic = float(sum(float(singles_net_profit.get(idx, 0.0) or 0.0) for idx in candidate_ids))
+                optimistic += max(0.0, float(size - 1) * max_single_profit * 0.12)
+                if optimistic + 1e-9 < min_keep_objective:
+                    counters["pruned_by_upper_bound"] = int(
+                        counters.get("pruned_by_upper_bound", 0)
+                    ) + 1
+                    continue
                 candidate_lots = [lot_map[row_id] for row_id in candidate_ids]
+                counters["combo_eval_calls"] = int(counters.get("combo_eval_calls", 0)) + 1
                 candidate_eval = _combo_eval(
                     session=session,
                     lots=candidate_lots,
@@ -544,6 +719,7 @@ def _build_combo_catalog(
                     price=_combo_operational_price(candidate_eval),
                     remaining_budget=remaining_budget,
                 ):
+                    counters["pruned_by_budget"] = int(counters.get("pruned_by_budget", 0)) + 1
                     continue
                 expanded[candidate_ids] = candidate_eval
         if not expanded:
@@ -630,8 +806,11 @@ def build_strategy_snapshot(
     top_n: int = 5,
     beam_width: int = 7,
     max_group_size: int = 5,
+    force: bool = False,
+    cache_ttl_seconds: float = 120.0,
 ) -> Dict[str, Any]:
     selected_strategy = "unified"
+    _COMBO_FAST_CONTEXT_CACHE.clear()
     analysis_ctx = resolve_analysis_context(
         session, forecast_id=forecast.id if forecast is not None else None
     )
@@ -641,9 +820,27 @@ def build_strategy_snapshot(
     if not bool(forecast_summary.get("is_compatible", True)):
         raise ForecastCompatibilityError(compatibility)
 
+    fingerprint = _snapshot_fingerprint(
+        session=session,
+        forecast=forecast,
+        top_n=int(top_n),
+        beam_width=int(beam_width),
+        max_group_size=int(max_group_size),
+    )
+    if not force:
+        cached = _snapshot_cache_get(key=fingerprint, ttl_seconds=float(cache_ttl_seconds))
+        if cached is not None:
+            cached["cache"] = {
+                "hit": True,
+                "fingerprint": fingerprint,
+                "ttl_seconds": float(cache_ttl_seconds),
+            }
+            return cached
+
     available_lots = [lot for lot in _session_lots(session) if str(lot.status or "") == "available"]
     lot_names = {int(lot.id): lot.name for lot in available_lots}
     remaining_budget = _remaining_budget(session)
+    compute_stats: Dict[str, int] = {}
 
     if not available_lots:
         empty_scenario = {
@@ -678,6 +875,12 @@ def build_strategy_snapshot(
                 "after_purchase": dict(empty_scenario),
                 "after_loss": dict(empty_scenario),
             },
+            "compute_stats": compute_stats,
+            "cache": {
+                "hit": False,
+                "fingerprint": fingerprint,
+                "ttl_seconds": float(cache_ttl_seconds),
+            },
         }
 
     rows = _build_combo_catalog(
@@ -688,6 +891,7 @@ def build_strategy_snapshot(
         remaining_budget=remaining_budget,
         beam_width=max(2, int(beam_width)),
         max_group_size=max(3, int(max_group_size)),
+        stats=compute_stats,
     )
     full_budget = _snapshot_sections(
         rows=rows,
@@ -722,6 +926,7 @@ def build_strategy_snapshot(
                 lots=purchased_lots,
                 total_spend=float(best_current.working_bid),
             ),
+            stats=compute_stats,
         )
     after_purchase = _snapshot_sections(
         rows=after_purchase_rows,
@@ -754,6 +959,7 @@ def build_strategy_snapshot(
             remaining_budget=remaining_budget,
             beam_width=max(2, int(beam_width)),
             max_group_size=max(3, int(max_group_size)),
+            stats=compute_stats,
         )
     after_loss = _snapshot_sections(
         rows=after_loss_rows,
@@ -769,7 +975,7 @@ def build_strategy_snapshot(
         ),
     )
 
-    return {
+    out = {
         "session_id": int(session.id),
         "strategy": "unified",
         "analysis_mode": "unified",
@@ -789,7 +995,15 @@ def build_strategy_snapshot(
             "after_purchase": after_purchase,
             "after_loss": after_loss,
         },
+        "compute_stats": compute_stats,
+        "cache": {
+            "hit": False,
+            "fingerprint": fingerprint,
+            "ttl_seconds": float(cache_ttl_seconds),
+        },
     }
+    _snapshot_cache_put(key=fingerprint, payload=out)
+    return out
 
 
 def best_pairs_for_lot(

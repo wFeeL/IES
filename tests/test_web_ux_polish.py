@@ -166,6 +166,15 @@ def test_quick_auction_uses_user_facing_actions_without_debug_block(client):
     assert f"/lots/item/{lot_a}" in html
     assert "Открыть сравнение" not in html
     assert "Пересчитать все лоты" in html
+    assert 'id="qaPassAction"' in html
+    assert 'id="qaWatchAction"' in html
+    assert 'id="qaSafeBidAction"' in html
+    assert 'id="qaTargetBidAction"' in html
+    assert 'id="qaMaxBidAction"' in html
+    assert 'id="qaPendingList"' in html
+    assert 'id="qaHistoryList"' in html
+    assert "Cash available" in html
+    assert "All-pay spent" in html
 
 
 def test_quick_auction_script_keeps_selected_lot_after_refresh(client):

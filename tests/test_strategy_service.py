@@ -131,6 +131,91 @@ def test_build_combo_catalog_keeps_lot_when_working_bid_fits_budget(monkeypatch)
     assert rows[0].working_bid == pytest.approx(100.0)
 
 
+def test_strategy_snapshot_cache_hit_and_force(monkeypatch):
+    strategy_service._STRATEGY_SNAPSHOT_CACHE.clear()
+    strategy_service._COMBO_FAST_CONTEXT_CACHE.clear()
+
+    session = SimpleNamespace(
+        id=11,
+        ruleset_id=1,
+        ruleset=SimpleNamespace(config_json={}),
+        budget_total=250.0,
+        allpay_spent=0.0,
+        lots=[
+            SimpleNamespace(
+                id=1,
+                status="available",
+                current_bid=15.0,
+                purchase_price=None,
+                available_round=1,
+                name="Lot 1",
+                items=[],
+            )
+        ],
+        objects=[],
+    )
+
+    monkeypatch.setattr(
+        strategy_service,
+        "resolve_analysis_context",
+        lambda session, forecast_id=None: {
+            "forecast": None,
+            "forecast_summary": {"is_compatible": True, "compatibility_report": {}},
+            "forecast_context": {
+                "source": "bundled",
+                "source_label": "Bundled",
+                "forecast_id": None,
+                "forecast_name": "Bundled",
+            },
+        },
+    )
+
+    calls = {"count": 0}
+
+    def _fake_catalog(*, stats=None, **kwargs):
+        del kwargs
+        calls["count"] += 1
+        if stats is not None:
+            stats["combo_eval_calls"] = 7
+            stats["pruned_by_budget"] = 2
+            stats["pruned_by_upper_bound"] = 1
+            stats["pruned_by_seed_cap"] = 0
+        return []
+
+    monkeypatch.setattr(strategy_service, "_build_combo_catalog", _fake_catalog)
+
+    first = strategy_service.build_strategy_snapshot(
+        session=session,
+        top_n=3,
+        beam_width=3,
+        max_group_size=3,
+        cache_ttl_seconds=600.0,
+    )
+    second = strategy_service.build_strategy_snapshot(
+        session=session,
+        top_n=3,
+        beam_width=3,
+        max_group_size=3,
+        cache_ttl_seconds=600.0,
+    )
+    forced = strategy_service.build_strategy_snapshot(
+        session=session,
+        top_n=3,
+        beam_width=3,
+        max_group_size=3,
+        cache_ttl_seconds=600.0,
+        force=True,
+    )
+
+    assert calls["count"] == 2
+    assert first["cache"]["hit"] is False
+    assert second["cache"]["hit"] is True
+    assert forced["cache"]["hit"] is False
+    assert first["compute_stats"]["combo_eval_calls"] == 7
+    assert first["compute_stats"]["pruned_by_budget"] == 2
+    assert first["compute_stats"]["pruned_by_upper_bound"] == 1
+
+
 def test_remaining_budget_subtracts_allpay_spend():
     session = SimpleNamespace(
         budget_total=200.0,

@@ -33,6 +33,12 @@ from ...application.sessions import create_session_record
 from ..extensions import db
 from ..models import Forecast, GameSession, Lot, ObjectType
 from ..services.analysis_context import resolve_analysis_context
+from ..services.auction_events import (
+    apply_auction_action,
+    auction_budget_view,
+    list_auction_events,
+    resolve_bid_outcome,
+)
 from ..services.evaluation import ForecastCompatibilityError
 from ..services.forecast_service import session_forecast_compatibility
 from ..services.session_io import (
@@ -127,10 +133,16 @@ def _session_recalculation_payload(
     session: GameSession,
     *,
     allow_partial: bool = False,
+    include_strategy: bool = True,
+    strategy_force: bool = False,
 ):
     try:
         rows = rank_session_lots(session=session, lots=session.lots, persist=True)
-        strategy_snapshot = build_strategy_snapshot(session=session)
+        strategy_snapshot = (
+            build_strategy_snapshot(session=session, force=bool(strategy_force))
+            if include_strategy
+            else None
+        )
     except ForecastCompatibilityError as exc:
         if not allow_partial:
             raise
@@ -138,10 +150,13 @@ def _session_recalculation_payload(
         return {
             "items": [],
             "strategy": None,
+            "auction_events": list_auction_events(session=session, limit=20),
             "meta": {
                 "count": 0,
                 "start_budget": float(portfolio["start_budget"]),
                 "budget_total": float(portfolio["budget_total"]),
+                "cash_available": float(portfolio.get("cash_available", portfolio["remaining_budget"])),
+                "reserved_budget": float(portfolio.get("reserved_budget", 0.0)),
                 "purchase_spent": float(portfolio["purchase_spent"]),
                 "allpay_spent": float(portfolio["allpay_spent"]),
                 "spent_total": float(portfolio["spent_total"]),
@@ -185,10 +200,13 @@ def _session_recalculation_payload(
     return {
         "items": rows,
         "strategy": strategy_snapshot,
+        "auction_events": list_auction_events(session=session, limit=20),
         "meta": {
             "count": len(rows),
             "start_budget": float(portfolio["start_budget"]),
             "budget_total": float(portfolio["budget_total"]),
+            "cash_available": float(portfolio.get("cash_available", portfolio["remaining_budget"])),
+            "reserved_budget": float(portfolio.get("reserved_budget", 0.0)),
             "purchase_spent": float(portfolio["purchase_spent"]),
             "allpay_spent": float(portfolio["allpay_spent"]),
             "spent_total": float(portfolio["spent_total"]),
@@ -639,8 +657,16 @@ def lots_analytics(session_id: int):
                 "recommended_bid_safe": float(recommended_bid_safe),
                 "recommended_bid_balanced": float(recommended_bid_balanced),
                 "recommended_bid_aggressive": float(recommended_bid_aggressive),
+                "safe_bid": float(recommended_bid_safe),
                 "hard_ceiling_bid": float(
                     decision_summary.get("hard_ceiling_bid", 0.0) or 0.0
+                ),
+                "hard_cap": float(
+                    decision_summary.get(
+                        "hard_cap",
+                        decision_summary.get("hard_ceiling_bid", 0.0),
+                    )
+                    or 0.0
                 ),
                 "budget_adjusted_bid": float(
                     decision_summary.get("budget_adjusted_bid", 0.0) or 0.0
@@ -683,6 +709,11 @@ def lots_analytics(session_id: int):
                     item.get("working_bid_reason")
                     or decision_summary.get("working_bid_reason")
                     or ""
+                ),
+                "bid_explainability": dict(
+                    decision_summary.get("explainability")
+                    or ((item.get("metrics") or {}).get("bids") or {}).get("explainability")
+                    or {}
                 ),
                 "system_check": system_check,
             }
@@ -728,12 +759,20 @@ def lots_analytics(session_id: int):
 @login_required
 def recalculate_session_lots(session_id: int):
     session = get_session_or_404(session_id)
-    payload = _session_recalculation_payload(session)
+    body = json_payload()
+    include_strategy = bool(body.get("include_strategy", True))
+    strategy_force = bool(body.get("force_strategy", False))
+    payload = _session_recalculation_payload(
+        session,
+        include_strategy=include_strategy,
+        strategy_force=strategy_force,
+    )
     return jsonify(
         {
             "ok": True,
             "items": payload["items"],
             "strategy": payload["strategy"],
+            "auction_events": payload.get("auction_events") or [],
             "meta": payload["meta"],
         }
     )
@@ -747,6 +786,7 @@ def strategy_snapshot(session_id: int):
     top_n = max(1, min(20, int(request.args.get("top_n", 5) or 5)))
     beam_width = max(2, min(20, int(request.args.get("beam_width", 7) or 7)))
     max_group_size = max(3, min(7, int(request.args.get("max_group_size", 5) or 5)))
+    force = bool(int(request.args.get("force", "0") or 0))
     forecast_id_raw = request.args.get("forecast_id", type=int)
     analysis_ctx = resolve_analysis_context(
         session, forecast_id=forecast_id_raw if forecast_id_raw else None
@@ -758,6 +798,7 @@ def strategy_snapshot(session_id: int):
         top_n=top_n,
         beam_width=beam_width,
         max_group_size=max_group_size,
+        force=force,
     )
     return jsonify({"ok": True, "item": out})
 
@@ -908,6 +949,82 @@ def restore_lot_endpoint(lot_id: int):
     db.session.commit()
     mark_stale_for_session(lot.session_id, reason="lot_changed")
     return jsonify({"ok": True, "item": summary})
+
+
+@api_bp.get("/sessions/<int:session_id>/auction/events")
+@login_required
+def auction_events_history(session_id: int):
+    session = get_session_or_404(session_id)
+    limit = max(1, min(200, int(request.args.get("limit", 40) or 40)))
+    rows = list_auction_events(session=session, limit=limit)
+    pending_count = sum(1 for row in rows if str(row.get("outcome") or "") == "pending")
+    return jsonify(
+        {
+            "ok": True,
+            "items": rows,
+            "meta": {
+                "count": len(rows),
+                "pending_count": int(pending_count),
+                **auction_budget_view(session),
+            },
+        }
+    )
+
+
+@api_bp.post("/sessions/<int:session_id>/auction/actions")
+@login_required
+def auction_apply_action(session_id: int):
+    session = get_session_or_404(session_id)
+    payload = json_payload()
+    lot_id = int(payload.get("lot_id", 0) or 0)
+    if lot_id <= 0:
+        raise ValueError("lot_id обязателен")
+    lot = get_lot_or_404(lot_id)
+    if int(lot.session_id) != int(session.id):
+        raise ValueError("Лот не принадлежит сессии")
+    result = apply_auction_action(
+        session=session,
+        lot=lot,
+        action=str(payload.get("action", "")),
+        bid_level=str(payload.get("bid_level", "target") or "target"),
+        bid_amount=(float(payload.get("bid_amount")) if payload.get("bid_amount") not in (None, "") else None),
+    )
+    db.session.commit()
+    refresh = _session_recalculation_payload(
+        session,
+        allow_partial=True,
+        include_strategy=False,
+    )
+    return jsonify({"ok": True, "item": result, "refresh": refresh})
+
+
+@api_bp.post("/sessions/<int:session_id>/auction/outcomes")
+@login_required
+def auction_resolve_outcome(session_id: int):
+    session = get_session_or_404(session_id)
+    payload = json_payload()
+    lot_id = int(payload.get("lot_id", 0) or 0)
+    if lot_id <= 0:
+        raise ValueError("lot_id обязателен")
+    lot = get_lot_or_404(lot_id)
+    if int(lot.session_id) != int(session.id):
+        raise ValueError("Лот не принадлежит сессии")
+    outcome = str(payload.get("outcome", "")).strip().lower()
+    event_id_raw = payload.get("event_id")
+    event_id = int(event_id_raw) if event_id_raw not in (None, "", 0, "0") else None
+    result = resolve_bid_outcome(
+        session=session,
+        lot=lot,
+        outcome=outcome,
+        event_id=event_id,
+    )
+    db.session.commit()
+    refresh = _session_recalculation_payload(
+        session,
+        allow_partial=True,
+        include_strategy=bool(outcome == "won"),
+    )
+    return jsonify({"ok": True, "item": result, "refresh": refresh})
 
 
 @api_bp.post("/recommend/best-lot")

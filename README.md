@@ -44,22 +44,23 @@ flask run
 5. Перейти в `Forecast`, загрузить CSV и проверить блоки `Raw CSV columns`, `Mapping`, `Лишние колонки CSV`.
 6. Убедиться, что активный прогноз покрывает типы объектов и не блокирует оценку лотов.
 7. Перейти в `Lots`, открыть `Lot Detail` и проверить `Worst / Base / Best`, `system-check`, рекомендуемую ставку и прибыль после неё.
-8. Открыть `Quick Auction`, проверить hotkeys `1..9`, `E`, `R`, `B` и купить лот без confirm-step.
+8. Открыть `Quick Auction`, проверить hotkeys `1..9`, `P/W/S/T/M`, `E`, `R`, `B` и потоковые действия без ручного ввода ID.
 9. Убедиться, что после покупки сразу обновились бюджет, shortlist и strategy snapshot.
 
 ## Актуальное поведение
 
 - Единый формат чисел: целые значения отображаются без `.0` во всех основных экранах (dashboard, lots, lot detail, forecast, quick auction, system).
-- Рекомендуемая ставка (`recommended_bid`, она же `working_bid` для backward compatibility) едина для стратегии, таблиц, карточки лота и quick auction и строится из value-модели:
-  - `cautious_bid` - консервативная ставка, равная 80% от рекомендуемой;
-  - `target_bid` - основная экономически оправданная ставка по фиксированной доле ожидаемой прибыли;
-  - `hard_ceiling_bid` - предельная цена для агрессивной борьбы, после которой исчезает положительная ожидаемая прибыль;
-  - `budget_adjusted_bid` - технический alias итоговой рекомендуемой ставки; бюджет ограничивает её только сверху;
-  - `working_bid` - alias `recommended_bid`, который сохранён в API и UI.
-- Risk-share для `recommended_bid` фиксирован по band:
-  - `low` = 25% от ожидаемой прибыли за горизонт;
-  - `medium` = 20%;
-  - `high` = 15%.
+- Рекомендуемая ставка (`recommended_bid`, она же `working_bid` для backward compatibility) теперь считается как портфельная маржинальная оценка:
+  - `target_raw = portfolio_delta * fit_multiplier * scarcity_phase_multiplier - risk_premium - reserve_impact - opportunity_cost`;
+  - `safe_bid`/`recommended_bid_safe` - консервативный уровень (`safe_factor` + дополнительный risk guard);
+  - `target_bid`/`recommended_bid_balanced` - рабочая ставка;
+  - `hard_cap`/`hard_ceiling_bid`/`max_bid` - абсолютный потолок, который может заходить в резерв, но не за cash available.
+- В `decision_summary` и `metrics.bids` есть explainability-блок: `portfolio_delta_value`, `system_fit_adjustment`, `risk_premium`, `reserve_required`, `reserve_impact`, `opportunity_cost`, `scarcity_phase_multiplier`, `final_caps`, `reason_codes`.
+- UI и API показывают раздельный бюджетный breakdown: `budget_total`, `cash_available`, `reserved_budget`, `purchase_spent`, `allpay_spent`, `spent_total`, `remaining_budget`.
+- All-pay работает через event flow:
+  - `Bid` создаёт pending-событие;
+  - `Lost` уменьшает `cash_available` через `allpay_spent`;
+  - `Won` проводит покупку по ставке без двойного all-pay списания.
 - Остаток бюджета после покупки не сгорает и считается ресурсом следующих аукционов, поэтому модель не пытается искусственно поднять ставку до всего доступного остатка.
 - UI одновременно показывает:
   - `Чистая прибыль при текущей цене`;
@@ -77,6 +78,7 @@ flask run
   - бюджета;
   - shortlist;
   - стратегий `Current best / Plan B / Plan C / After purchase / After loss`.
+- Для quick flow используется fast scoring, а глубокий пересчёт стратегии запускается отдельно через `Deep snapshot` (кнопка и API `force=1`) с кэшем по fingerprint состояния.
 - Budget snapshot (`budget / spent / remaining`) синхронизирован между workbench, forecast, lots, lot detail и quick auction через единый session hero.
 - На forecast-странице и в active forecast на dashboard горизонт показывается один раз в одном формате, например `0–47 (48 периодов)`.
 - В forecast UI данные разведены по слоям:
@@ -143,6 +145,9 @@ flask run
 - `POST /api/lots/<id>/evaluate`
 - `GET /api/sessions/<id>/lots/analytics`
 - `GET /api/sessions/<id>/strategy`
+- `GET /api/sessions/<id>/auction/events`
+- `POST /api/sessions/<id>/auction/actions`
+- `POST /api/sessions/<id>/auction/outcomes`
 - `POST /api/forecast/upload`
 - `GET /api/sessions/<id>/forecast-compatibility`
 
@@ -178,6 +183,7 @@ flask --app ies_bot_skeleton.web.app:create_app run
 ```bash
 .venv/bin/python -m compileall -q ies_bot_skeleton tests
 .venv/bin/ruff check .
+# advisory: black --check не блокирует CI, пока закрывается форматный долг
 .venv/bin/black --check .
 .venv/bin/pytest -q
 .venv/bin/python -m build

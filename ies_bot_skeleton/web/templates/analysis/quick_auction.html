@@ -35,7 +35,7 @@
       <div>
         <p class="section-kicker">Шорт-лист</p>
         <h1 class="h1">Быстрый аукцион</h1>
-        <p class="muted">Горячие клавиши: <kbd>1..9</kbd> выбрать лот, <kbd>E</kbd> оценить, <kbd>R</kbd> пересчитать все лоты, <kbd>B</kbd> купить.</p>
+        <p class="muted">Горячие клавиши: <kbd>1..9</kbd> выбрать лот, <kbd>P</kbd> pass, <kbd>W</kbd> watch, <kbd>S</kbd> safe, <kbd>T</kbd> target, <kbd>M</kbd> max, <kbd>R</kbd> глубокий пересчёт.</p>
       </div>
     </div>
     <ul id="auctionLots" class="stack gap-2 mt-3">
@@ -69,11 +69,18 @@
       </div>
     </div>
     <div class="stack gap-3 mt-3">
-      <label class="label">ID текущего лота <input id="currentLotId" class="input" type="number" /></label>
+      <input id="currentLotId" class="input" type="hidden" />
       <label class="label">Цена покупки (по умолчанию — balanced bid) <input id="purchasePriceInput" class="input" type="number" step="0.1" /></label>
       <div class="actions">
-        <button id="evalCurrent" class="btn btn-primary" type="button" {% if forecast_blocked %}disabled{% endif %}>Оценить</button>
-        <button id="refreshRanking" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Пересчитать все лоты</button>
+        <button id="qaPassAction" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Pass</button>
+        <button id="qaWatchAction" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Watch</button>
+        <button id="qaSafeBidAction" class="btn btn-primary" type="button" {% if forecast_blocked %}disabled{% endif %}>Safe bid</button>
+        <button id="qaTargetBidAction" class="btn btn-primary" type="button" {% if forecast_blocked %}disabled{% endif %}>Target bid</button>
+        <button id="qaMaxBidAction" class="btn btn-primary" type="button" {% if forecast_blocked %}disabled{% endif %}>Max bid</button>
+      </div>
+      <div class="actions">
+        <button id="evalCurrent" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Оценить</button>
+        <button id="refreshRanking" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Пересчитать все лоты (Deep snapshot)</button>
         <a id="openCurrentLot" class="btn btn-secondary" href="#">Открыть лот</a>
         <button id="buyCurrentLot" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Купить</button>
       </div>
@@ -100,6 +107,29 @@
     <div class="muted mt-2" id="qaBidAdvice">Оставшийся бюджет можно использовать позже.</div>
     <div class="muted mt-2" id="qaBidWarning"></div>
     <div class="muted mt-3" id="qaStatus">Статус обновления появится здесь.</div>
+    <div class="card inset-card mt-3">
+      <p class="section-kicker">Budget live</p>
+      <div class="metric-strip mt-2">
+        <div><span class="metric-label">Budget total</span><strong id="qaBudgetTotal">—</strong></div>
+        <div><span class="metric-label">Cash available</span><strong id="qaCashAvailable">—</strong></div>
+        <div><span class="metric-label">Reserved</span><strong id="qaReservedBudget">—</strong></div>
+        <div><span class="metric-label">Purchase spent</span><strong id="qaPurchaseSpent">—</strong></div>
+        <div><span class="metric-label">All-pay spent</span><strong id="qaAllpaySpent">—</strong></div>
+        <div><span class="metric-label">Spent total</span><strong id="qaSpentTotal">—</strong></div>
+      </div>
+    </div>
+    <div class="card inset-card mt-3">
+      <p class="section-kicker">Pending ставки</p>
+      <div id="qaPendingList" class="stack gap-2 mt-2">
+        <div class="muted">Нет pending-ставок.</div>
+      </div>
+    </div>
+    <div class="card inset-card mt-3">
+      <p class="section-kicker">История решений</p>
+      <div id="qaHistoryList" class="stack gap-2 mt-2">
+        <div class="muted">История будет показана после первого действия.</div>
+      </div>
+    </div>
   </article>
 </section>
 
@@ -236,7 +266,10 @@ window.IES_QUICK_AUCTION = {
   sessionId: {{ session.id }},
   csrfToken: "{{ csrf_token() }}",
   initialRanking: {{ ranking|tojson }},
-  strategyUrl: "{{ url_for('api.strategy_snapshot', session_id=session.id) }}"
+  strategyUrl: "{{ url_for('api.strategy_snapshot', session_id=session.id) }}",
+  auctionEventsUrl: "{{ url_for('api.auction_events_history', session_id=session.id) }}",
+  auctionActionsUrl: "{{ url_for('api.auction_apply_action', session_id=session.id) }}",
+  auctionOutcomesUrl: "{{ url_for('api.auction_resolve_outcome', session_id=session.id) }}"
 };
 </script>
 <script defer src="{{ url_for('static', filename='js/analysis/quick_auction.js') }}"></script>

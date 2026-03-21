@@ -1,7 +1,7 @@
 (function () {
   function parseInitial(raw) {
     try {
-      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
       return Array.isArray(parsed) ? parsed : [];
     } catch (_) {
       return [];
@@ -16,7 +16,7 @@
 
   function parseOverrides(raw) {
     try {
-      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         return {...parsed};
       }
@@ -28,11 +28,13 @@
 
   function setupLotEditor() {
     const cfg = window.IES_LOT_EDITOR || {};
-    const rowsEl = document.getElementById("lotEditorRows");
-    const addBtn = document.getElementById("lotRowAddBtn");
-    const summaryEl = document.getElementById("lotEditorSummary");
-    const hiddenEl = document.getElementById("itemsStateJson");
-    const rawEl = document.getElementById("items_json");
+    const rowsEl = document.getElementById('lotEditorRows');
+    const addBtn = document.getElementById('lotRowAddBtn');
+    const summaryEl = document.getElementById('lotEditorSummary');
+    const hiddenEl = document.getElementById('itemsStateJson');
+    const rawEl = document.getElementById('items_json');
+    const presetSelect = document.getElementById('lotPresetSelect');
+    const presetApplyBtn = document.getElementById('lotPresetApplyBtn');
 
     if (!rowsEl || !addBtn || !hiddenEl) return;
 
@@ -41,12 +43,15 @@
     const defaultTypeId = objectTypes.length ? Number(objectTypes[0].id) : 0;
     const typeOptions = objectTypes
       .map((row) => `<option value="${row.id}">${row.code} / ${row.name}</option>`)
-      .join("");
+      .join('');
+    const byCode = new Map(
+      objectTypes.map((row) => [String(row.code || '').trim().toLowerCase(), row])
+    );
 
     function renderSummary(items) {
       if (!summaryEl) return;
       if (!items.length) {
-        summaryEl.textContent = "Добавьте минимум одну строку состава лота.";
+        summaryEl.textContent = 'Добавьте минимум одну строку состава лота.';
         return;
       }
 
@@ -55,7 +60,7 @@
       items.forEach((item) => {
         total += Number(item.quantity || 0);
         const type = objectTypes.find((row) => Number(row.id) === Number(item.object_type_id));
-        const category = type ? type.category : "other";
+        const category = type ? type.category : 'other';
         counts[category] = (counts[category] || 0) + Number(item.quantity || 0);
       });
       summaryEl.textContent = `Суммарно объектов: ${total}. Потребители: ${counts.consumer || 0}, генераторы: ${counts.generator || 0}, накопители: ${counts.storage || 0}, инфраструктура: ${counts.infrastructure || 0}.`;
@@ -65,7 +70,7 @@
       let overrides = {};
       const sourceTypeId = toInt(tr.dataset.sourceTypeId || 0, 0);
       if (preserveOverrides && sourceTypeId > 0 && sourceTypeId === typeId) {
-        overrides = parseOverrides(tr.dataset.overridesJson || "{}");
+        overrides = parseOverrides(tr.dataset.overridesJson || '{}');
       }
       tr.dataset.sourceTypeId = String(typeId);
       tr.dataset.overridesJson = JSON.stringify(overrides);
@@ -107,26 +112,163 @@
         <td class="le-category muted">—</td>
         <td><button type="button" class="btn btn-secondary le-remove">Удалить</button></td>
       `;
-      const sel = tr.querySelector(".le-type");
+      const sel = tr.querySelector('.le-type');
       function syncCategory() {
         const typeId = Number(sel?.value || 0);
         const typeRow = objectTypes.find((x) => Number(x.id) === typeId);
-        const categoryEl = tr.querySelector(".le-category");
-        if (categoryEl) categoryEl.textContent = typeRow ? typeRow.category : "—";
+        const categoryEl = tr.querySelector('.le-category');
+        if (categoryEl) categoryEl.textContent = typeRow ? typeRow.category : '—';
       }
       if (sel) sel.value = selectedType;
       syncCategory();
-      tr.querySelector(".le-remove")?.addEventListener("click", function () {
+      tr.querySelector('.le-remove')?.addEventListener('click', function () {
         tr.remove();
         collectRows();
       });
-      tr.querySelectorAll("input,select").forEach((el) => {
-        el.addEventListener("input", () => {
+      tr.querySelectorAll('input,select').forEach((el) => {
+        el.addEventListener('input', () => {
           syncCategory();
           collectRows();
         });
       });
       rowsEl.appendChild(tr);
+      collectRows();
+    }
+
+    function findByCodeList(codes) {
+      for (const code of codes) {
+        const row = byCode.get(String(code || '').trim().toLowerCase());
+        if (row) {
+          return row;
+        }
+      }
+      return null;
+    }
+
+    function findByCategory(category, excludedIds = new Set()) {
+      const target = String(category || '').trim().toLowerCase();
+      return (
+        objectTypes.find(
+          (row) =>
+            String(row.category || '').trim().toLowerCase() === target &&
+            !excludedIds.has(Number(row.id))
+        ) || null
+      );
+    }
+
+    function pushPresetRow(rows, typeRow, quantity) {
+      if (!typeRow) {
+        return;
+      }
+      const qty = Math.max(1, toInt(quantity || 1, 1));
+      const existing = rows.find((row) => Number(row.object_type_id) === Number(typeRow.id));
+      if (existing) {
+        existing.quantity = Math.max(1, Number(existing.quantity || 1) + qty);
+        return;
+      }
+      rows.push({
+        object_type_id: Number(typeRow.id),
+        quantity: qty,
+        overrides: {},
+      });
+    }
+
+    function presetRows(presetKey) {
+      const key = String(presetKey || '').trim().toLowerCase();
+      const rows = [];
+      const usedIds = new Set();
+
+      function pickType({codes = [], category = ''}) {
+        let picked = findByCodeList(codes);
+        if (!picked) {
+          picked = findByCategory(category, usedIds);
+        }
+        if (picked) {
+          usedIds.add(Number(picked.id));
+        }
+        return picked;
+      }
+
+      if (key === 'gen_storage') {
+        pushPresetRow(
+          rows,
+          pickType({codes: ['wind', 'solarrobot', 'solar', 'tps'], category: 'generator'}),
+          2
+        );
+        pushPresetRow(rows, pickType({codes: ['storage'], category: 'storage'}), 1);
+        pushPresetRow(
+          rows,
+          pickType({codes: ['mini_substation_a', 'mini_substation_b'], category: 'infrastructure'}),
+          1
+        );
+        return rows;
+      }
+
+      if (key === 'consumer_backup') {
+        pushPresetRow(
+          rows,
+          pickType({codes: ['house', 'office', 'factory'], category: 'consumer'}),
+          2
+        );
+        pushPresetRow(
+          rows,
+          pickType({codes: ['tps', 'wind', 'solarrobot', 'solar'], category: 'generator'}),
+          1
+        );
+        pushPresetRow(rows, pickType({codes: ['storage'], category: 'storage'}), 1);
+        return rows;
+      }
+
+      if (key === 'grid_upgrade') {
+        pushPresetRow(
+          rows,
+          pickType({codes: ['main_substation', 'mini_substation_a', 'mini_substation_b'], category: 'infrastructure'}),
+          2
+        );
+        pushPresetRow(rows, pickType({codes: ['storage'], category: 'storage'}), 1);
+        return rows;
+      }
+
+      if (key === 'balanced_microgrid') {
+        pushPresetRow(
+          rows,
+          pickType({codes: ['wind', 'solarrobot', 'solar', 'tps'], category: 'generator'}),
+          1
+        );
+        pushPresetRow(
+          rows,
+          pickType({codes: ['house', 'office', 'factory'], category: 'consumer'}),
+          1
+        );
+        pushPresetRow(rows, pickType({codes: ['storage'], category: 'storage'}), 1);
+        pushPresetRow(
+          rows,
+          pickType({codes: ['mini_substation_a', 'mini_substation_b'], category: 'infrastructure'}),
+          1
+        );
+        return rows;
+      }
+
+      return rows;
+    }
+
+    function applyPreset() {
+      if (!presetSelect) {
+        return;
+      }
+      const key = String(presetSelect.value || '').trim();
+      if (!key) {
+        return;
+      }
+      const rows = presetRows(key);
+      if (!rows.length) {
+        if (summaryEl) {
+          summaryEl.textContent = 'Не удалось применить preset: отсутствуют совместимые типы объектов.';
+        }
+        return;
+      }
+      rowsEl.innerHTML = '';
+      rows.forEach((row) => addRow(row));
       collectRows();
     }
 
@@ -137,14 +279,15 @@
       addRow({});
     }
 
-    addBtn.addEventListener("click", function () {
+    addBtn.addEventListener('click', function () {
       addRow({});
     });
+    presetApplyBtn?.addEventListener('click', applyPreset);
 
-    document.getElementById("lotEditorForm")?.addEventListener("submit", function () {
+    document.getElementById('lotEditorForm')?.addEventListener('submit', function () {
       collectRows();
     });
   }
 
-  window.addEventListener("DOMContentLoaded", setupLotEditor);
+  window.addEventListener('DOMContentLoaded', setupLotEditor);
 })();

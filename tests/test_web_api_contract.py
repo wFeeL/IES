@@ -699,7 +699,9 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     assert item["recommended_bid"] == pytest.approx(item["working_bid"])
     assert item["recommended_bid"] <= item["max_bid"] + 1e-9
     assert item["decision_summary"]["budget_preservation_note"]
-    assert item["decision_summary"]["bid_formula"] == "pwin_aware_allpay"
+    assert item["decision_summary"]["bid_formula"] == "portfolio_marginal_allpay_v2"
+    assert item["decision_summary"]["legacy_bid_formula"] == "pwin_aware_allpay"
+    assert isinstance(item["decision_summary"].get("explainability"), dict)
     assert item["decision_summary"]["gross_expected_profit_before_bid"] == pytest.approx(
         item["metrics"]["bids"]["gross_expected_profit_before_bid"]
     )
@@ -728,6 +730,8 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     assert row["max_bid"] == pytest.approx(item["max_bid"])
     assert row["working_bid_source"] == item["working_bid_source"]
     assert row["target_bid"] == pytest.approx(item["target_bid"])
+    assert row["safe_bid"] == pytest.approx(item["safe_bid"])
+    assert row["hard_cap"] == pytest.approx(item["hard_cap"])
     assert row["net_profit_at_recommended_bid"] == pytest.approx(
         item["financial_breakdown"]["result"]["net_profit_at_recommended_bid"]
     )
@@ -735,9 +739,143 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
         item["financial_breakdown"]["result"]["remaining_budget_after_recommended_bid"]
     )
     assert row["budget_preservation_note"] == item["decision_summary"]["budget_preservation_note"]
+    assert item["max_bid"] == pytest.approx(item["hard_ceiling_bid"])
+    assert item["max_bid"] <= item["portfolio_context"]["cash_available"] + 1e-9
     assert "connection_fit_status" in row
     assert "recommended_points" in row
 
+
+def test_allpay_flow_bid_lost_updates_budget_breakdown(client):
+    login(client, "admin", "admin123")
+    ruleset_id = ruleset_id_by_code(client, "ies_2026")
+    created = client.post(
+        "/api/sessions",
+        json={
+            "title": "All-pay lost",
+            "ruleset_id": ruleset_id,
+            "selected_strategy": "balanced",
+            "budget_total": 220.0,
+        },
+    )
+    assert created.status_code == 200
+    session_id = int(created.get_json()["item"]["id"])
+    wind_id = _type_id_by_code(client, "wind")
+
+    lot_resp = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "All-pay lot",
+            "scope": "normal",
+            "base_bid": 30.0,
+            "current_bid": 30.0,
+            "items": [{"object_type_id": wind_id, "quantity": 1}],
+        },
+    )
+    assert lot_resp.status_code == 200
+    lot_id = int(lot_resp.get_json()["item"]["id"])
+
+    bid_resp = client.post(
+        f"/api/sessions/{session_id}/auction/actions",
+        json={"lot_id": lot_id, "action": "bid", "bid_level": "target"},
+    )
+    assert bid_resp.status_code == 200
+    bid_payload = bid_resp.get_json()["item"]
+    event = dict(bid_payload["event"])
+    assert event["action"] == "bid"
+    assert event["outcome"] == "pending"
+    bid_amount = float(event["amount"])
+    assert bid_amount > 0.0
+
+    lost_resp = client.post(
+        f"/api/sessions/{session_id}/auction/outcomes",
+        json={"lot_id": lot_id, "event_id": int(event["id"]), "outcome": "lost"},
+    )
+    assert lost_resp.status_code == 200
+    lost_payload = lost_resp.get_json()
+    assert lost_payload["item"]["event"]["outcome"] == "lost"
+    meta = dict(lost_payload["refresh"]["meta"])
+    assert float(meta["allpay_spent"]) == pytest.approx(bid_amount)
+    assert float(meta["purchase_spent"]) == pytest.approx(0.0)
+    assert float(meta["cash_available"]) == pytest.approx(float(meta["budget_total"]) - bid_amount)
+
+    lot_after = client.get(f"/api/lots/{lot_id}").get_json()["item"]
+    assert lot_after["status"] == "rejected"
+
+    session_after = client.get(f"/api/sessions/{session_id}").get_json()["item"]
+    assert float(session_after["allpay_spent"]) == pytest.approx(bid_amount)
+    assert float(session_after["purchase_spent"]) == pytest.approx(0.0)
+    assert float(session_after["cash_available"]) == pytest.approx(
+        float(session_after["budget_total"]) - bid_amount
+    )
+
+    history = client.get(f"/api/sessions/{session_id}/auction/events").get_json()
+    assert history["ok"] is True
+    assert any(
+        str(row["action"]) == "bid" and str(row["outcome"]) == "lost"
+        for row in history["items"]
+    )
+
+
+def test_allpay_flow_bid_won_keeps_allpay_zero_and_purchases_once(client):
+    login(client, "admin", "admin123")
+    ruleset_id = ruleset_id_by_code(client, "ies_2026")
+    created = client.post(
+        "/api/sessions",
+        json={
+            "title": "All-pay won",
+            "ruleset_id": ruleset_id,
+            "selected_strategy": "balanced",
+            "budget_total": 260.0,
+        },
+    )
+    assert created.status_code == 200
+    session_id = int(created.get_json()["item"]["id"])
+    wind_id = _type_id_by_code(client, "wind")
+
+    lot_resp = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Win lot",
+            "scope": "normal",
+            "base_bid": 40.0,
+            "current_bid": 40.0,
+            "items": [{"object_type_id": wind_id, "quantity": 1}],
+        },
+    )
+    assert lot_resp.status_code == 200
+    lot_id = int(lot_resp.get_json()["item"]["id"])
+
+    bid_resp = client.post(
+        f"/api/sessions/{session_id}/auction/actions",
+        json={"lot_id": lot_id, "action": "bid", "bid_level": "safe"},
+    )
+    assert bid_resp.status_code == 200
+    event = dict(bid_resp.get_json()["item"]["event"])
+    bid_amount = float(event["amount"])
+    assert bid_amount > 0.0
+
+    won_resp = client.post(
+        f"/api/sessions/{session_id}/auction/outcomes",
+        json={"lot_id": lot_id, "event_id": int(event["id"]), "outcome": "won"},
+    )
+    assert won_resp.status_code == 200
+    won_payload = won_resp.get_json()
+    assert won_payload["item"]["event"]["outcome"] == "won"
+    assert won_payload["item"]["purchase"] is not None
+
+    lot_after = client.get(f"/api/lots/{lot_id}").get_json()["item"]
+    assert lot_after["status"] == "bought"
+    assert float(lot_after["purchase_price"]) == pytest.approx(bid_amount)
+
+    session_after = client.get(f"/api/sessions/{session_id}").get_json()["item"]
+    assert float(session_after["allpay_spent"]) == pytest.approx(0.0)
+    assert float(session_after["purchase_spent"]) == pytest.approx(bid_amount)
+    assert float(session_after["spent_total"]) == pytest.approx(bid_amount)
+    assert float(session_after["cash_available"]) == pytest.approx(
+        float(session_after["budget_total"]) - bid_amount
+    )
 
 def test_api_returns_structured_csrf_error_for_recalculate(tmp_path):
     db_path = tmp_path / "csrf_contract.db"

@@ -217,18 +217,17 @@ class GameSession(db.Model):
         back_populates="session",
         cascade="all, delete-orphan",
     )
+    auction_events = db.relationship(
+        "AuctionEvent",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="AuctionEvent.created_at.desc()",
+    )
 
     def to_dict(self) -> Dict[str, Any]:
-        start_budget = float(self.budget_total or 0.0)
-        purchase_spent = float(
-            sum(
-                float(lot.purchase_price or 0.0)
-                for lot in self.lots
-                if str(lot.status or "") == "bought"
-            )
-        )
-        allpay_spent = max(0.0, float(self.allpay_spent or 0.0))
-        spent_total = float(purchase_spent + allpay_spent)
+        from ..common.budgeting import budget_snapshot
+
+        budget = budget_snapshot(self)
         bought_lots_count = int(
             sum(1 for lot in self.lots if str(lot.status or "") == "bought")
         )
@@ -239,12 +238,14 @@ class GameSession(db.Model):
             "selected_strategy": self.selected_strategy,
             "analysis_mode": "unified",
             "selected_forecast_id": self.selected_forecast_id,
-            "start_budget": start_budget,
-            "budget_total": start_budget,
-            "purchase_spent": purchase_spent,
-            "allpay_spent": allpay_spent,
-            "spent_total": spent_total,
-            "remaining_budget": max(0.0, start_budget - spent_total),
+            "start_budget": float(budget["start_budget"]),
+            "budget_total": float(budget["budget_total"]),
+            "purchase_spent": float(budget["purchase_spent"]),
+            "allpay_spent": float(budget["allpay_spent"]),
+            "spent_total": float(budget["spent_total"]),
+            "cash_available": float(budget["cash_available"]),
+            "reserved_budget": float(budget["reserved_budget"]),
+            "remaining_budget": float(budget["remaining_budget"]),
             "bought_lots_count": bought_lots_count,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
@@ -378,6 +379,12 @@ class Lot(db.Model):
     items = db.relationship("LotItem", back_populates="lot", cascade="all, delete-orphan")
     evaluations = db.relationship(
         "EvaluationResult", back_populates="lot", cascade="all, delete-orphan"
+    )
+    auction_events = db.relationship(
+        "AuctionEvent",
+        back_populates="lot",
+        cascade="all, delete-orphan",
+        order_by="AuctionEvent.created_at.desc()",
     )
     generated_objects = db.relationship("ObjectInstance", back_populates="source_lot")
 
@@ -541,6 +548,41 @@ class EvaluationResult(db.Model):
         }
 
 
+class AuctionEvent(db.Model):
+    __tablename__ = "auction_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("game_sessions.id"), nullable=False)
+    lot_id = db.Column(db.Integer, db.ForeignKey("lots.id"), nullable=False)
+    action = db.Column(db.String(32), nullable=False, default="watch")
+    bid_level = db.Column(db.String(16), nullable=False, default="")
+    amount = db.Column(db.Float, nullable=False, default=0.0)
+    outcome = db.Column(db.String(16), nullable=False, default="none")
+    budget_effect = db.Column(db.Float, nullable=False, default=0.0)
+    details_json = db.Column(db.JSON, nullable=False, default=dict)
+    resolved_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    session = db.relationship("GameSession", back_populates="auction_events")
+    lot = db.relationship("Lot", back_populates="auction_events")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": int(self.id),
+            "session_id": int(self.session_id),
+            "lot_id": int(self.lot_id),
+            "lot_name": self.lot.name if self.lot is not None else None,
+            "action": str(self.action or ""),
+            "bid_level": str(self.bid_level or ""),
+            "amount": float(self.amount or 0.0),
+            "outcome": str(self.outcome or "none"),
+            "budget_effect": float(self.budget_effect or 0.0),
+            "details": dict(self.details_json or {}),
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 Index(
     "ix_eval_session_lot_mode_created_desc",
     EvaluationResult.session_id,
@@ -553,4 +595,15 @@ Index(
     EvaluationResult.session_id,
     EvaluationResult.is_stale,
     EvaluationResult.created_at.desc(),
+)
+Index(
+    "ix_auction_event_session_created_desc",
+    AuctionEvent.session_id,
+    AuctionEvent.created_at.desc(),
+)
+Index(
+    "ix_auction_event_session_lot_outcome",
+    AuctionEvent.session_id,
+    AuctionEvent.lot_id,
+    AuctionEvent.outcome,
 )

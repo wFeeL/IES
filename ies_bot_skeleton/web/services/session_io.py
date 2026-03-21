@@ -7,6 +7,7 @@ from typing import Any, Dict, Tuple
 
 from ..extensions import db
 from ..models import (
+    AuctionEvent,
     EvaluationResult,
     Forecast,
     ForecastPeriod,
@@ -27,7 +28,7 @@ def export_session_payload(session: GameSession) -> Dict[str, Any]:
     if session.ruleset and session.ruleset.active_start_pack_template is not None:
         start_pack_payload = session.ruleset.active_start_pack_template.to_dict(include_items=True)
     return {
-        "schema_version": 5,
+        "schema_version": 6,
         "session": session.to_dict(),
         "ruleset": ruleset_payload,
         "ruleset_start_pack_template": start_pack_payload,
@@ -41,6 +42,7 @@ def export_session_payload(session: GameSession) -> Dict[str, Any]:
             for fc in session.forecasts
         ],
         "evaluations": [ev.to_dict() for ev in session.evaluations],
+        "auction_events": [event.to_dict() for event in session.auction_events],
     }
 
 
@@ -152,7 +154,7 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
     if not isinstance(payload, dict):
         raise ValueError("Ожидается JSON-объект")
     schema_version = int(payload.get("schema_version", 4) or 4)
-    if schema_version not in {4, 5}:
+    if schema_version not in {4, 5, 6}:
         raise ValueError(f"Неподдерживаемая версия schema_version={schema_version}")
 
     session_payload = payload.get("session") or {}
@@ -333,6 +335,26 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
                 confidence=float(ev.get("confidence", 0.0) or 0.0),
                 is_stale=bool(ev.get("is_stale", False)),
                 stale_reason=str(ev.get("stale_reason", "")),
+            )
+        )
+
+    for row in payload.get("auction_events", []) or []:
+        src_lot_id = row.get("lot_id")
+        new_lot_id = old_to_new_lot_id.get(int(src_lot_id)) if src_lot_id else None
+        if new_lot_id is None:
+            continue
+        db.session.add(
+            AuctionEvent(
+                session_id=out_session.id,
+                lot_id=int(new_lot_id),
+                action=str(row.get("action", "watch")),
+                bid_level=str(row.get("bid_level", "")),
+                amount=float(row.get("amount", 0.0) or 0.0),
+                outcome=str(row.get("outcome", "none")),
+                budget_effect=float(row.get("budget_effect", 0.0) or 0.0),
+                details_json=dict(row.get("details") or {}),
+                resolved_at=_parse_iso_datetime(row.get("resolved_at")),
+                created_at=_parse_iso_datetime(row.get("created_at")) or datetime.utcnow(),
             )
         )
 

@@ -155,7 +155,15 @@ def test_recommended_bid_is_within_budget(app_ctx):
     serious_competitors = max(1, int(decision_summary["serious_competitors"]))
     assert 0.0 <= p_win <= 1.0
     assert serious_competitors >= 1
-    assert bid_share == pytest.approx(((serious_competitors - 1) / serious_competitors) * p_win)
+    explainability = dict(decision_summary.get("explainability") or {})
+    fit_adj = dict(explainability.get("system_fit_adjustment") or {})
+    scarcity_adjusted = float(fit_adj.get("adjusted_value", 0.0) or 0.0) * float(
+        explainability.get("scarcity_phase_multiplier", 1.0) or 1.0
+    )
+    if scarcity_adjusted > 1.0:
+        assert bid_share == pytest.approx(float(out["target_bid"]) / scarcity_adjusted)
+    else:
+        assert bid_share == pytest.approx(float(out["target_bid"]))
     assert gross_profit_before_bid == pytest.approx(
         float(out["metrics"]["weighted_expected"]) + float(out["decision_factors"]["entry_price"])
     )
@@ -164,6 +172,9 @@ def test_recommended_bid_is_within_budget(app_ctx):
     assert valuation["recommended_bid_aggressive"] >= valuation["recommended_bid_balanced"]
     assert valuation["recommended_bid_balanced"] >= valuation["recommended_bid_safe"]
     assert valuation["budget_adjusted_bid"] == pytest.approx(budget_adjusted)
+    assert float(out["target_bid"]) <= float(out["portfolio_context"]["remaining_budget"]) + 1e-9
+    assert float(out["max_bid"]) <= float(out["portfolio_context"]["cash_available"]) + 1e-9
+    assert float(out["hard_cap"]) == pytest.approx(float(out["hard_ceiling_bid"]))
     assert "risk_ratio" in valuation
     assert "conservative_utility" in valuation
     assert "portfolio_synergy" in valuation
@@ -206,20 +217,30 @@ def test_recommended_bid_is_within_budget(app_ctx):
     assert out["forecast_context"]["source"] == "selected_forecast"
     assert "system_check" in out
     assert "message" in out["system_check"]
-    if hard > remaining:
-        assert budget_adjusted == pytest.approx(remaining)
+    assert out["decision_summary"]["bid_formula"] == "portfolio_marginal_allpay_v2"
 
 
 def test_valuation_model_keeps_non_zero_working_bid_for_slim_positive_expected_value():
     out = _valuation_model_v3(
-        p_worst=-5.0,
-        p_base=30.0,
-        p_best=55.0,
-        p_exp=4.0,
-        entry_price_total=6.0,
+        p_worst=2.0,
+        p_base=4.0,
+        p_best=6.0,
+        p_exp=5.0,
+        entry_price_total=1.0,
         horizon_ticks=48,
         remaining_budget=50.0,
-        evaluation_cfg={},
+        evaluation_cfg={
+            "risk_lambda": 0.0,
+            "volatility_lambda": 0.0,
+            "reserve_budget_abs": 0.0,
+            "reserve_budget_share": 0.0,
+            "reserve_impact_lambda": 0.0,
+            "opportunity_free_ratio": 1.0,
+            "fit_multiplier_slope": 0.0,
+            "scarcity_multiplier_weight": 0.0,
+            "phase_late_bonus": 0.0,
+            "pwin_value_discount": 0.0,
+        },
         role_profile={
             "dominant_role": "generator",
             "multipliers": {"target": 1.08, "cautious": 1.0, "ceiling": 1.06},
@@ -231,12 +252,14 @@ def test_valuation_model_keeps_non_zero_working_bid_for_slim_positive_expected_v
                 "conservative_utility_method": "weighted_expected",
                 "pwin_default": 0.35,
                 "serious_competitors_default": 3,
+                "scope_weight": 0.0,
             }
         },
+        scarcity_signal=0.0,
+        available_lots_count=12,
     )
 
-    expected_base_share = ((3.0 - 1.0) / 3.0) * 0.35
-    assert float(out["target_bid"]) == pytest.approx(4.0 * expected_base_share)
+    assert float(out["target_bid"]) == pytest.approx(5.0)
     assert float(out["budget_adjusted_bid"]) == pytest.approx(float(out["target_bid"]))
     assert float(out["working_bid"]) == pytest.approx(float(out["budget_adjusted_bid"]))
     assert float(out["remaining_budget_after_recommended_bid"]) == pytest.approx(
@@ -266,6 +289,91 @@ def test_valuation_model_zeroes_bids_when_weighted_expected_is_negative():
     assert float(out["budget_adjusted_bid"]) == pytest.approx(0.0)
     assert float(out["working_bid"]) == pytest.approx(0.0)
     assert float(out["remaining_budget_after_recommended_bid"]) == pytest.approx(120.0)
+
+
+def test_valuation_model_factors_move_target_raw_in_expected_direction():
+    common_kwargs = {
+        "p_worst": 6.0,
+        "p_base": 12.0,
+        "p_best": 18.0,
+        "p_exp": 12.0,
+        "entry_price_total": 3.0,
+        "horizon_ticks": 24,
+        "remaining_budget": 120.0,
+        "role_profile": {"dominant_role": "mixed", "multipliers": {"target": 1.0, "cautious": 1.0, "ceiling": 1.0}},
+        "portfolio_synergy": 0.0,
+        "rules_cfg": {"auction": {"conservative_utility_method": "weighted_expected", "scope_weight": 0.0}},
+        "p_win": 0.45,
+        "serious_competitors": 3,
+        "available_lots_count": 18,
+    }
+    base_eval_cfg = {
+        "risk_lambda": 0.2,
+        "volatility_lambda": 0.0,
+        "fit_multiplier_slope": 0.01,
+        "fit_multiplier_min": 0.5,
+        "fit_multiplier_max": 1.5,
+        "reserve_budget_abs": 0.0,
+        "reserve_budget_share": 0.0,
+        "reserve_impact_lambda": 0.0,
+        "opportunity_free_ratio": 1.0,
+        "opportunity_cost_slope": 0.0,
+        "scarcity_multiplier_weight": 0.2,
+        "phase_late_bonus": 0.0,
+        "pwin_value_discount": 0.0,
+    }
+
+    base = _valuation_model_v3(
+        **common_kwargs,
+        system_fit_score=0.0,
+        scarcity_signal=0.0,
+        evaluation_cfg=base_eval_cfg,
+    )
+    better_fit = _valuation_model_v3(
+        **common_kwargs,
+        system_fit_score=20.0,
+        scarcity_signal=0.0,
+        evaluation_cfg=base_eval_cfg,
+    )
+    high_risk = _valuation_model_v3(
+        **{**common_kwargs, "p_worst": -2.0},
+        system_fit_score=0.0,
+        scarcity_signal=0.0,
+        evaluation_cfg={**base_eval_cfg, "risk_lambda": 0.6},
+    )
+    scarcity_boost = _valuation_model_v3(
+        **common_kwargs,
+        system_fit_score=0.0,
+        scarcity_signal=1.0,
+        evaluation_cfg=base_eval_cfg,
+    )
+    reserve_limited = _valuation_model_v3(
+        **{**common_kwargs, "remaining_budget": 40.0, "entry_price_total": 20.0},
+        system_fit_score=0.0,
+        scarcity_signal=0.0,
+        evaluation_cfg={
+            **base_eval_cfg,
+            "reserve_budget_abs": 25.0,
+            "reserve_budget_share": 0.25,
+            "reserve_impact_lambda": 1.0,
+        },
+    )
+    opportunity_limited = _valuation_model_v3(
+        **{**common_kwargs, "entry_price_total": 30.0},
+        system_fit_score=0.0,
+        scarcity_signal=0.0,
+        evaluation_cfg={
+            **base_eval_cfg,
+            "opportunity_free_ratio": 0.1,
+            "opportunity_cost_slope": 0.8,
+        },
+    )
+
+    assert float(better_fit["target_raw"]) > float(base["target_raw"])
+    assert float(high_risk["target_raw"]) < float(base["target_raw"])
+    assert float(scarcity_boost["target_raw"]) > float(base["target_raw"])
+    assert float(reserve_limited["target_raw"]) < float(base["target_raw"])
+    assert float(opportunity_limited["target_raw"]) < float(base["target_raw"])
 
 
 def test_legacy_load_columns_are_mapped_to_canonical_series(app_ctx):

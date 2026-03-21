@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Mapping, Sequence, Set
+from typing import Any, Dict, List, Mapping, Sequence, Set
 
 from ..models import GameSession, ObjectInstance
 from .network import MAIN_CODES

@@ -129,12 +129,15 @@
   },
   "decision_summary": {
     "cautious_bid": 40.0,
+    "safe_bid": 40.0,
     "target_bid": 52.0,
+    "hard_cap": 58.0,
     "hard_ceiling_bid": 58.0,
     "budget_adjusted_bid": 52.0,
     "budget_remaining": 70.0,
-    "bid_formula": "fixed_profit_share_15_25",
-    "bid_share": 0.2,
+    "bid_formula": "portfolio_marginal_allpay_v2",
+    "legacy_bid_formula": "pwin_aware_allpay",
+    "bid_share": 0.31,
     "gross_expected_profit_before_bid": 164.0,
     "expected_net_profit": 64.0,
     "risk_adjusted_net_profit": 41.5,
@@ -184,7 +187,7 @@
         "budget_adjusted_bid": 0.0,
         "working_bid": 0.0
       },
-      "valuation_basis": "fixed_profit_share_15_25",
+      "valuation_basis": "portfolio_marginal_allpay_v2",
       "budget_remaining": 70.0,
       "gross_expected_profit_before_bid": 164.0,
       "net_profit_at_recommended_bid": 112.0,
@@ -226,7 +229,7 @@
 - отдельного режима без прогноза и отдельного compare-flow в схеме продукта нет.
 - исторические `evaluations` сохраняются в БД и экспорте, но не отображаются отдельным экраном в основном пользовательском UX.
 - `financial_breakdown.ui_rows` предназначен для UI: содержит только релевантные/ненулевые строки (`abs(value) > 1e-6`) + обязательные `entry_price` и `net_profit`.
-- `recommended_bid` - основная value-ставка; она зависит от ожидаемой прибыли и risk band, а не от желания потратить весь остаток бюджета.
+- `recommended_bid` - основная value-ставка из маржинальной портфельной формулы (`portfolio_delta * fit * scarcity - risk - reserve - opportunity_cost`), а не из фиксированной доли прибыли.
 - `working_bid` - alias `recommended_bid` для backward compatibility.
 - `budget_adjusted_bid` - технический alias итоговой рекомендуемой ставки; бюджет выступает только как верхний cap.
 - `model_working_bid` сохраняется для совместимости и равен итоговому `working_bid`.
