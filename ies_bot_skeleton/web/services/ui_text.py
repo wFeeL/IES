@@ -155,6 +155,20 @@ def working_bid_reason_short(reason: str | None) -> str:
         return "Полная рабочая цена"
     if "бюджет сессии исчерпан" in lowered:
         return "Бюджет исчерпан"
+    if "недостаточно бюджета после резервного буфера" in lowered:
+        return "Недостаточно бюджета"
+    if "экономически оправданного потолка" in lowered:
+        return "Цена выше потолка"
+    if "текущая цена уже выше" in lowered and "потолка" in lowered:
+        return "Цена выше потолка"
+    if "отрицательная экономика" in lowered:
+        return "Отрицательная экономика"
+    if "структурно не поддерживается системой" in lowered or "критически низкий fit" in lowered:
+        return "Лот несовместим"
+    if "ставка небольшая" in lowered:
+        return "Ставка снижена риском"
+    if "снижена из-за бюджетного ограничения" in lowered:
+        return "Ограничено бюджетом"
     if (
         "weighted expected" in lowered
         or "взвешенная маржинальная прибыль" in lowered

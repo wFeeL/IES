@@ -238,6 +238,17 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
             or evaluation.get("working_bid_reason")
             or ""
         ),
+        "zero_bid_reason": str(
+            decision_summary.get("zero_bid_reason")
+            or evaluation.get("zero_bid_reason")
+            or ""
+        ),
+        "cap_reason": str(
+            decision_summary.get("cap_reason")
+            or evaluation.get("cap_reason")
+            or decision_summary.get("max_bid_reason")
+            or ""
+        ),
         "budget_preservation_note": str(
             decision_summary.get("budget_preservation_note") or ""
         ),

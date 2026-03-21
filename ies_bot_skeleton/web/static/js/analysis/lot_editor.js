@@ -33,8 +33,6 @@
     const summaryEl = document.getElementById('lotEditorSummary');
     const hiddenEl = document.getElementById('itemsStateJson');
     const rawEl = document.getElementById('items_json');
-    const presetSelect = document.getElementById('lotPresetSelect');
-    const presetApplyBtn = document.getElementById('lotPresetApplyBtn');
 
     if (!rowsEl || !addBtn || !hiddenEl) return;
 
@@ -44,9 +42,6 @@
     const typeOptions = objectTypes
       .map((row) => `<option value="${row.id}">${row.code} / ${row.name}</option>`)
       .join('');
-    const byCode = new Map(
-      objectTypes.map((row) => [String(row.code || '').trim().toLowerCase(), row])
-    );
 
     function renderSummary(items) {
       if (!summaryEl) return;
@@ -135,143 +130,6 @@
       collectRows();
     }
 
-    function findByCodeList(codes) {
-      for (const code of codes) {
-        const row = byCode.get(String(code || '').trim().toLowerCase());
-        if (row) {
-          return row;
-        }
-      }
-      return null;
-    }
-
-    function findByCategory(category, excludedIds = new Set()) {
-      const target = String(category || '').trim().toLowerCase();
-      return (
-        objectTypes.find(
-          (row) =>
-            String(row.category || '').trim().toLowerCase() === target &&
-            !excludedIds.has(Number(row.id))
-        ) || null
-      );
-    }
-
-    function pushPresetRow(rows, typeRow, quantity) {
-      if (!typeRow) {
-        return;
-      }
-      const qty = Math.max(1, toInt(quantity || 1, 1));
-      const existing = rows.find((row) => Number(row.object_type_id) === Number(typeRow.id));
-      if (existing) {
-        existing.quantity = Math.max(1, Number(existing.quantity || 1) + qty);
-        return;
-      }
-      rows.push({
-        object_type_id: Number(typeRow.id),
-        quantity: qty,
-        overrides: {},
-      });
-    }
-
-    function presetRows(presetKey) {
-      const key = String(presetKey || '').trim().toLowerCase();
-      const rows = [];
-      const usedIds = new Set();
-
-      function pickType({codes = [], category = ''}) {
-        let picked = findByCodeList(codes);
-        if (!picked) {
-          picked = findByCategory(category, usedIds);
-        }
-        if (picked) {
-          usedIds.add(Number(picked.id));
-        }
-        return picked;
-      }
-
-      if (key === 'gen_storage') {
-        pushPresetRow(
-          rows,
-          pickType({codes: ['wind', 'solarrobot', 'solar', 'tps'], category: 'generator'}),
-          2
-        );
-        pushPresetRow(rows, pickType({codes: ['storage'], category: 'storage'}), 1);
-        pushPresetRow(
-          rows,
-          pickType({codes: ['mini_substation_a', 'mini_substation_b'], category: 'infrastructure'}),
-          1
-        );
-        return rows;
-      }
-
-      if (key === 'consumer_backup') {
-        pushPresetRow(
-          rows,
-          pickType({codes: ['house', 'office', 'factory'], category: 'consumer'}),
-          2
-        );
-        pushPresetRow(
-          rows,
-          pickType({codes: ['tps', 'wind', 'solarrobot', 'solar'], category: 'generator'}),
-          1
-        );
-        pushPresetRow(rows, pickType({codes: ['storage'], category: 'storage'}), 1);
-        return rows;
-      }
-
-      if (key === 'grid_upgrade') {
-        pushPresetRow(
-          rows,
-          pickType({codes: ['main_substation', 'mini_substation_a', 'mini_substation_b'], category: 'infrastructure'}),
-          2
-        );
-        pushPresetRow(rows, pickType({codes: ['storage'], category: 'storage'}), 1);
-        return rows;
-      }
-
-      if (key === 'balanced_microgrid') {
-        pushPresetRow(
-          rows,
-          pickType({codes: ['wind', 'solarrobot', 'solar', 'tps'], category: 'generator'}),
-          1
-        );
-        pushPresetRow(
-          rows,
-          pickType({codes: ['house', 'office', 'factory'], category: 'consumer'}),
-          1
-        );
-        pushPresetRow(rows, pickType({codes: ['storage'], category: 'storage'}), 1);
-        pushPresetRow(
-          rows,
-          pickType({codes: ['mini_substation_a', 'mini_substation_b'], category: 'infrastructure'}),
-          1
-        );
-        return rows;
-      }
-
-      return rows;
-    }
-
-    function applyPreset() {
-      if (!presetSelect) {
-        return;
-      }
-      const key = String(presetSelect.value || '').trim();
-      if (!key) {
-        return;
-      }
-      const rows = presetRows(key);
-      if (!rows.length) {
-        if (summaryEl) {
-          summaryEl.textContent = 'Не удалось применить preset: отсутствуют совместимые типы объектов.';
-        }
-        return;
-      }
-      rowsEl.innerHTML = '';
-      rows.forEach((row) => addRow(row));
-      collectRows();
-    }
-
     const initialRows = parseInitial(cfg.initialItemsRaw);
     if (initialRows.length > 0) {
       initialRows.forEach((row) => addRow(row));
@@ -282,7 +140,6 @@
     addBtn.addEventListener('click', function () {
       addRow({});
     });
-    presetApplyBtn?.addEventListener('click', applyPreset);
 
     document.getElementById('lotEditorForm')?.addEventListener('submit', function () {
       collectRows();

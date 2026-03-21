@@ -209,6 +209,8 @@
           <tr><th class="col-text">Aggressive bid</th><td class="num">{{ fmt_num(evaluation.recommended_bid_aggressive or evaluation.decision_summary.recommended_bid_aggressive or evaluation.decision_summary.target_bid, 1) }}</td></tr>
           <tr><th class="col-text">Max justified bid</th><td class="num">{{ fmt_num(evaluation.max_bid or evaluation.decision_summary.max_bid, 1) }}</td></tr>
           <tr><th class="col-text">Hard ceiling</th><td class="num">{{ fmt_num(evaluation.hard_ceiling_bid or evaluation.decision_summary.hard_ceiling_bid, 1) }}</td></tr>
+          <tr><th class="col-text">Причина нулевой ставки</th><td>{{ evaluation.decision_summary.zero_bid_reason or evaluation.zero_bid_reason or '—' }}</td></tr>
+          <tr><th class="col-text">Ограничение потолка ставки</th><td>{{ evaluation.decision_summary.cap_reason or evaluation.cap_reason or evaluation.max_bid_reason or evaluation.decision_summary.max_bid_reason or 'Ограничение определяется бюджетом и риском.' }}</td></tr>
           <tr><th class="col-text">Почему рекомендована balanced bid</th><td>{{ evaluation.recommended_bid_reason or evaluation.decision_summary.recommended_bid_reason or evaluation.working_bid_reason or evaluation.decision_summary.working_bid_reason }}</td></tr>
           <tr><th class="col-text">Что ограничивает max justified bid</th><td>{{ evaluation.max_bid_reason or evaluation.decision_summary.max_bid_reason or 'Ограничение определяется бюджетом и риском.' }}</td></tr>
           <tr><th class="col-text">Почему бюджет можно не тратить полностью</th><td>{{ evaluation.decision_summary.budget_preservation_note }}</td></tr>

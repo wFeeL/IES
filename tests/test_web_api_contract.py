@@ -678,6 +678,8 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     assert "working_bid_reason" in item
     assert "recommended_bid_reason" in item
     assert "max_bid_reason" in item
+    assert "zero_bid_reason" in item
+    assert "cap_reason" in item
     assert item["decision_summary"]["budget_adjusted_bid"] == pytest.approx(
         item["budget_adjusted_bid"]
     )
@@ -689,7 +691,12 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     assert item["decision_summary"]["budget_remaining"] == pytest.approx(
         item["portfolio_context"]["remaining_budget"]
     )
-    assert item["hard_ceiling_bid"] >= item["target_bid"] >= item["cautious_bid"]
+    assert (
+        item["cautious_bid"]
+        <= item["target_bid"]
+        <= item["recommended_bid_aggressive"]
+        <= item["hard_ceiling_bid"] + 1e-9
+    )
     assert item["budget_adjusted_bid"] == pytest.approx(
         min(item["target_bid"], item["portfolio_context"]["remaining_budget"])
     )
@@ -699,8 +706,16 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     assert item["recommended_bid"] == pytest.approx(item["working_bid"])
     assert item["recommended_bid"] <= item["max_bid"] + 1e-9
     assert item["decision_summary"]["budget_preservation_note"]
-    assert item["decision_summary"]["bid_formula"] == "portfolio_marginal_allpay_v2"
-    assert item["decision_summary"]["legacy_bid_formula"] == "pwin_aware_allpay"
+    assert item["decision_summary"]["bid_formula"] == "strategic_anchor_allpay_v3"
+    assert item["decision_summary"]["legacy_bid_formula"] == "deprecated_pwin_share_model"
+    assert "value_anchor" in item["decision_summary"]
+    assert "adjusted_value" in item["decision_summary"]
+    assert "fit_factor" in item["decision_summary"]
+    assert "risk_factor" in item["decision_summary"]
+    assert "volatility_factor" in item["decision_summary"]
+    assert "competition_factor" in item["decision_summary"]
+    assert "zero_bid_reason" in item["decision_summary"]
+    assert "cap_reason" in item["decision_summary"]
     assert isinstance(item["decision_summary"].get("explainability"), dict)
     assert item["decision_summary"]["gross_expected_profit_before_bid"] == pytest.approx(
         item["metrics"]["bids"]["gross_expected_profit_before_bid"]

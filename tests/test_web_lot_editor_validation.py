@@ -115,25 +115,26 @@ def test_lot_editor_renders_single_hidden_state_fields(client):
     assert "defaultConnectionPoint" not in html
 
 
-def test_lot_editor_exposes_presets_and_apply_controls(client):
+def test_lot_editor_hides_presets_and_keeps_manual_controls(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Lot presets")
 
     page = client.get(f"/lots/{session_id}/edit")
     assert page.status_code == 200
     html = page.get_data(as_text=True)
-    assert 'id="lotPresetSelect"' in html
-    assert 'id="lotPresetApplyBtn"' in html
-    assert "gen_storage" in html
-    assert "balanced_microgrid" in html
+    assert 'id="lotPresetSelect"' not in html
+    assert 'id="lotPresetApplyBtn"' not in html
+    assert "gen_storage" not in html
+    assert "balanced_microgrid" not in html
+    assert 'id="lotRowAddBtn"' in html
 
     script = client.get("/static/js/analysis/lot_editor.js")
     assert script.status_code == 200
     js = script.get_data(as_text=True)
-    assert "function presetRows(presetKey)" in js
-    assert "function applyPreset()" in js
-    assert "lotPresetApplyBtn" in js
-    assert "balanced_microgrid" in js
+    assert "function presetRows(presetKey)" not in js
+    assert "function applyPreset()" not in js
+    assert "lotPresetApplyBtn" not in js
+    assert "balanced_microgrid" not in js
 
 
 def test_lot_editor_rejects_invalid_lot_payload(client):
