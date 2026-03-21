@@ -90,11 +90,14 @@
 <section class="kpi-grid mt-4">
   <article class="kpi-card"><span class="metric-label">Итоговая полезность</span><strong>{{ fmt_num(evaluation.summary_score, 2) }}</strong></article>
   <article class="kpi-card"><span class="metric-label">Чистая прибыль при текущей цене</span><strong>{{ fmt_num(evaluation.financial_breakdown.result.net_profit_at_current_price or evaluation.financial_breakdown.result.net_profit, 2) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Чистая прибыль после рекомендуемой ставки</span><strong>{{ fmt_num(evaluation.decision_summary.net_profit_at_recommended_bid or evaluation.financial_breakdown.result.net_profit_at_recommended_bid, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Чистая прибыль после balanced bid</span><strong>{{ fmt_num(evaluation.decision_summary.net_profit_at_balanced_bid or evaluation.decision_summary.net_profit_at_recommended_bid or evaluation.financial_breakdown.result.net_profit_at_recommended_bid, 2) }}</strong></article>
   <article class="kpi-card"><span class="metric-label">Риск</span><strong>{{ fmt_num(evaluation.financial_breakdown.losses_and_risks.risk_total, 2) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Рекомендуемая ставка</span><strong>{{ fmt_num(evaluation.recommended_bid or evaluation.decision_summary.recommended_bid or evaluation.working_bid or evaluation.decision_summary.working_bid, 1) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Максимальная ставка</span><strong>{{ fmt_num(evaluation.max_bid or evaluation.decision_summary.max_bid, 1) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Остаток бюджета после рекомендуемой ставки</span><strong>{{ fmt_num(evaluation.decision_summary.remaining_budget_after_recommended_bid or evaluation.financial_breakdown.result.remaining_budget_after_recommended_bid, 1) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Safe bid</span><strong>{{ fmt_num(evaluation.recommended_bid_safe or evaluation.decision_summary.recommended_bid_safe or evaluation.decision_summary.cautious_bid, 1) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Balanced bid</span><strong>{{ fmt_num(evaluation.recommended_bid_balanced or evaluation.decision_summary.recommended_bid_balanced or evaluation.recommended_bid or evaluation.decision_summary.recommended_bid or evaluation.working_bid or evaluation.decision_summary.working_bid, 1) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Aggressive bid</span><strong>{{ fmt_num(evaluation.recommended_bid_aggressive or evaluation.decision_summary.recommended_bid_aggressive or evaluation.decision_summary.target_bid, 1) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Max justified bid</span><strong>{{ fmt_num(evaluation.max_bid or evaluation.decision_summary.max_bid, 1) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Hard ceiling</span><strong>{{ fmt_num(evaluation.hard_ceiling_bid or evaluation.decision_summary.hard_ceiling_bid, 1) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Остаток бюджета после balanced bid</span><strong>{{ fmt_num(evaluation.decision_summary.remaining_budget_after_balanced_bid or evaluation.decision_summary.remaining_budget_after_recommended_bid or evaluation.financial_breakdown.result.remaining_budget_after_recommended_bid, 1) }}</strong></article>
 </section>
 
 <section class="grid cols-2 gap-4 mt-4">
@@ -160,9 +163,9 @@
     <div class="key-value"><span>Потери</span><strong>{{ fmt_num(row.losses_total, 2) }}</strong></div>
     <div class="key-value"><span>Чистая прибыль при текущей цене</span><strong>{{ fmt_num(row.net_profit, 2) }}</strong></div>
     <div class="key-value"><span>Полезность</span><strong>{{ fmt_num(row.utility_score, 2) }}</strong></div>
-    <div class="key-value"><span>Value-ставка по сценарию</span><strong>{{ fmt_num(row.recommended_bid, 2) }}</strong></div>
-    <div class="key-value"><span>Чистая прибыль при этой ставке</span><strong>{{ fmt_num(row.net_profit_at_recommended_bid, 2) }}</strong></div>
-    <div class="key-value"><span>Агрессивный потолок по сценарию</span><strong>{{ fmt_num(row.bid_ceiling, 2) }}</strong></div>
+    <div class="key-value"><span>Balanced bid по сценарию</span><strong>{{ fmt_num(row.recommended_bid, 2) }}</strong></div>
+    <div class="key-value"><span>Чистая прибыль после balanced bid</span><strong>{{ fmt_num(row.net_profit_at_recommended_bid, 2) }}</strong></div>
+    <div class="key-value"><span>Hard ceiling по сценарию</span><strong>{{ fmt_num(row.bid_ceiling, 2) }}</strong></div>
     <div class="risk-block mt-3">{{ row.explanation }}</div>
   </article>
   {% endfor %}
@@ -201,10 +204,13 @@
     <div class="table-wrap mt-3">
       <table class="table">
         <tbody>
-          <tr><th class="col-text">Рекомендуемая ставка</th><td class="num">{{ fmt_num(evaluation.recommended_bid or evaluation.decision_summary.recommended_bid or evaluation.working_bid or evaluation.decision_summary.working_bid, 1) }}</td></tr>
-          <tr><th class="col-text">Максимальная ставка</th><td class="num">{{ fmt_num(evaluation.max_bid or evaluation.decision_summary.max_bid, 1) }}</td></tr>
-          <tr><th class="col-text">Почему рекомендована</th><td>{{ evaluation.recommended_bid_reason or evaluation.decision_summary.recommended_bid_reason or evaluation.working_bid_reason or evaluation.decision_summary.working_bid_reason }}</td></tr>
-          <tr><th class="col-text">Что ограничивает максимум</th><td>{{ evaluation.max_bid_reason or evaluation.decision_summary.max_bid_reason or 'Ограничение определяется бюджетом и риском.' }}</td></tr>
+          <tr><th class="col-text">Safe bid</th><td class="num">{{ fmt_num(evaluation.recommended_bid_safe or evaluation.decision_summary.recommended_bid_safe or evaluation.decision_summary.cautious_bid, 1) }}</td></tr>
+          <tr><th class="col-text">Balanced bid</th><td class="num">{{ fmt_num(evaluation.recommended_bid_balanced or evaluation.decision_summary.recommended_bid_balanced or evaluation.recommended_bid or evaluation.decision_summary.recommended_bid or evaluation.working_bid or evaluation.decision_summary.working_bid, 1) }}</td></tr>
+          <tr><th class="col-text">Aggressive bid</th><td class="num">{{ fmt_num(evaluation.recommended_bid_aggressive or evaluation.decision_summary.recommended_bid_aggressive or evaluation.decision_summary.target_bid, 1) }}</td></tr>
+          <tr><th class="col-text">Max justified bid</th><td class="num">{{ fmt_num(evaluation.max_bid or evaluation.decision_summary.max_bid, 1) }}</td></tr>
+          <tr><th class="col-text">Hard ceiling</th><td class="num">{{ fmt_num(evaluation.hard_ceiling_bid or evaluation.decision_summary.hard_ceiling_bid, 1) }}</td></tr>
+          <tr><th class="col-text">Почему рекомендована balanced bid</th><td>{{ evaluation.recommended_bid_reason or evaluation.decision_summary.recommended_bid_reason or evaluation.working_bid_reason or evaluation.decision_summary.working_bid_reason }}</td></tr>
+          <tr><th class="col-text">Что ограничивает max justified bid</th><td>{{ evaluation.max_bid_reason or evaluation.decision_summary.max_bid_reason or 'Ограничение определяется бюджетом и риском.' }}</td></tr>
           <tr><th class="col-text">Почему бюджет можно не тратить полностью</th><td>{{ evaluation.decision_summary.budget_preservation_note }}</td></tr>
           <tr><th class="col-text">Синергия с портфелем</th><td class="num">{{ fmt_num(evaluation.metrics.synergy.score, 2) }}</td></tr>
           <tr><th class="col-text">Системный fit score</th><td class="num">{{ fmt_num(evaluation.system_check.system_fit_score, 2) }}</td></tr>
@@ -221,27 +227,31 @@
       <div class="table-wrap mt-2">
         <table class="table">
           <tbody>
-            <tr><th class="col-text">Чистая прибыль после рекомендуемой ставки</th><td class="num">{{ fmt_num(evaluation.decision_summary.net_profit_at_recommended_bid or evaluation.financial_breakdown.result.net_profit_at_recommended_bid, 2) }}</td></tr>
-            <tr><th class="col-text">Чистая прибыль после максимальной ставки</th><td class="num">{{ fmt_num(evaluation.decision_summary.net_profit_at_max_bid or evaluation.financial_breakdown.result.net_profit_at_max_bid, 2) }}</td></tr>
-            <tr><th class="col-text">Остаток бюджета после рекомендуемой ставки</th><td class="num">{{ fmt_num(evaluation.decision_summary.remaining_budget_after_recommended_bid or evaluation.financial_breakdown.result.remaining_budget_after_recommended_bid, 1) }}</td></tr>
-            <tr><th class="col-text">Остаток бюджета после максимальной ставки</th><td class="num">{{ fmt_num(evaluation.decision_summary.remaining_budget_after_max_bid or evaluation.financial_breakdown.result.remaining_budget_after_max_bid, 1) }}</td></tr>
-            <tr><th class="col-text">Осторожная цена</th><td class="num">{{ fmt_num(evaluation.decision_summary.cautious_bid, 1) }}</td></tr>
-            <tr><th class="col-text">Target bid</th><td class="num">{{ fmt_num(evaluation.decision_summary.target_bid, 1) }}</td></tr>
+            <tr><th class="col-text">Чистая прибыль после safe bid</th><td class="num">{{ fmt_num(evaluation.decision_summary.net_profit_at_safe_bid, 2) }}</td></tr>
+            <tr><th class="col-text">Чистая прибыль после balanced bid</th><td class="num">{{ fmt_num(evaluation.decision_summary.net_profit_at_balanced_bid or evaluation.decision_summary.net_profit_at_recommended_bid or evaluation.financial_breakdown.result.net_profit_at_recommended_bid, 2) }}</td></tr>
+            <tr><th class="col-text">Чистая прибыль после aggressive bid</th><td class="num">{{ fmt_num(evaluation.decision_summary.net_profit_at_aggressive_bid, 2) }}</td></tr>
+            <tr><th class="col-text">Чистая прибыль после max justified bid</th><td class="num">{{ fmt_num(evaluation.decision_summary.net_profit_at_max_bid or evaluation.financial_breakdown.result.net_profit_at_max_bid, 2) }}</td></tr>
+            <tr><th class="col-text">Остаток бюджета после balanced bid</th><td class="num">{{ fmt_num(evaluation.decision_summary.remaining_budget_after_balanced_bid or evaluation.decision_summary.remaining_budget_after_recommended_bid or evaluation.financial_breakdown.result.remaining_budget_after_recommended_bid, 1) }}</td></tr>
+            <tr><th class="col-text">Остаток бюджета после max justified bid</th><td class="num">{{ fmt_num(evaluation.decision_summary.remaining_budget_after_max_bid or evaluation.financial_breakdown.result.remaining_budget_after_max_bid, 1) }}</td></tr>
+            <tr><th class="col-text">Safe bid</th><td class="num">{{ fmt_num(evaluation.decision_summary.cautious_bid or evaluation.decision_summary.recommended_bid_safe, 1) }}</td></tr>
+            <tr><th class="col-text">Balanced bid</th><td class="num">{{ fmt_num(evaluation.decision_summary.target_bid or evaluation.decision_summary.recommended_bid_balanced, 1) }}</td></tr>
             <tr><th class="col-text">Hard ceiling bid</th><td class="num">{{ fmt_num(evaluation.decision_summary.hard_ceiling_bid, 1) }}</td></tr>
-            <tr><th class="col-text">Ставка с учетом бюджета</th><td class="num">{{ fmt_num(evaluation.decision_summary.budget_adjusted_bid, 1) }}</td></tr>
+            <tr><th class="col-text">Max justified bid</th><td class="num">{{ fmt_num(evaluation.decision_summary.max_bid, 1) }}</td></tr>
             <tr><th class="col-text">Риск-премия в модели ставки</th><td class="num">{{ fmt_num(evaluation.metrics.bids.risk_premium, 2) }}</td></tr>
             <tr><th class="col-text">Резервный буфер</th><td class="num">{{ fmt_num(evaluation.metrics.bids.reserve_margin, 2) }}</td></tr>
+            <tr><th class="col-text">p_win</th><td class="num">{{ fmt_num(evaluation.decision_summary.p_win, 2) }}</td></tr>
+            <tr><th class="col-text">Серьёзные конкуренты (k)</th><td class="num">{{ evaluation.decision_summary.serious_competitors }}</td></tr>
           </tbody>
         </table>
       </div>
     </details>
     <div class="risk-block mt-3">{{ evaluation.score_definition }}</div>
-    {% if (evaluation.recommended_bid or evaluation.decision_summary.recommended_bid or evaluation.working_bid or evaluation.decision_summary.working_bid or 0.0) > (evaluation.decision_summary.budget_remaining or 0.0) %}
+    {% if (evaluation.recommended_bid_balanced or evaluation.decision_summary.recommended_bid_balanced or evaluation.recommended_bid or evaluation.decision_summary.recommended_bid or evaluation.working_bid or evaluation.decision_summary.working_bid or 0.0) > (evaluation.decision_summary.budget_remaining or 0.0) %}
     <div class="flash flash-warning mt-3">Справедливая цена выше доступного остатка бюджета.</div>
     {% endif %}
     {% if evaluation.system_check.topology_invalid and network_readiness and network_readiness.action_required %}
     <div class="flash flash-warning mt-3">
-      Сетевой анализ неполон: у купленных лотов есть неподключённые объекты. Подключите их в энергосистеме, чтобы восстановить корректную оценку ставок.
+      У купленных лотов есть неподключённые объекты. Это post-purchase advisory: аукционная оценка лота остаётся доступной, но интеграцию нужно завершить в энергосистеме.
     </div>
     {% endif %}
     {% for warning in evaluation.analysis_warnings or [] %}
@@ -334,7 +344,7 @@
           <th class="col-text">Пара</th>
           <th class="col-num">Синергия</th>
           <th class="col-num">Чистая прибыль</th>
-          <th class="col-num">Рабочая ставка</th>
+          <th class="col-num">Balanced bid</th>
           <th class="col-text">Ставки по лотам</th>
           <th class="col-text">Причина</th>
         </tr>

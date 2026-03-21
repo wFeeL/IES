@@ -685,7 +685,7 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     assert item["decision_summary"]["recommended_bid"] == pytest.approx(item["recommended_bid"])
     assert item["decision_summary"]["max_bid"] == pytest.approx(item["max_bid"])
     assert item["decision_summary"]["working_bid_source"] == item["working_bid_source"]
-    assert item["working_bid_source"] in {"target", "budget_adjusted", "zero"}
+    assert item["working_bid_source"] in {"target", "balanced", "budget_adjusted", "zero"}
     assert item["decision_summary"]["budget_remaining"] == pytest.approx(
         item["portfolio_context"]["remaining_budget"]
     )
@@ -699,7 +699,7 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     assert item["recommended_bid"] == pytest.approx(item["working_bid"])
     assert item["recommended_bid"] <= item["max_bid"] + 1e-9
     assert item["decision_summary"]["budget_preservation_note"]
-    assert item["decision_summary"]["bid_formula"] == "fixed_profit_share_15_25"
+    assert item["decision_summary"]["bid_formula"] == "pwin_aware_allpay"
     assert item["decision_summary"]["gross_expected_profit_before_bid"] == pytest.approx(
         item["metrics"]["bids"]["gross_expected_profit_before_bid"]
     )
@@ -710,7 +710,7 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
         item["decision_summary"]["remaining_budget_after_recommended_bid"]
     )
     assert item["decision_summary"]["net_profit_at_recommended_bid"] == pytest.approx(
-        item["decision_summary"]["gross_expected_profit_before_bid"] - item["recommended_bid"]
+        item["financial_breakdown"]["result"]["gross_profit_before_bid"] - item["recommended_bid"]
     )
     assert "ui_rows" in item["financial_breakdown"]
     assert "valuation_model" in item["metrics"]["bids"]

@@ -148,26 +148,34 @@ def test_recommended_bid_is_within_budget(app_ctx):
     assert out["metrics"]["bids"]["budget_remaining"] == pytest.approx(remaining)
     valuation = dict((out["metrics"]["bids"] or {}).get("valuation_model") or {})
     assert valuation["model"] == "valuation_model_v3"
+    assert valuation["model_name"] == "auction_bid_model"
     assert valuation["profile"] == "generator"
     assert valuation["risk_band"] in {"low", "medium", "high"}
-    assert bid_share == pytest.approx({"low": 0.25, "medium": 0.20, "high": 0.15}[valuation["risk_band"]])
+    p_win = float(decision_summary["p_win"])
+    serious_competitors = max(1, int(decision_summary["serious_competitors"]))
+    assert 0.0 <= p_win <= 1.0
+    assert serious_competitors >= 1
+    assert bid_share == pytest.approx(((serious_competitors - 1) / serious_competitors) * p_win)
     assert gross_profit_before_bid == pytest.approx(
         float(out["metrics"]["weighted_expected"]) + float(out["decision_factors"]["entry_price"])
     )
-    assert valuation["target_bid"] == pytest.approx(hard)
+    assert valuation["recommended_bid_safe"] == pytest.approx(soft)
+    assert valuation["recommended_bid_balanced"] == pytest.approx(hard)
+    assert valuation["recommended_bid_aggressive"] >= valuation["recommended_bid_balanced"]
+    assert valuation["recommended_bid_balanced"] >= valuation["recommended_bid_safe"]
     assert valuation["budget_adjusted_bid"] == pytest.approx(budget_adjusted)
     assert "risk_ratio" in valuation
-    assert "role_multipliers" in valuation
+    assert "conservative_utility" in valuation
     assert "portfolio_synergy" in valuation
     assert "system_fit_score" in valuation
     assert out["recommended_bid"] == pytest.approx(out["working_bid"])
     assert out["working_bid"] == pytest.approx(budget_adjusted)
     assert out["recommended_bid"] <= remaining + 1e-9
     assert decision_summary["net_profit_at_recommended_bid"] == pytest.approx(
-        gross_profit_before_bid - float(out["recommended_bid"])
+        float(result["gross_profit_before_bid"]) - float(out["recommended_bid"])
     )
     assert decision_summary["net_profit_at_max_bid"] == pytest.approx(
-        gross_profit_before_bid - float(out["max_bid"])
+        float(result["gross_profit_before_bid"]) - float(out["max_bid"])
     )
     assert decision_summary["remaining_budget_after_recommended_bid"] == pytest.approx(
         remaining - float(out["recommended_bid"])
@@ -218,9 +226,17 @@ def test_valuation_model_keeps_non_zero_working_bid_for_slim_positive_expected_v
         },
         portfolio_synergy=0.0,
         system_fit_score=0.0,
+        rules_cfg={
+            "auction": {
+                "conservative_utility_method": "weighted_expected",
+                "pwin_default": 0.35,
+                "serious_competitors_default": 3,
+            }
+        },
     )
 
-    assert float(out["target_bid"]) == pytest.approx((4.0 + 6.0) * 0.15)
+    expected_base_share = ((3.0 - 1.0) / 3.0) * 0.35
+    assert float(out["target_bid"]) == pytest.approx(4.0 * expected_base_share)
     assert float(out["budget_adjusted_bid"]) == pytest.approx(float(out["target_bid"]))
     assert float(out["working_bid"]) == pytest.approx(float(out["budget_adjusted_bid"]))
     assert float(out["remaining_budget_after_recommended_bid"]) == pytest.approx(

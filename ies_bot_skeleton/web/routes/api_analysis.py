@@ -476,10 +476,29 @@ def lots_analytics(session_id: int):
             continue
         decision_summary = dict(item.get("decision_summary") or {})
         system_check = dict(item.get("system_check") or {})
+        recommended_bid_safe = float(
+            decision_summary.get("recommended_bid_safe", decision_summary.get("cautious_bid", 0.0))
+            or 0.0
+        )
+        recommended_bid_balanced = float(
+            decision_summary.get(
+                "recommended_bid_balanced",
+                decision_summary.get("target_bid", decision_summary.get("recommended_bid", 0.0)),
+            )
+            or 0.0
+        )
+        recommended_bid_aggressive = float(
+            decision_summary.get(
+                "recommended_bid_aggressive",
+                decision_summary.get("target_bid", decision_summary.get("recommended_bid", 0.0)),
+            )
+            or 0.0
+        )
         recommended_bid = float(
             decision_summary.get(
                 "recommended_bid",
                 item.get("working_bid")
+                or recommended_bid_balanced
                 or decision_summary.get("working_bid")
                 or 0.0,
             )
@@ -533,13 +552,23 @@ def lots_analytics(session_id: int):
             composition = "storage"
         elif "infrastructure" in categories:
             composition = "infrastructure"
+        composition_label = {
+            "all": "Все",
+            "consumer": "Потребительский",
+            "generator": "Генераторный",
+            "mixed": "Смешанный",
+            "infrastructure": "Инфраструктурный",
+            "storage": "Накопительный",
+        }.get(composition, "Смешанный")
         enriched.append(
             {
                 **item,
                 "status": lot.status,
+                "scope": str(lot.scope or ""),
                 "structure": structure or "Пустой лот",
                 "structure_items": structure_items,
                 "composition": composition,
+                "composition_label": composition_label,
                 "price": float(
                     lot.purchase_price
                     if lot.status == "bought" and lot.purchase_price is not None
@@ -601,17 +630,23 @@ def lots_analytics(session_id: int):
                     or 0.0
                 ),
                 "cautious_bid": float(
-                    (item.get("decision_summary") or {}).get("cautious_bid", 0.0) or 0.0
+                    (item.get("decision_summary") or {}).get("cautious_bid", recommended_bid_safe)
+                    or 0.0
                 ),
                 "target_bid": float(
-                    decision_summary.get("target_bid", 0.0) or 0.0
+                    decision_summary.get("target_bid", recommended_bid_balanced) or 0.0
                 ),
+                "recommended_bid_safe": float(recommended_bid_safe),
+                "recommended_bid_balanced": float(recommended_bid_balanced),
+                "recommended_bid_aggressive": float(recommended_bid_aggressive),
                 "hard_ceiling_bid": float(
                     decision_summary.get("hard_ceiling_bid", 0.0) or 0.0
                 ),
                 "budget_adjusted_bid": float(
                     decision_summary.get("budget_adjusted_bid", 0.0) or 0.0
                 ),
+                "p_win": float(decision_summary.get("p_win", 0.0) or 0.0),
+                "serious_competitors": int(decision_summary.get("serious_competitors", 0) or 0),
                 "recommended_bid": float(recommended_bid),
                 "max_bid": float(max_bid),
                 "recommended_bid_reason": str(

@@ -23,6 +23,9 @@ class ComboEvaluation:
     utility_score: float
     net_profit_base: float
     risk_total: float
+    recommended_bid_safe: float
+    recommended_bid_balanced: float
+    recommended_bid_aggressive: float
     cautious_bid: float
     target_bid: float
     hard_ceiling_bid: float
@@ -30,6 +33,8 @@ class ComboEvaluation:
     working_bid: float
     working_bid_source: str
     working_bid_reason: str
+    p_win: float
+    serious_competitors: int
     synergy_score: float
     explanation: str
     lot_bid_breakdown: List[Dict[str, Any]]
@@ -99,31 +104,29 @@ def _stringify_reasons(payload: Dict[str, Any], *, synergy_score: float) -> str:
     scenario_delta = dict(metrics.get("scenario_delta") or {}).get("base") or {}
     role_breakdown = dict(metrics.get("role_breakdown") or {})
     phrases: List[str] = []
-    if synergy_score > 0:
-        phrases.append(
-            f"Положительная синергия {synergy_score:+.2f}: комбинация усиливает портфель."
-        )
-    elif synergy_score < 0:
-        phrases.append(
-            f"Отрицательная синергия {synergy_score:+.2f}: эффекты частично конфликтуют."
-        )
-
-    if float(scenario_delta.get("delta_penalties", 0.0)) < 0:
-        phrases.append("Комбинация снижает штрафы за дефицит и недоотпуск.")
-    if float(scenario_delta.get("delta_market_net", 0.0)) < 0:
-        phrases.append("Снижается зависимость от закупки энергии на рынке.")
-    if float(scenario_delta.get("delta_risk_penalty", 0.0)) < 0:
-        phrases.append("Профиль снижает риск перегрузки и нестабильности.")
-    if float(role_breakdown.get("infrastructure", 0.0)) > 0:
-        phrases.append("Инфраструктурный вклад помогает снимать сетевые ограничения.")
+    if float(role_breakdown.get("generator", 0.0)) > 0:
+        phrases.append("усиливает генерацию")
     if float(role_breakdown.get("storage", 0.0)) > 0:
-        phrases.append("Накопители повышают гибкость и резерв по тактам.")
+        phrases.append("добавляет резерв и гибкость")
+    if float(role_breakdown.get("infrastructure", 0.0)) > 0:
+        phrases.append("улучшает интеграцию объектов")
+    if float(scenario_delta.get("delta_market_net", 0.0)) < 0:
+        phrases.append("снижает зависимость от рынка")
+    if float(scenario_delta.get("delta_penalties", 0.0)) < 0:
+        phrases.append("закрывает штрафной риск")
+    if float(scenario_delta.get("delta_risk_penalty", 0.0)) < 0:
+        phrases.append("держит риск под контролем")
+    if synergy_score > 0.25:
+        phrases.append("есть положительная синергия")
+    elif synergy_score < -0.25:
+        phrases.append("есть конфликт синергии")
 
     if not phrases and reasons:
-        phrases.extend(str(item) for item in reasons[:3])
+        phrases.extend(str(item).lower() for item in reasons[:2])
     if not phrases:
-        phrases.append("Комбинация ранжирована по риск-скорректированной маржинальной прибыли.")
-    return " ".join(phrases)
+        phrases.append("стабильная комбинация в рамках бюджета")
+    compact = ", ".join(phrases[:4]).strip().strip(",")
+    return (compact[:170] + "…") if len(compact) > 170 else compact
 
 
 def _combo_eval(
@@ -145,6 +148,9 @@ def _combo_eval(
         forecast=forecast,
         portfolio_lots=portfolio_lots,
         reserved_spend=reserved_spend,
+        available_lots=[
+            lot for lot in _session_lots(session) if str(getattr(lot, "status", "")) == "available"
+        ],
     )
     metrics = dict(payload.get("metrics") or {})
     bids = dict(metrics.get("bids") or {})
@@ -162,19 +168,33 @@ def _combo_eval(
     for lot in ordered_lots:
         lot_id = int(lot.id)
         base = dict(standalone_bids.get(lot_id) or {})
-        standalone_target = float(base.get("target_bid", 0.0) or 0.0)
-        standalone_cautious = float(base.get("cautious_bid", 0.0) or 0.0)
+        standalone_balanced = float(
+            base.get("recommended_bid_balanced", base.get("target_bid", 0.0)) or 0.0
+        )
+        standalone_safe = float(
+            base.get("recommended_bid_safe", base.get("cautious_bid", 0.0)) or 0.0
+        )
+        standalone_aggressive = float(
+            base.get("recommended_bid_aggressive", base.get("target_bid", 0.0)) or 0.0
+        )
         standalone_hard = float(base.get("hard_ceiling_bid", 0.0) or 0.0)
         standalone_working = float(base.get("working_bid", 0.0) or 0.0)
-        if len(ordered_lots) == 1 and standalone_target <= 0.0:
-            standalone_target = float(bids.get("target_bid", 0.0) or 0.0)
-            standalone_cautious = float(bids.get("cautious_bid", 0.0) or 0.0)
+        if len(ordered_lots) == 1 and standalone_balanced <= 0.0:
+            standalone_balanced = float(
+                bids.get("recommended_bid_balanced", bids.get("target_bid", 0.0)) or 0.0
+            )
+            standalone_safe = float(
+                bids.get("recommended_bid_safe", bids.get("cautious_bid", 0.0)) or 0.0
+            )
+            standalone_aggressive = float(
+                bids.get("recommended_bid_aggressive", bids.get("target_bid", 0.0)) or 0.0
+            )
             standalone_hard = float(bids.get("hard_ceiling_bid", 0.0) or 0.0)
             standalone_working = float(
                 payload.get("working_bid") or decision_summary.get("working_bid") or 0.0
             )
         lot_price = float(lot.current_bid or 0.0)
-        weight = standalone_target if standalone_target > 0.0 else lot_price
+        weight = standalone_balanced if standalone_balanced > 0.0 else lot_price
         if weight <= 0.0:
             weight = 1.0
         standalone_rows.append(
@@ -183,8 +203,11 @@ def _combo_eval(
                 "lot_name": lot.name,
                 "lot_price": lot_price,
                 "standalone_net_profit": float(singles_net_profit.get(lot_id, 0.0) or 0.0),
-                "standalone_target_bid": standalone_target,
-                "standalone_cautious_bid": standalone_cautious,
+                "standalone_balanced_bid": standalone_balanced,
+                "standalone_safe_bid": standalone_safe,
+                "standalone_aggressive_bid": standalone_aggressive,
+                "standalone_target_bid": standalone_balanced,
+                "standalone_cautious_bid": standalone_safe,
                 "standalone_hard_ceiling_bid": standalone_hard,
                 "standalone_working_bid": standalone_working,
                 "weight": weight,
@@ -196,56 +219,71 @@ def _combo_eval(
         sum(float(row["standalone_net_profit"]) for row in standalone_rows)
     )
     synergy_profit = float(base_profit - standalone_profit_total)
-    target_synergy = float(
-        float(bids.get("target_bid", 0.0) or 0.0)
-        - sum(float(row["standalone_target_bid"]) for row in standalone_rows)
+    balanced_synergy = float(
+        float(bids.get("recommended_bid_balanced", bids.get("target_bid", 0.0)) or 0.0)
+        - sum(float(row["standalone_balanced_bid"]) for row in standalone_rows)
     )
-    cautious_synergy = float(
-        float(bids.get("cautious_bid", 0.0) or 0.0)
-        - sum(float(row["standalone_cautious_bid"]) for row in standalone_rows)
+    safe_synergy = float(
+        float(bids.get("recommended_bid_safe", bids.get("cautious_bid", 0.0)) or 0.0)
+        - sum(float(row["standalone_safe_bid"]) for row in standalone_rows)
+    )
+    aggressive_synergy = float(
+        float(bids.get("recommended_bid_aggressive", bids.get("target_bid", 0.0)) or 0.0)
+        - sum(float(row["standalone_aggressive_bid"]) for row in standalone_rows)
     )
     hard_synergy = float(
         float(bids.get("hard_ceiling_bid", 0.0) or 0.0)
         - sum(float(row["standalone_hard_ceiling_bid"]) for row in standalone_rows)
     )
 
-    combo_target_bid = float(bids.get("target_bid", 0.0) or 0.0)
+    combo_balanced_bid = float(
+        bids.get("recommended_bid_balanced", bids.get("target_bid", 0.0)) or 0.0
+    )
+    combo_safe_bid = float(bids.get("recommended_bid_safe", bids.get("cautious_bid", 0.0)) or 0.0)
+    combo_aggressive_bid = float(
+        bids.get("recommended_bid_aggressive", bids.get("target_bid", 0.0)) or 0.0
+    )
     combo_budget_adjusted = float(bids.get("budget_adjusted_bid", 0.0) or 0.0)
     combo_working_bid = float(payload.get("working_bid") or decision_summary.get("working_bid") or 0.0)
     provisional_allocations: List[Dict[str, Any]] = []
     for row in standalone_rows:
         share = float(row["weight"]) / weight_total
-        allocated_target = max(
+        allocated_balanced = max(
             0.0,
-            float(row["standalone_target_bid"]) + target_synergy * share,
+            float(row["standalone_balanced_bid"]) + balanced_synergy * share,
         )
-        allocated_cautious = max(
+        allocated_safe = max(
             0.0,
-            float(row["standalone_cautious_bid"]) + cautious_synergy * share,
+            float(row["standalone_safe_bid"]) + safe_synergy * share,
+        )
+        allocated_aggressive = max(
+            allocated_balanced,
+            float(row["standalone_aggressive_bid"]) + aggressive_synergy * share,
         )
         allocated_hard = max(
-            allocated_target,
+            allocated_aggressive,
             float(row["standalone_hard_ceiling_bid"]) + hard_synergy * share,
         )
         provisional_allocations.append(
             {
                 "row": row,
                 "share": float(share),
-                "allocated_target": float(allocated_target),
-                "allocated_cautious": float(allocated_cautious),
+                "allocated_balanced": float(allocated_balanced),
+                "allocated_safe": float(allocated_safe),
+                "allocated_aggressive": float(allocated_aggressive),
                 "allocated_hard": float(allocated_hard),
             }
         )
 
-    total_allocated_target = float(
-        sum(float(entry["allocated_target"] or 0.0) for entry in provisional_allocations)
+    total_allocated_balanced = float(
+        sum(float(entry["allocated_balanced"] or 0.0) for entry in provisional_allocations)
     )
     if len(ordered_lots) == 1:
         budget_scale = 0.0
         working_scale = 0.0
-    elif total_allocated_target > 0.0:
-        budget_scale = max(0.0, combo_budget_adjusted / total_allocated_target)
-        working_scale = max(0.0, combo_working_bid / total_allocated_target)
+    elif total_allocated_balanced > 0.0:
+        budget_scale = max(0.0, combo_budget_adjusted / total_allocated_balanced)
+        working_scale = max(0.0, combo_working_bid / total_allocated_balanced)
     else:
         budget_scale = 0.0
         working_scale = 0.0
@@ -254,18 +292,20 @@ def _combo_eval(
     for entry in provisional_allocations:
         row = cast(Dict[str, Any], dict(entry.get("row") or {}))
         share = float(entry.get("share") or 0.0)
-        allocated_target = float(entry.get("allocated_target") or 0.0)
-        allocated_cautious = float(entry.get("allocated_cautious") or 0.0)
+        allocated_balanced = float(entry.get("allocated_balanced") or 0.0)
+        allocated_safe = float(entry.get("allocated_safe") or 0.0)
+        allocated_aggressive = float(entry.get("allocated_aggressive") or 0.0)
         allocated_hard = float(entry.get("allocated_hard") or 0.0)
         if len(ordered_lots) == 1:
-            allocated_target = float(combo_target_bid)
-            allocated_cautious = float(bids.get("cautious_bid", 0.0) or 0.0)
+            allocated_balanced = float(combo_balanced_bid)
+            allocated_safe = float(combo_safe_bid)
+            allocated_aggressive = float(combo_aggressive_bid)
             allocated_hard = float(bids.get("hard_ceiling_bid", 0.0) or 0.0)
             allocated_budget_adjusted = float(combo_budget_adjusted)
             allocated_working = float(combo_working_bid)
         else:
-            allocated_budget_adjusted = float(max(0.0, allocated_target * budget_scale))
-            allocated_working = float(max(0.0, allocated_target * working_scale))
+            allocated_budget_adjusted = float(max(0.0, allocated_balanced * budget_scale))
+            allocated_working = float(max(0.0, allocated_balanced * working_scale))
         recommended_bid = (
             float(allocated_working)
             if float(allocated_working) > 0.0
@@ -278,15 +318,24 @@ def _combo_eval(
                 "lot_label": f"{row['lot_name']} ({int(row['lot_id'])})",
                 "standalone_net_profit": float(row["standalone_net_profit"]),
                 "standalone_target_bid": float(row["standalone_target_bid"]),
+                "standalone_safe_bid": float(row["standalone_safe_bid"]),
+                "standalone_balanced_bid": float(row["standalone_balanced_bid"]),
+                "standalone_aggressive_bid": float(row["standalone_aggressive_bid"]),
                 "standalone_hard_ceiling_bid": float(row["standalone_hard_ceiling_bid"]),
                 "standalone_working_bid": float(row["standalone_working_bid"]),
-                "allocated_target_bid": float(allocated_target),
-                "allocated_cautious_bid": float(allocated_cautious),
+                "allocated_target_bid": float(allocated_balanced),
+                "allocated_cautious_bid": float(allocated_safe),
+                "allocated_safe_bid": float(allocated_safe),
+                "allocated_balanced_bid": float(allocated_balanced),
+                "allocated_aggressive_bid": float(allocated_aggressive),
                 "allocated_hard_ceiling_bid": float(allocated_hard),
                 "allocated_working_bid": float(allocated_working),
-                "synergy_allocated": float(target_synergy * share),
+                "synergy_allocated": float(balanced_synergy * share),
                 "budget_adjusted_bid": float(allocated_budget_adjusted),
                 "recommended_bid": float(recommended_bid),
+                "recommended_bid_safe": float(allocated_safe),
+                "recommended_bid_balanced": float(allocated_balanced),
+                "recommended_bid_aggressive": float(allocated_aggressive),
                 "allocated_net_profit": float(
                     float(row["standalone_net_profit"]) + float(synergy_profit * share)
                 ),
@@ -305,6 +354,15 @@ def _combo_eval(
         utility_score=float(payload.get("summary_score", 0.0) or 0.0),
         net_profit_base=base_profit,
         risk_total=float(losses.get("risk_total", 0.0) or 0.0),
+        recommended_bid_safe=float(
+            bids.get("recommended_bid_safe", bids.get("cautious_bid", 0.0)) or 0.0
+        ),
+        recommended_bid_balanced=float(
+            bids.get("recommended_bid_balanced", bids.get("target_bid", 0.0)) or 0.0
+        ),
+        recommended_bid_aggressive=float(
+            bids.get("recommended_bid_aggressive", bids.get("target_bid", 0.0)) or 0.0
+        ),
         cautious_bid=float(bids.get("cautious_bid", 0.0) or 0.0),
         target_bid=float(bids.get("target_bid", 0.0) or 0.0),
         hard_ceiling_bid=float(bids.get("hard_ceiling_bid", 0.0) or 0.0),
@@ -321,6 +379,18 @@ def _combo_eval(
             or decision_summary.get("working_bid_reason")
             or bids.get("working_bid_reason")
             or ""
+        ),
+        p_win=float(
+            payload.get("p_win")
+            or decision_summary.get("p_win")
+            or bids.get("p_win")
+            or 0.0
+        ),
+        serious_competitors=int(
+            payload.get("serious_competitors")
+            or decision_summary.get("serious_competitors")
+            or bids.get("serious_competitors")
+            or 0
         ),
         synergy_score=synergy_score,
         explanation=explanation,
@@ -360,11 +430,16 @@ def _combo_to_dict(
         "synergy_score": float(combo.synergy_score),
         "cautious_bid": float(combo.cautious_bid),
         "target_bid": float(combo.target_bid),
+        "recommended_bid_safe": float(combo.recommended_bid_safe),
+        "recommended_bid_balanced": float(combo.recommended_bid_balanced),
+        "recommended_bid_aggressive": float(combo.recommended_bid_aggressive),
         "hard_ceiling_bid": float(combo.hard_ceiling_bid),
         "budget_adjusted_bid": float(combo.budget_adjusted_bid),
         "working_bid": float(combo.working_bid),
         "working_bid_source": str(combo.working_bid_source),
         "working_bid_reason": str(combo.working_bid_reason),
+        "p_win": float(combo.p_win),
+        "serious_competitors": int(combo.serious_competitors),
         "scenario_breakdown": scenario_breakdown,
         "decision_factors": decision_factors,
         "worst_case_profit": float(worst_case.get("net_profit", 0.0) or 0.0),
@@ -427,6 +502,9 @@ def _build_combo_catalog(
         standalone_bids[int(lot.id)] = {
             "target_bid": float(row.target_bid),
             "cautious_bid": float(row.cautious_bid),
+            "recommended_bid_safe": float(row.recommended_bid_safe),
+            "recommended_bid_balanced": float(row.recommended_bid_balanced),
+            "recommended_bid_aggressive": float(row.recommended_bid_aggressive),
             "hard_ceiling_bid": float(row.hard_ceiling_bid),
             "working_bid": float(row.working_bid),
         }
@@ -619,7 +697,7 @@ def build_strategy_snapshot(
         scenario_key="full_budget",
         scenario_title="Полный бюджет",
         scenario_note=(
-            "Единая оценка по текущему портфелю и доступному бюджету. Value-ставки не обязаны "
+            "Единая оценка по текущему портфелю и доступному бюджету. Recommended bids не обязаны "
             "тратить весь остаток: сохранённые деньги переходят в следующие аукционы."
         ),
     )

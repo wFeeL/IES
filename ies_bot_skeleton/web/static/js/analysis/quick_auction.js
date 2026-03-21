@@ -169,11 +169,48 @@
   }
 
   function workingBid(row) {
+    return bidBalanced(row);
+  }
+
+  function bidSafe(row) {
     return Number(
+      row.recommended_bid_safe ||
+      (row.decision_summary || {}).recommended_bid_safe ||
+      row.cautious_bid ||
+      (row.decision_summary || {}).cautious_bid ||
+      0
+    );
+  }
+
+  function bidBalanced(row) {
+    return Number(
+      row.recommended_bid_balanced ||
+      (row.decision_summary || {}).recommended_bid_balanced ||
       row.recommended_bid ||
       (row.decision_summary || {}).recommended_bid ||
       row.working_bid ||
       (row.decision_summary || {}).working_bid ||
+      0
+    );
+  }
+
+  function bidAggressive(row) {
+    return Number(
+      row.recommended_bid_aggressive ||
+      (row.decision_summary || {}).recommended_bid_aggressive ||
+      row.target_bid ||
+      (row.decision_summary || {}).target_bid ||
+      bidBalanced(row) ||
+      0
+    );
+  }
+
+  function hardCeilingBid(row) {
+    return Number(
+      row.hard_ceiling_bid ||
+      (row.decision_summary || {}).hard_ceiling_bid ||
+      row.max_bid ||
+      (row.decision_summary || {}).max_bid ||
       0
     );
   }
@@ -219,7 +256,46 @@
     return compactReason(fullReason(row));
   }
 
-  function budgetAdjustedBid(row) {
+  function compositionLabel(row) {
+    const category = String(row?.composition_label || row?.composition || '—').trim() || '—';
+    const scope = String(row?.scope || '').trim();
+    if (!scope) {
+      return category;
+    }
+    return `${category} · ${scope}`;
+  }
+
+  function structureItems(row) {
+    return Array.isArray(row?.structure_items) ? row.structure_items : [];
+  }
+
+  function structureChipsHtml(row, limit = 4) {
+    const items = structureItems(row).slice(0, Math.max(1, Number(limit || 4)));
+    if (!items.length) {
+      return `<span class="lot-chip">${escapeHtml(String(row?.structure || 'Пустой лот'))}</span>`;
+    }
+    return items
+      .map((item) => `<span class="lot-chip">${escapeHtml(item?.label || '—')}</span>`)
+      .join('');
+  }
+
+  function topPros(row) {
+    const reasons = Array.isArray(row?.reasons)
+      ? row.reasons.map((value) => String(value || '').trim()).filter(Boolean)
+      : [];
+    const preferred = reasons[0] || String(row?.recommended_bid_reason || '').trim();
+    const text = preferred || String(row?.working_bid_reason || '').trim();
+    return compactReason(text || 'Умеренный риск и рабочая ставка в бюджете.');
+  }
+
+  function topRisks(row) {
+    const riskComment = String(row?.risk_commentary || '').trim();
+    const systemMessage = String((row?.system_check || {}).message || '').trim();
+    const text = riskComment || systemMessage;
+    return compactReason(text || 'Существенных блокирующих рисков не выявлено.');
+  }
+
+  function maxJustifiedBid(row) {
     return Number(
       (row.decision_summary || {}).max_bid ||
       row.max_bid ||
@@ -439,13 +515,10 @@
     const rawValue = input?.value || '';
     const enteredBid = rawValue ? toNumber(rawValue) : workingBid(item);
     const recommended = workingBid(item);
-    const grossProfit = grossProfitBeforeBid(item);
     const profit = profitAfterBid(item, enteredBid);
     const budgetLeft = budgetLeftAfterBid(item, enteredBid);
     const profitDelta = profitAfterBid(item, recommended) - profit;
     const budgetDelta = budgetLeftAfterBid(item, recommended) - budgetLeft;
-    if ($('qaBidProfit')) $('qaBidProfit').textContent = formatNumber(profit, 2);
-    if ($('qaBudgetLeft')) $('qaBudgetLeft').textContent = formatNumber(budgetLeft, 1);
 
     let advice = String(
       item?.budget_preservation_note ||
@@ -468,27 +541,42 @@
       warning = 'Ставка должна быть больше нуля, иначе купить лот нельзя.';
     } else if (profit <= 0) {
       warning = 'Предупреждение: после введённой ставки ожидаемая прибыль становится неположительной.';
-    } else if (enteredBid > budgetAdjustedBid(item) + 1e-9) {
-      warning = `Предупреждение: введённая цена выше максимальной ставки ${formatNumber(budgetAdjustedBid(item), 1)}.`;
+    } else if (enteredBid > maxJustifiedBid(item) + 1e-9) {
+      warning = `Предупреждение: введённая цена выше max justified bid ${formatNumber(maxJustifiedBid(item), 1)}.`;
     }
     if ($('qaBidWarning')) $('qaBidWarning').textContent = warning;
     if ($('qaBidWarning')) $('qaBidWarning').hidden = !warning;
-    if (grossProfit <= 0 && !warning && $('qaBidWarning')) {
-      $('qaBidWarning').textContent = '';
-    }
   }
 
   function updateDecisionPanel(item) {
     if (!item) return;
+    const balanced = workingBid(item);
+    const safe = bidSafe(item);
+    const aggressive = bidAggressive(item);
+    const hardCeiling = hardCeilingBid(item);
+    const balancedProfit = profitAfterBid(item, balanced);
+    const balancedBudgetLeft = budgetLeftAfterBid(item, balanced);
     $('qaScore').textContent = formatNumber(item.summary_score, 2);
     $('qaRisk').textContent = formatNumber(riskValue(item), 2);
-    $('qaBid').textContent = formatNumber(workingBid(item), 1);
-    if ($('qaBudgetBid')) $('qaBudgetBid').textContent = formatNumber(budgetAdjustedBid(item), 1);
+    if ($('qaBidSafe')) $('qaBidSafe').textContent = formatNumber(safe, 1);
+    $('qaBid').textContent = formatNumber(balanced, 1);
+    if ($('qaBidAggressive')) $('qaBidAggressive').textContent = formatNumber(aggressive, 1);
+    if ($('qaBudgetBid')) $('qaBudgetBid').textContent = formatNumber(hardCeiling, 1);
+    if ($('qaBidProfit')) $('qaBidProfit').textContent = formatNumber(balancedProfit, 2);
+    if ($('qaBudgetLeft')) $('qaBudgetLeft').textContent = formatNumber(balancedBudgetLeft, 1);
+    if ($('qaLotName')) $('qaLotName').textContent = String(item?.name || `Лот ${Number(item?.lot_id || 0)}`);
+    if ($('qaLotType')) $('qaLotType').textContent = compositionLabel(item);
+    if ($('qaLotStructure')) {
+      $('qaLotStructure').innerHTML = structureChipsHtml(item, 8);
+      $('qaLotStructure').title = structureText(item);
+    }
+    if ($('qaLotPros')) $('qaLotPros').textContent = `Плюсы: ${topPros(item)}`;
+    if ($('qaLotRisks')) $('qaLotRisks').textContent = `Риски: ${topRisks(item)}`;
     const reasons = Array.isArray(item.reasons) ? item.reasons.slice(0, 3).join('; ') : '';
     const systemMessage = String((item.system_check || {}).message || '');
     $('qaCommentary').textContent = reasons || workingBidReason(item) || systemMessage || 'Нет комментария.';
-    if (workingBid(item) <= 0) {
-      $('qaCommentary').textContent = workingBidReason(item) || systemMessage || 'Рекомендуемая ставка недоступна для текущего лота.';
+    if (balanced <= 0) {
+      $('qaCommentary').textContent = workingBidReason(item) || systemMessage || 'Balanced bid недоступна для текущего лота.';
     }
     const lotId = Number(item.lot_id || 0);
     $('currentLotId').value = String(lotId || '');
@@ -563,10 +651,15 @@
       item.dataset.lotId = String(lotId);
       item.dataset.hotkey = String(index + 1);
       item.dataset.currentBid = String(marketBid(row));
+      const lotTitle = row?.name || `Лот ${lotId}`;
+      const chips = structureChipsHtml(row, 4);
       item.innerHTML = `
-        <strong>${index + 1}.</strong>
-        <span class="text-clamp-2" title="${escapeHtml(row?.name || `Лот ${lotId}`)}">${escapeHtml(row?.name || `Лот ${lotId}`)}</span>
-        <span class="muted auction-item-bid">(${formatNumber(marketBid(row), 1)})</span>
+        <div class="key-value">
+          <strong>${index + 1}.</strong>
+          <span class="text-clamp-2" title="${escapeHtml(lotTitle)}">${escapeHtml(lotTitle)}</span>
+        </div>
+        <div class="muted auction-item-bid">bid ${formatNumber(marketBid(row), 1)}</div>
+        <div class="lot-chip-wrap mt-2" title="${escapeHtml(structureText(row))}">${chips}</div>
       `;
       fragment.appendChild(item);
     });
@@ -620,7 +713,10 @@
       const tr = document.createElement('tr');
       const lotId = Number(row?.lot_id || 0);
       const bid = workingBid(row);
-      const budgetBid = budgetAdjustedBid(row);
+      const safeBid = bidSafe(row);
+      const aggressiveBid = bidAggressive(row);
+      const ceilingBid = hardCeilingBid(row);
+      const justifiedBid = maxJustifiedBid(row);
       const fullReasonText = fullReason(row);
       const shortReasonText = shortReason(row);
       const lotName = escapeHtml(row?.name || `Лот ${lotId || '—'}`);
@@ -646,7 +742,9 @@
             <strong>${formatNumber(bid, 1)}</strong>
             ${
               bid > 0
-                ? `<span class="lot-bid-meta" title="${escapeHtml(fullReasonText || `Максимальная ставка: ${formatNumber(budgetBid, 1)}`)}">max ${formatNumber(budgetBid, 1)}</span>${fitBadge}`
+                ? `<span class="lot-bid-meta" title="safe ${formatNumber(safeBid, 1)} / aggressive ${formatNumber(aggressiveBid, 1)}">safe ${formatNumber(safeBid, 1)} · aggr ${formatNumber(aggressiveBid, 1)}</span>
+                   <span class="lot-bid-meta" title="hard ceiling ${formatNumber(ceilingBid, 1)} / max justified ${formatNumber(justifiedBid, 1)}">ceiling ${formatNumber(ceilingBid, 1)}</span>
+                   ${fitBadge}`
                 : `<span class="lot-bid-reason text-clamp-2" title="${escapeHtml(fullReasonText)}">${escapeHtml(shortReasonText || 'Нет рекомендуемой ставки')}</span>`
             }
           </div>

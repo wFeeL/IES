@@ -209,14 +209,19 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "ui_rows": [],
         },
         "decision_summary": {
+            "recommended_bid_safe": 0.0,
+            "recommended_bid_balanced": 0.0,
+            "recommended_bid_aggressive": 0.0,
             "cautious_bid": 0.0,
             "target_bid": 0.0,
             "hard_ceiling_bid": 0.0,
             "budget_adjusted_bid": 0.0,
             "recommended_bid": 0.0,
             "max_bid": 0.0,
-            "bid_formula": "fixed_profit_share_15_25",
+            "bid_formula": "pwin_aware_allpay",
             "bid_share": 0.0,
+            "p_win": 0.0,
+            "serious_competitors": 0,
             "gross_expected_profit_before_bid": 0.0,
             "recommended_bid_reason": reason,
             "max_bid_reason": reason,
@@ -254,6 +259,11 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
                 "recommended_bid": 0.0,
                 "max_bid": 0.0,
                 "bid_share": 0.0,
+                "recommended_bid_safe": 0.0,
+                "recommended_bid_balanced": 0.0,
+                "recommended_bid_aggressive": 0.0,
+                "p_win": 0.0,
+                "serious_competitors": 0,
                 "gross_expected_profit_before_bid": 0.0,
                 "recommended_bid_reason": reason,
                 "max_bid_reason": reason,
@@ -266,7 +276,7 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
                 "risk_premium": 0.0,
                 "reserve_margin": 0.0,
                 "valuation_model": {
-                    "model": "valuation_model_v3",
+                    "model": "auction_bid_model",
                     "profile": "mixed",
                     "risk_band": "high",
                     "horizon_ticks": 0,
@@ -278,18 +288,16 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
                     "downside_gap": 0.0,
                     "risk_ratio": 1.0,
                     "risk_premium": 0.0,
-                    "payback_ticks": 15,
-                    "cap_share": 0.15,
-                    "role_multipliers": {"target": 1.0, "cautious": 1.0, "ceiling": 1.0},
+                    "cap_share": 0.0,
                     "portfolio_synergy": 0.0,
                     "system_fit_score": 0.0,
-                    "anchor_value": 0.0,
-                    "synergy_bonus": 0.0,
-                    "system_bonus": 0.0,
+                    "conservative_utility": {"method": "weighted_expected_minus_volatility", "value": 0.0},
                     "reserve_margin": 0.0,
-                    "risk_buffer": 0.0,
                     "cautious_bid": 0.0,
                     "target_bid": 0.0,
+                    "recommended_bid_safe": 0.0,
+                    "recommended_bid_balanced": 0.0,
+                    "recommended_bid_aggressive": 0.0,
                     "hard_ceiling_bid": 0.0,
                     "budget_adjusted_bid": 0.0,
                     "recommended_bid": 0.0,
@@ -1165,18 +1173,43 @@ def quick_auction_page(session_id: int):
             for row in available_rows:
                 payload = dict(row.get("evaluation") or {})
                 decision_summary = dict(payload.get("decision_summary") or {})
+                recommended_safe = float(
+                    row.get("recommended_bid_safe")
+                    or decision_summary.get("recommended_bid_safe")
+                    or decision_summary.get("cautious_bid")
+                    or 0.0
+                )
+                recommended_balanced = float(
+                    row.get("recommended_bid_balanced")
+                    or decision_summary.get("recommended_bid_balanced")
+                    or row.get("recommended_bid")
+                    or row.get("working_bid")
+                    or decision_summary.get("target_bid")
+                    or 0.0
+                )
+                recommended_aggressive = float(
+                    row.get("recommended_bid_aggressive")
+                    or decision_summary.get("recommended_bid_aggressive")
+                    or decision_summary.get("target_bid")
+                    or recommended_balanced
+                    or 0.0
+                )
                 decision_summary.update(
                     {
-                        "target_bid": float(row.get("target_bid", 0.0) or 0.0),
+                        "target_bid": float(row.get("target_bid", recommended_balanced) or 0.0),
                         "budget_adjusted_bid": float(row.get("budget_adjusted_bid", 0.0) or 0.0),
+                        "recommended_bid_safe": float(recommended_safe),
+                        "recommended_bid_balanced": float(recommended_balanced),
+                        "recommended_bid_aggressive": float(recommended_aggressive),
                         "recommended_bid": float(
-                            row.get("recommended_bid", row.get("working_bid", 0.0)) or 0.0
+                            row.get("recommended_bid", row.get("working_bid", recommended_balanced))
+                            or 0.0
                         ),
                         "max_bid": float(row.get("max_bid", 0.0) or 0.0),
                         "bid_formula": str(
                             row.get("decision_summary", {}).get("bid_formula")
                             or payload.get("decision_summary", {}).get("bid_formula")
-                            or "fixed_profit_share_15_25"
+                            or "pwin_aware_allpay"
                         ),
                         "bid_share": float(
                             row.get("decision_summary", {}).get("bid_share")
@@ -1222,7 +1255,10 @@ def quick_auction_page(session_id: int):
                         "name": str(row.get("name") or ""),
                         "structure": str(row.get("structure") or "Пустой лот"),
                         "structure_items": list(row.get("structure_items") or []),
+                        "composition": str(row.get("composition") or "all"),
+                        "composition_label": str(row.get("composition_label") or "—"),
                         "status": str(row.get("status") or ""),
+                        "scope": str(getattr(row.get("lot"), "scope", "") or ""),
                         "price": float(row.get("price", 0.0) or 0.0),
                         "risk": float(row.get("risk", 0.0) or 0.0),
                         "net_profit": float(row.get("net_profit", 0.0) or 0.0),
@@ -1246,8 +1282,12 @@ def quick_auction_page(session_id: int):
                         ),
                         "working_bid": float(row.get("working_bid", 0.0) or 0.0),
                         "recommended_bid": float(
-                            row.get("recommended_bid", row.get("working_bid", 0.0)) or 0.0
+                            row.get("recommended_bid", row.get("working_bid", recommended_balanced))
+                            or 0.0
                         ),
+                        "recommended_bid_safe": float(recommended_safe),
+                        "recommended_bid_balanced": float(recommended_balanced),
+                        "recommended_bid_aggressive": float(recommended_aggressive),
                         "max_bid": float(row.get("max_bid", 0.0) or 0.0),
                         "working_bid_source": str(row.get("working_bid_source") or "none"),
                         "working_bid_reason": str(row.get("working_bid_reason") or ""),
@@ -1256,7 +1296,7 @@ def quick_auction_page(session_id: int):
                             row.get("budget_preservation_note") or BUDGET_PRESERVATION_NOTE
                         ),
                         "budget_adjusted_bid": float(row.get("budget_adjusted_bid", 0.0) or 0.0),
-                        "target_bid": float(row.get("target_bid", 0.0) or 0.0),
+                        "target_bid": float(row.get("target_bid", recommended_balanced) or 0.0),
                         "connection_fit_status": str(row.get("connection_fit_status") or "neutral"),
                         "recommended_points": list(row.get("recommended_points") or []),
                         "decision_summary": decision_summary,
@@ -1267,6 +1307,21 @@ def quick_auction_page(session_id: int):
             compatibility_report = dict(exc.report)
             forecast_blocked = True
             ranking = []
+    shortlist_lots = []
+    for lot in session.lots:
+        if str(lot.status or "") != "available":
+            continue
+        summary = lot_summary(lot)
+        shortlist_lots.append(
+            {
+                "id": int(lot.id),
+                "name": str(lot.name or f"Лот {lot.id}"),
+                "current_bid": float(lot.current_bid or 0.0),
+                "structure": str(summary.get("structure") or "Пустой лот"),
+                "structure_items": list(summary.get("structure_items") or []),
+                "composition_label": str(summary.get("composition_label") or "—"),
+            }
+        )
     compatibility_guidance = forecast_compatibility_guidance(
         compatibility_report,
         session=session,
@@ -1284,7 +1339,7 @@ def quick_auction_page(session_id: int):
     return render_template(
         "analysis/quick_auction.html",
         session=session,
-        lots=[lot for lot in session.lots if lot.status == "available"],
+        lots=shortlist_lots,
         ranking=ranking,
         forecast_blocked=forecast_blocked,
         forecast_compatibility_report=compatibility_report,

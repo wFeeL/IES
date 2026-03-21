@@ -235,6 +235,21 @@ RULESET_SECTION_FIELDS = [
             ("auction_starting_budget", "number", "Стартовый бюджет"),
             ("auction_tie_break_threshold", "number", "Порог tie-break"),
             ("auction_pwin_default", "number", "Вероятность победы по умолчанию"),
+            ("auction_pwin_min", "number", "Минимальная вероятность победы"),
+            ("auction_pwin_max", "number", "Максимальная вероятность победы"),
+            ("auction_serious_competitors_default", "number", "Серьёзные конкуренты (база)"),
+            ("auction_serious_competitors_min", "number", "Серьёзные конкуренты (мин)"),
+            ("auction_serious_competitors_max", "number", "Серьёзные конкуренты (макс)"),
+            ("auction_rank_weight", "number", "Вес ранга"),
+            ("auction_synergy_weight", "number", "Вес синергии"),
+            ("auction_scarcity_weight", "number", "Вес редкости"),
+            ("auction_scope_weight", "number", "Вес масштаба лота"),
+            ("auction_safe_multiplier", "number", "Множитель safe bid"),
+            ("auction_balanced_multiplier", "number", "Множитель balanced bid"),
+            ("auction_aggressive_multiplier", "number", "Множитель aggressive bid"),
+            ("auction_volatility_lambda_bid", "number", "Штраф волатильности в bid-модели"),
+            ("auction_bid_model_version", "text", "Версия bid-модели"),
+            ("auction_conservative_utility_method", "text", "Метод conservative utility"),
         ],
     },
     {
@@ -483,6 +498,40 @@ def ruleset_form_values(
             config, "auction", "tie_break_threshold", default=2.0
         ),
         "auction_pwin_default": _get_nested(config, "auction", "pwin_default", default=0.35),
+        "auction_pwin_min": _get_nested(config, "auction", "pwin_min", default=0.08),
+        "auction_pwin_max": _get_nested(config, "auction", "pwin_max", default=0.88),
+        "auction_serious_competitors_default": _get_nested(
+            config, "auction", "serious_competitors_default", default=3.0
+        ),
+        "auction_serious_competitors_min": _get_nested(
+            config, "auction", "serious_competitors_min", default=2.0
+        ),
+        "auction_serious_competitors_max": _get_nested(
+            config, "auction", "serious_competitors_max", default=7.0
+        ),
+        "auction_rank_weight": _get_nested(config, "auction", "rank_weight", default=0.22),
+        "auction_synergy_weight": _get_nested(config, "auction", "synergy_weight", default=0.12),
+        "auction_scarcity_weight": _get_nested(config, "auction", "scarcity_weight", default=0.08),
+        "auction_scope_weight": _get_nested(config, "auction", "scope_weight", default=0.06),
+        "auction_safe_multiplier": _get_nested(config, "auction", "safe_multiplier", default=0.82),
+        "auction_balanced_multiplier": _get_nested(
+            config, "auction", "balanced_multiplier", default=1.0
+        ),
+        "auction_aggressive_multiplier": _get_nested(
+            config, "auction", "aggressive_multiplier", default=1.22
+        ),
+        "auction_volatility_lambda_bid": _get_nested(
+            config, "auction", "volatility_lambda_bid", default=0.15
+        ),
+        "auction_bid_model_version": _get_nested(
+            config, "auction", "auction_bid_model_version", default="pwin_v1"
+        ),
+        "auction_conservative_utility_method": _get_nested(
+            config,
+            "auction",
+            "conservative_utility_method",
+            default="weighted_expected_minus_volatility",
+        ),
         "evaluation_weight_base": weighted_expected.get("base", 0.50),
         "evaluation_weight_worst": weighted_expected.get("worst", 0.35),
         "evaluation_weight_best": weighted_expected.get("best", 0.15),
@@ -628,6 +677,23 @@ def ruleset_payload_from_request(
             "starting_budget": num("auction_starting_budget", 200.0),
             "tie_break_threshold": num("auction_tie_break_threshold", 2.0),
             "pwin_default": num("auction_pwin_default", 0.35),
+            "pwin_min": num("auction_pwin_min", 0.08),
+            "pwin_max": num("auction_pwin_max", 0.88),
+            "serious_competitors_default": num("auction_serious_competitors_default", 3.0),
+            "serious_competitors_min": num("auction_serious_competitors_min", 2.0),
+            "serious_competitors_max": num("auction_serious_competitors_max", 7.0),
+            "rank_weight": num("auction_rank_weight", 0.22),
+            "synergy_weight": num("auction_synergy_weight", 0.12),
+            "scarcity_weight": num("auction_scarcity_weight", 0.08),
+            "scope_weight": num("auction_scope_weight", 0.06),
+            "safe_multiplier": num("auction_safe_multiplier", 0.82),
+            "balanced_multiplier": num("auction_balanced_multiplier", 1.0),
+            "aggressive_multiplier": num("auction_aggressive_multiplier", 1.22),
+            "volatility_lambda_bid": num("auction_volatility_lambda_bid", 0.15),
+            "auction_bid_model_version": text("auction_bid_model_version", "pwin_v1"),
+            "conservative_utility_method": text(
+                "auction_conservative_utility_method", "weighted_expected_minus_volatility"
+            ),
         }
     )
     config["auction"] = auction
@@ -685,7 +751,26 @@ def ruleset_payload_from_request(
     )
     config["evaluation"] = deepcopy(evaluation)
     model_settings["evaluation"] = evaluation
-    model_settings["auction"] = {"pwin_default": num("auction_pwin_default", 0.35)}
+    model_settings["auction"] = {
+        "pwin_default": num("auction_pwin_default", 0.35),
+        "pwin_min": num("auction_pwin_min", 0.08),
+        "pwin_max": num("auction_pwin_max", 0.88),
+        "serious_competitors_default": num("auction_serious_competitors_default", 3.0),
+        "serious_competitors_min": num("auction_serious_competitors_min", 2.0),
+        "serious_competitors_max": num("auction_serious_competitors_max", 7.0),
+        "rank_weight": num("auction_rank_weight", 0.22),
+        "synergy_weight": num("auction_synergy_weight", 0.12),
+        "scarcity_weight": num("auction_scarcity_weight", 0.08),
+        "scope_weight": num("auction_scope_weight", 0.06),
+        "safe_multiplier": num("auction_safe_multiplier", 0.82),
+        "balanced_multiplier": num("auction_balanced_multiplier", 1.0),
+        "aggressive_multiplier": num("auction_aggressive_multiplier", 1.22),
+        "volatility_lambda_bid": num("auction_volatility_lambda_bid", 0.15),
+        "auction_bid_model_version": text("auction_bid_model_version", "pwin_v1"),
+        "conservative_utility_method": text(
+            "auction_conservative_utility_method", "weighted_expected_minus_volatility"
+        ),
+    }
 
     return {"config_json": config, "model_settings": model_settings}
 

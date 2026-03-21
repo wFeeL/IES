@@ -60,11 +60,12 @@ def test_recommend_and_quick_pages_render_forecast_only_blocks(client):
     assert quick_resp.status_code == 200
     quick_html = quick_resp.get_data(as_text=True)
     assert "Быстрый аукцион" in quick_html
-    assert "Рекомендуемая ставка" in quick_html
-    assert "Максимальная ставка" in quick_html
-    assert "Прибыль после введённой ставки" in quick_html
-    assert "Остаток бюджета после ставки" in quick_html
+    assert "Balanced bid" in quick_html
+    assert "Hard ceiling" in quick_html
+    assert "Прибыль после balanced bid" in quick_html
+    assert "Остаток бюджета после balanced bid" in quick_html
     assert 'id="qaBidAdvice"' in quick_html
+    assert 'id="qaLotStructure"' in quick_html
     assert "Открыть сравнение" not in quick_html
     assert "Технический ответ" not in quick_html
     assert "Купить" in quick_html

@@ -368,7 +368,7 @@ def test_quick_auction_buys_by_field_price_without_confirm_link(client):
     assert quick.status_code == 200
     quick_html = quick.get_data(as_text=True)
     assert f"/lots/item/{lot_id}/buy" not in quick_html
-    assert "Цена покупки (по умолчанию — рекомендуемая ставка)" in quick_html
+    assert "Цена покупки (по умолчанию — balanced bid)" in quick_html
     assert 'id="purchasePriceInput"' in quick_html
 
     script = client.get("/static/js/analysis/quick_auction.js").get_data(as_text=True)
@@ -634,9 +634,9 @@ def test_lot_detail_marks_scenario_bid_as_non_operational_metric(client):
     _upload_and_select_forecast(client, session_id)
 
     html = client.get(f"/lots/item/{lot_id}").get_data(as_text=True)
-    assert "Value-ставка по сценарию" in html
-    assert "Чистая прибыль при этой ставке" in html
-    assert "Агрессивный потолок по сценарию" in html
+    assert "Balanced bid по сценарию" in html
+    assert "Чистая прибыль после balanced bid" in html
+    assert "Hard ceiling по сценарию" in html
     assert "Рабочая ставка сценария" not in html
 
 
@@ -1064,10 +1064,13 @@ def test_invalid_topology_blocks_system_check_inside_lot_evaluation(client, app)
     evaluation = client.post(f"/api/lots/{lot_id}/evaluate", json={})
     assert evaluation.status_code == 200
     payload = evaluation.get_json()["item"]
-    assert payload["system_check"]["status"] == "blocked"
+    assert payload["system_check"]["status"] == "advisory"
     assert payload["system_check"]["topology_invalid"] is True
-    assert float(payload["working_bid"]) == pytest.approx(0.0)
-    assert float(payload["decision_summary"]["working_bid"]) == pytest.approx(0.0)
+    assert payload["system_check"]["topology_blocks_valuation"] is False
+    assert float(payload["working_bid"]) == pytest.approx(
+        float(payload["decision_summary"]["working_bid"])
+    )
+    assert "заблокирована" not in str(payload["working_bid_reason"]).lower()
 
     system_html = client.get(f"/system/{session_id}").get_data(as_text=True)
     assert "Обнаружен цикл в дереве сети" in system_html

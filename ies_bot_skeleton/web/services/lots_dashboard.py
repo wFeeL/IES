@@ -104,9 +104,28 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
     result = dict(financial.get("result") or {})
     losses = dict(financial.get("losses_and_risks") or {})
     decision_summary = dict(evaluation.get("decision_summary") or {})
-    working_bid = float(evaluation.get("working_bid") or decision_summary.get("working_bid") or 0.0)
+    recommended_bid_safe = float(
+        decision_summary.get("recommended_bid_safe", decision_summary.get("cautious_bid", 0.0))
+        or 0.0
+    )
+    recommended_bid_balanced = float(
+        decision_summary.get("recommended_bid_balanced", decision_summary.get("target_bid", 0.0))
+        or 0.0
+    )
+    recommended_bid_aggressive = float(
+        decision_summary.get("recommended_bid_aggressive", decision_summary.get("target_bid", 0.0))
+        or 0.0
+    )
+    working_bid = float(
+        evaluation.get("working_bid")
+        or decision_summary.get("working_bid")
+        or recommended_bid_balanced
+        or 0.0
+    )
     recommended_bid = float(
-        decision_summary.get("recommended_bid", working_bid) or working_bid
+        decision_summary.get("recommended_bid", working_bid)
+        or recommended_bid_balanced
+        or working_bid
     )
     max_bid = float(
         decision_summary.get(
@@ -179,7 +198,13 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         ),
         "risk": float(losses.get("risk_total", 0.0) or 0.0),
         "working_bid": float(working_bid),
+        "recommended_bid_safe": float(recommended_bid_safe),
+        "recommended_bid_balanced": float(recommended_bid_balanced),
+        "recommended_bid_aggressive": float(recommended_bid_aggressive),
         "recommended_bid": float(recommended_bid),
+        "hard_ceiling_bid": float(
+            decision_summary.get("hard_ceiling_bid", 0.0) or 0.0
+        ),
         "max_bid": float(max_bid),
         "working_bid_source": str(
             evaluation.get("working_bid_source")
@@ -197,8 +222,13 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
             or ""
         ),
         "target_bid": float(
-            decision_summary.get("target_bid", 0.0) or 0.0
+            decision_summary.get("target_bid", recommended_bid_balanced) or 0.0
         ),
+        "cautious_bid": float(
+            decision_summary.get("cautious_bid", recommended_bid_safe) or 0.0
+        ),
+        "p_win": float(decision_summary.get("p_win", 0.0) or 0.0),
+        "serious_competitors": int(decision_summary.get("serious_competitors", 0) or 0),
         "budget_adjusted_bid": float(
             decision_summary.get("budget_adjusted_bid", 0.0) or 0.0
         ),

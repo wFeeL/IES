@@ -66,7 +66,7 @@
         <option value="utility_desc" {{ 'selected' if sort_key == 'utility_desc' else '' }}>Полезность ↓</option>
         <option value="profit_desc" {{ 'selected' if sort_key == 'profit_desc' else '' }}>Чистая прибыль ↓</option>
         <option value="risk_asc" {{ 'selected' if sort_key == 'risk_asc' else '' }}>Риск ↑</option>
-        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Рекомендуемая ставка ↓</option>
+        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Balanced bid ↓</option>
         <option value="price_asc" {{ 'selected' if sort_key == 'price_asc' else '' }}>Цена ↑</option>
         <option value="price_desc" {{ 'selected' if sort_key == 'price_desc' else '' }}>Цена ↓</option>
       </select>
@@ -105,7 +105,7 @@
           <th class="col-num">Полезность</th>
           <th class="col-num">Чистая прибыль</th>
           <th class="col-num">Риск</th>
-          <th class="col-num">Рекомендуемая / Макс.</th>
+          <th class="col-num">Balanced / Max justified</th>
           <th class="col-text">Статус</th>
           <th class="col-actions">Действия</th>
         </tr>
@@ -131,10 +131,12 @@
           <td class="num">{{ fmt_num(row.net_profit, 2) }}</td>
           <td class="num">{{ fmt_num(row.risk, 2) }}</td>
           <td class="num lot-bid-cell">
+            {% set balanced_bid = row.recommended_bid_balanced or row.recommended_bid or row.working_bid %}
             <div class="lot-bid-stack">
-              <strong>{{ fmt_num(row.recommended_bid or row.working_bid, 1) }}</strong>
-              {% if (row.recommended_bid or row.working_bid) > 0 %}
-              <span class="lot-bid-meta" title="{{ row.max_bid_reason or ('Максимальная ставка: ' ~ fmt_num(row.max_bid, 1)) }}">max {{ fmt_num(row.max_bid, 1) }}</span>
+              <strong>{{ fmt_num(balanced_bid, 1) }}</strong>
+              {% if balanced_bid > 0 %}
+              <span class="lot-bid-meta" title="safe {{ fmt_num(row.recommended_bid_safe, 1) }} / aggressive {{ fmt_num(row.recommended_bid_aggressive, 1) }}">safe {{ fmt_num(row.recommended_bid_safe, 1) }} · aggr {{ fmt_num(row.recommended_bid_aggressive, 1) }}</span>
+              <span class="lot-bid-meta" title="{{ row.max_bid_reason or ('Hard ceiling: ' ~ fmt_num(row.hard_ceiling_bid or row.max_bid, 1)) }}">max {{ fmt_num(row.max_bid, 1) }}</span>
               {% if row.connection_fit_status and row.connection_fit_status != 'neutral' %}
               <span class="lot-bid-meta">fit {{ row.connection_fit_status }}</span>
               {% endif %}

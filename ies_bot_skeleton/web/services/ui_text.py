@@ -139,6 +139,14 @@ def working_bid_reason_short(reason: str | None) -> str:
     if not text:
         return ""
     lowered = text.lower()
+    if "balanced bid" in lowered and "ограничена бюджетом" in lowered:
+        return "Balanced ограничена бюджетом"
+    if "safe bid" in lowered:
+        return "Safe режим"
+    if "pwin-aware" in lowered:
+        return "Pwin-aware модель"
+    if "консервативная полезность неположительная" in lowered:
+        return "Нет консервативной полезности"
     if "ограничена бюджетом" in lowered:
         return "Ограничено бюджетом"
     if "снижена относительно target" in lowered or "снижена относительно target" in lowered:
@@ -159,4 +167,6 @@ def working_bid_reason_short(reason: str | None) -> str:
         return "Риск перекрывает эффект"
     if "допустимую ставку" in lowered:
         return "Ставка не формируется"
+    if "не формирует оправданную цену входа" in lowered:
+        return "Нет оправданной ставки"
     return text

@@ -161,7 +161,7 @@ def test_quick_auction_uses_user_facing_actions_without_debug_block(client):
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
     assert "Технический ответ" not in html
-    assert "Цена покупки (по умолчанию — рекомендуемая ставка)" in html
+    assert "Цена покупки (по умолчанию — balanced bid)" in html
     assert 'id="purchasePriceInput"' in html
     assert f"/lots/item/{lot_a}" in html
     assert "Открыть сравнение" not in html

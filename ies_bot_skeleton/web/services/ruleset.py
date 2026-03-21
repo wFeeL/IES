@@ -90,8 +90,28 @@ def build_default_ruleset_config() -> Dict[str, Any]:
     evaluation_cfg.setdefault("ignore_connection_sectors", False)
     evaluation_cfg.setdefault("analysis_mode", "unified")
     merged["evaluation"] = evaluation_cfg
-    merged.setdefault("auction", {}).setdefault("pwin_default", 0.35)
-    merged.setdefault("auction", {}).setdefault("starting_budget", 200.0)
+    auction_cfg = dict(merged.get("auction", {}) or {})
+    auction_cfg.setdefault("pwin_default", 0.35)
+    auction_cfg.setdefault("pwin_min", 0.08)
+    auction_cfg.setdefault("pwin_max", 0.88)
+    auction_cfg.setdefault("serious_competitors_default", 3)
+    auction_cfg.setdefault("serious_competitors_min", 2)
+    auction_cfg.setdefault("serious_competitors_max", 7)
+    auction_cfg.setdefault("rank_weight", 0.22)
+    auction_cfg.setdefault("synergy_weight", 0.12)
+    auction_cfg.setdefault("scarcity_weight", 0.08)
+    auction_cfg.setdefault("scope_weight", 0.06)
+    auction_cfg.setdefault("safe_multiplier", 0.82)
+    auction_cfg.setdefault("balanced_multiplier", 1.0)
+    auction_cfg.setdefault("aggressive_multiplier", 1.22)
+    auction_cfg.setdefault("volatility_lambda_bid", 0.15)
+    auction_cfg.setdefault("auction_bid_model_version", "pwin_v1")
+    auction_cfg.setdefault("conservative_utility_method", "weighted_expected_minus_volatility")
+    auction_cfg.setdefault("scope_signal_global", 0.65)
+    auction_cfg.setdefault("scope_signal_local", -0.45)
+    auction_cfg.setdefault("block_on_topology_invalid", False)
+    auction_cfg.setdefault("starting_budget", 200.0)
+    merged["auction"] = auction_cfg
     return merged
 
 
