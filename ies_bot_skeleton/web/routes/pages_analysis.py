@@ -220,8 +220,8 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "budget_adjusted_bid": 0.0,
             "recommended_bid": 0.0,
             "max_bid": 0.0,
-            "bid_formula": "portfolio_marginal_allpay_v2",
-            "legacy_bid_formula": "pwin_aware_allpay",
+            "bid_formula": "strategic_anchor_allpay_v3",
+            "legacy_bid_formula": "deprecated_pwin_share_model",
             "bid_share": 0.0,
             "p_win": 0.0,
             "serious_competitors": 0,
@@ -1212,7 +1212,7 @@ def quick_auction_page(session_id: int):
                         "bid_formula": str(
                             row.get("decision_summary", {}).get("bid_formula")
                             or payload.get("decision_summary", {}).get("bid_formula")
-                            or "portfolio_marginal_allpay_v2"
+                            or "strategic_anchor_allpay_v3"
                         ),
                         "bid_share": float(
                             row.get("decision_summary", {}).get("bid_share")
