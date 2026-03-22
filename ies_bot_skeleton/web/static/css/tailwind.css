@@ -1091,32 +1091,12 @@ html[data-theme="dark"] .input {
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 16px;
   padding: 10px 12px;
-  overflow: hidden;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(248, 251, 254, 0.92));
 }
 
 .weather-svg text {
   font-family: inherit;
-}
-
-.weather-series-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  paint-order: stroke;
-  stroke: rgba(255, 255, 255, 0.9);
-  stroke-width: 4px;
-}
-
-.weather-series-guide {
-  stroke-width: 1.4px;
-  opacity: 0.72;
-}
-
-.weather-series-dot {
-  stroke: rgba(255, 255, 255, 0.9);
-  stroke-width: 2px;
 }
 
 .weather-chart-wide {
@@ -1234,16 +1214,6 @@ html[data-theme="dark"] .weather-fact-pill {
   background: rgba(22, 35, 54, 0.88);
 }
 
-html[data-theme="dark"] .forecast-tag,
-html[data-theme="dark"] .mapping-token {
-  background: rgba(22, 35, 54, 0.88);
-  border-color: rgba(123, 154, 196, 0.16);
-}
-
-html[data-theme="dark"] .weather-series-label {
-  stroke: rgba(16, 28, 45, 0.96);
-}
-
 html[data-theme="dark"] .weather-decision-buy {
   background: linear-gradient(180deg, rgba(15, 127, 95, 0.14), rgba(26, 42, 64, 0.94));
 }
@@ -1279,31 +1249,6 @@ html[data-theme="dark"] .weather-insight-card {
   height: 100%;
 }
 
-.forecast-tag-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-width: 0;
-}
-
-.forecast-tag {
-  display: inline-flex;
-  align-items: center;
-  min-height: 30px;
-  max-width: 100%;
-  padding: 5px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(51, 88, 165, 0.14);
-  background: rgba(240, 245, 252, 0.88);
-  color: var(--text);
-}
-
-.forecast-tag code {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
 .mapping-list {
   display: grid;
   gap: 10px;
@@ -1312,10 +1257,9 @@ html[data-theme="dark"] .weather-insight-card {
 
 .mapping-list .key-value {
   display: grid;
-  grid-template-columns: minmax(92px, 0.52fr) minmax(0, 1fr);
+  grid-template-columns: minmax(100px, 0.68fr) minmax(0, 1fr);
   align-items: flex-start;
   justify-content: normal;
-  gap: 8px 14px;
 }
 
 .mapping-list .key-value span,
@@ -1327,34 +1271,8 @@ html[data-theme="dark"] .weather-insight-card {
 }
 
 .mapping-list code {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.mapping-block {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.mapping-token {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  max-width: 100%;
-  padding: 6px 10px;
-  border-radius: 12px;
-  border: 1px solid rgba(51, 88, 165, 0.14);
-  background: rgba(240, 245, 252, 0.88);
-  color: var(--text);
-}
-
-.mapping-inline {
-  display: inline-block;
-  max-width: 100%;
+  white-space: nowrap;
+  word-break: normal;
 }
 
 .table-forecast-meta th.col-text {
@@ -1391,7 +1309,6 @@ html[data-theme="dark"] .weather-insight-card {
 }
 
 .table-lots .lot-name-cell,
-.table-lots .lot-metric-cell,
 .table-lots .lot-structure-cell,
 .table-lots .lot-status-cell,
 .table-auction-ranking .col-text {
@@ -1400,23 +1317,6 @@ html[data-theme="dark"] .weather-insight-card {
 
 .lot-bid-cell {
   min-width: 0;
-}
-
-.lot-metric-cell,
-.lot-status-cell {
-  line-height: 1.38;
-}
-
-.lot-metric-cell strong,
-.lot-status-cell strong {
-  display: block;
-  line-height: 1.28;
-}
-
-.lot-metric-cell .table-secondary,
-.lot-status-cell .table-secondary {
-  margin-top: 3px;
-  white-space: normal;
 }
 
 .lot-bid-stack {
@@ -1531,77 +1431,52 @@ html[data-theme="dark"] .weather-insight-card {
 .table-lots .row-actions .btn-ghost {
   min-width: 0;
   padding-inline: 10px;
-  width: 100%;
-}
-
-.table-lots .row-actions.row-actions-inline {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
-  justify-items: stretch;
-}
-
-.lots-filter-grid .actions.lots-filter-actions {
-  align-items: flex-end;
-  justify-content: flex-start;
 }
 
 .table-lots col.lot-name-col {
-  width: 15.4rem;
+  width: 16.5rem;
 }
 
 .table-lots col.lot-structure-col {
-  width: 14.8rem;
+  width: 17rem;
 }
 
 .table-lots col.lot-price-col {
-  width: 6.6rem;
+  width: 6.2rem;
 }
 
 .table-lots col.lot-metric-col,
 .table-lots col.lot-profit-col,
 .table-lots col.lot-risk-col {
-  width: 8.2rem;
+  width: 6.5rem;
 }
 
 .table-lots col.lot-profit-col {
-  width: 8.2rem;
+  width: 7.5rem;
 }
 
 .table-lots col.lot-bid-col {
-  width: 11.4rem;
+  width: 9.2rem;
 }
 
 .table-lots col.lot-status-col {
-  width: 16rem;
+  width: 10rem;
 }
 
 .table-lots col.lot-actions-col {
-  width: 9.8rem;
-}
-
-.table-lots {
-  min-width: 1380px;
+  width: 10.8rem;
 }
 
 .table-lots.table-lots-compact col.lot-name-col {
-  width: 14.2rem;
+  width: 15.2rem;
 }
 
 .table-lots.table-lots-compact col.lot-structure-col {
-  width: 13.8rem;
+  width: 16.5rem;
 }
 
 .table-lots.table-lots-compact col.lot-bid-col {
-  width: 10.6rem;
-}
-
-.table-lots.table-lots-compact col.lot-status-col {
-  width: 14.6rem;
-}
-
-.table-lots.table-lots-compact col.lot-actions-col {
-  width: 9.4rem;
+  width: 8.8rem;
 }
 
 .strategy-card,
@@ -2582,56 +2457,5 @@ html[data-theme="dark"] .table th {
   .readiness-grid,
   .kpi-grid {
     grid-template-columns: 1fr;
-  }
-}
-
-.weather-chart-card {
-  min-height: 360px;
-}
-
-.weather-chart-canvas-wrap {
-  position: relative;
-  width: 100%;
-  height: 280px;
-}
-
-.weather-charts-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-}
-
-.weather-kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-}
-
-.weather-insight-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-}
-
-.weather-insight-card {
-  padding: 1rem 1.125rem;
-}
-
-@media (max-width: 1100px) {
-  .weather-charts-grid,
-  .weather-kpi-grid,
-  .weather-insight-list {
-    grid-template-columns: 1fr;
-  }
-
-  .weather-chart-canvas-wrap {
-    height: 240px;
-  }
-}
-
-@media (max-width: 900px) {
-  .mapping-list .key-value {
-    grid-template-columns: 1fr;
-    gap: 6px;
   }
 }
