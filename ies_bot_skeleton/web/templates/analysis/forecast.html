@@ -4,8 +4,8 @@
 {% block content %}
 {% include "components/session_hero.html" %}
 
-<section class="page-grid mt-4">
-  <article class="card">
+<section class="page-grid forecast-page-grid mt-4">
+  <article class="card forecast-upload-card">
     <p class="section-kicker">Загрузка CSV</p>
     <h1 class="h1">Центр прогноза</h1>
     <form id="forecastForm" class="stack gap-3 mt-3" enctype="multipart/form-data">
@@ -17,11 +17,11 @@
     </form>
   </article>
 
-  <article class="card">
+  <article class="card forecast-active-card">
     <p class="section-kicker">Активный прогноз</p>
     <h2 class="h2 text-ellipsis" title="{{ active_forecast_summary.name or 'Прогноз тестовой игры' }}">{{ active_forecast_summary.name or 'Прогноз тестовой игры' }}</h2>
     <p class="muted">{{ forecast_context.source_label }}</p>
-    <div class="insight-grid mt-3">
+    <div class="insight-grid forecast-summary-grid mt-3">
       <div class="metric-card"><span class="metric-label">Горизонт</span><strong>{{ fmt_tick_range(active_forecast_summary.tick_from, active_forecast_summary.tick_to, periods=active_forecast_summary.count or 0) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ fmt_num(active_forecast_summary.avg_wind, 2) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ fmt_num(active_forecast_summary.avg_illumination, 2) }}</strong></div>
@@ -67,7 +67,7 @@
       </article>
     </div>
     <div class="table-wrap mt-3">
-      <table class="table">
+      <table class="table table-forecast-meta">
         <tbody>
           <tr><th class="col-text">Совместимость прогноза</th><td>{{ 'Совместим' if active_forecast_compatibility.is_compatible else 'Несовместим' }}</td></tr>
           <tr><th class="col-text">Покрытые типы объектов</th><td>{{ (active_forecast_compatibility.compatibility_report.covered_types or [])|join(', ') or '—' }}</td></tr>
@@ -78,7 +78,13 @@
       </table>
     </div>
     <div class="table-wrap mt-3">
-      <table class="table">
+      <table class="table table-forecast-coverage">
+        <colgroup>
+          <col class="forecast-coverage-name-col" />
+          <col class="forecast-coverage-status-col" />
+          <col class="forecast-coverage-required-col" />
+          <col class="forecast-coverage-missing-col" />
+        </colgroup>
         <thead><tr><th class="col-text">Object type</th><th class="col-text">Coverage</th><th class="col-text">Required series</th><th class="col-text">Missing / partial</th></tr></thead>
         <tbody>
           {% for row in active_forecast_summary.object_coverage_rows or [] %}
@@ -124,6 +130,14 @@
     </div>
     {% endif %}
   </article>
+</section>
+
+<section class="card mt-4 weather-analysis-section">
+  <p class="section-kicker">Анализ прогноза погоды</p>
+  <h2 class="h2">Генерация, потребление и баланс</h2>
+  <div id="activeForecastWeatherAnalysis" class="mt-3">
+    <div class="muted">Готовлю weather analysis...</div>
+  </div>
 </section>
 
 <section class="card mt-4">
@@ -197,7 +211,8 @@
 window.IES_FORECAST_CENTER = {
   sessionId: {{ session.id }},
   csrfToken: "{{ csrf_token() }}",
-  activeForecastId: {{ active_forecast_id or 0 }}
+  activeForecastId: {{ active_forecast_id or 0 }},
+  activeWeatherAnalysis: {{ (active_forecast_summary.weather_analysis or {})|tojson }}
 };
 </script>
 <script defer src="{{ url_for('static', filename='js/analysis/forecast_center.js') }}"></script>

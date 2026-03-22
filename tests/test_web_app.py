@@ -9,6 +9,7 @@ from ies_bot_skeleton.web.app import create_app
 from ies_bot_skeleton.web.extensions import db
 from ies_bot_skeleton.web.models import Forecast, GameSession, Ruleset, StartPackTemplate
 from ies_bot_skeleton.web.services.seed import ensure_seed_data
+from ies_bot_skeleton.web.services.test_game_preset import load_test_game_lot_payloads
 from tests.web_helpers import ruleset_id_by_code
 
 
@@ -78,11 +79,20 @@ def test_default_session_bootstraps_test_game_preset(client, app):
 
     lots_resp = client.get(f"/api/lots?session_id={session_id}")
     assert lots_resp.status_code == 200
-    assert len(lots_resp.get_json()["items"]) == 5
+    assert len(lots_resp.get_json()["items"]) == 25
 
     add_start_pack_resp = client.post(f"/api/sessions/{session_id}/add-start-pack", json={})
     assert add_start_pack_resp.status_code == 400
     assert add_start_pack_resp.get_json()["ok"] is False
+
+
+def test_test_game_standard_lots_include_extended_generated_pool():
+    payloads = load_test_game_lot_payloads()
+
+    assert len(payloads) == 25
+    assert len({str(item.get("title") or "").strip() for item in payloads}) == 25
+    assert sum(1 for item in payloads if str(item.get("lot_id") or "").startswith("G")) == 20
+    assert any(len(item.get("items") or []) >= 3 for item in payloads)
 
 
 def test_failed_test_game_bootstrap_rolls_back_session_creation(client, app):

@@ -870,7 +870,7 @@ def build_strategy_snapshot(
     if not force:
         if len(available_lots) >= 18:
             effective_beam_width = min(effective_beam_width, 3)
-            effective_group_size = min(effective_group_size, 2)
+            effective_group_size = min(effective_group_size, 3)
         elif len(available_lots) >= 12:
             effective_beam_width = min(effective_beam_width, 4)
             effective_group_size = min(effective_group_size, 3)

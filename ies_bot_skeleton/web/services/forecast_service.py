@@ -94,18 +94,59 @@ _LEGACY_PROFILE_TO_LOAD = {
 _LEGACY_LOAD_TO_PROFILE = {
     "house": "house_load",
     "housea": "house_load",
+    "house_a": "house_load",
     "houseb": "house_load",
+    "house_b": "house_load",
     "load_house": "house_load",
     "load_housea": "house_load",
+    "load_house_a": "house_load",
     "load_houseb": "house_load",
+    "load_house_b": "house_load",
     "consumption_house": "house_load",
+    "consumption_house_a": "house_load",
     "consumption_houseb": "house_load",
+    "consumption_house_b": "house_load",
     "office": "office_load",
     "load_office": "office_load",
     "consumption_office": "office_load",
     "factory": "factory_load",
     "load_factory": "factory_load",
     "consumption_factory": "factory_load",
+}
+
+WEATHER_RAW_ALIASES: Dict[str, tuple[str, ...]] = {
+    "wind_from": ("wind_from", "windfrom", "wind_min", "wind_start", "wind_lower"),
+    "wind_to": ("wind_to", "windto", "wind_max", "wind_end", "wind_upper"),
+    "sun_east": ("sun_east", "suneast", "illumination_east", "light_east", "east_sun"),
+    "sun_west": ("sun_west", "sunwest", "illumination_west", "light_west", "west_sun"),
+    "hospital": ("hospital", "hospital_load", "load_hospital", "consumption_hospital"),
+    "factory": ("factory", "factory_load", "load_factory", "consumption_factory"),
+    "house_a": ("house_a", "housea", "load_house_a", "load_housea", "consumption_house_a"),
+    "house_b": ("house_b", "houseb", "load_house_b", "load_houseb", "consumption_house_b"),
+    "office": ("office", "office_load", "load_office", "consumption_office"),
+}
+
+WEATHER_CATEGORY_SERIES_ORDER = (
+    "hospital",
+    "factory",
+    "house_a",
+    "house_b",
+    "office",
+    "house_load",
+)
+
+WEATHER_SERIES_LABELS: Dict[str, str] = {
+    "total_consumption": "Суммарное потребление",
+    "total_generation": "Суммарная генерация",
+    "balance": "Энергобаланс",
+    "wind_avg": "Средний ветер",
+    "wind_gen": "Генерация ветра",
+    "solar_improved": "Солнечная генерация (improved)",
+    "solar_simple": "Солнечная генерация (simple)",
+    "solar_east_gen": "Солнечная генерация east",
+    "solar_west_gen": "Солнечная генерация west",
+    "sun_east": "Солнце east",
+    "sun_west": "Солнце west",
 }
 
 
@@ -166,6 +207,75 @@ def _series_stats(values: Iterable[Optional[float]]) -> Optional[Dict[str, float
         "avg": round(sum(rows) / len(rows), 4),
         "median": round(float(statistics.median(rows)), 4),
     }
+
+
+def clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, float(value)))
+
+
+def _round_metric(value: Optional[float], digits: int = 3) -> Optional[float]:
+    if value is None:
+        return None
+    return round(float(value), digits)
+
+
+def _series_has_values(series: Dict[int, float] | None) -> bool:
+    return bool(series)
+
+
+def _series_value(series: Dict[int, float] | None, tick: int) -> Optional[float]:
+    if not isinstance(series, dict):
+        return None
+    value = series.get(int(tick))
+    parsed = _parse_float(value)
+    if parsed is None:
+        return None
+    return float(parsed)
+
+
+def _sum_available(*values: Optional[float]) -> Optional[float]:
+    numeric = [float(value) for value in values if value is not None]
+    if not numeric:
+        return None
+    return float(sum(numeric))
+
+
+def _series_payload(ticks: List[int], series: Dict[int, float] | None) -> List[Optional[float]]:
+    if not series:
+        return []
+    out: List[Optional[float]] = []
+    has_any = False
+    for tick in ticks:
+        value = _series_value(series, tick)
+        if value is not None:
+            has_any = True
+        out.append(_round_metric(value, 4))
+    return out if has_any else []
+
+
+def _series_numbers(series: Iterable[Optional[float]]) -> List[float]:
+    return [float(value) for value in series if value is not None]
+
+
+def _series_mean(series: Iterable[Optional[float]]) -> Optional[float]:
+    rows = _series_numbers(series)
+    if not rows:
+        return None
+    return round(sum(rows) / len(rows), 4)
+
+
+def _series_min(series: Iterable[Optional[float]]) -> Optional[float]:
+    rows = _series_numbers(series)
+    if not rows:
+        return None
+    return round(min(rows), 4)
+
+
+def _series_max(series: Iterable[Optional[float]]) -> Optional[float]:
+    rows = _series_numbers(series)
+    if not rows:
+        return None
+    return round(max(rows), 4)
 
 
 def _build_load_series_display(
@@ -615,6 +725,870 @@ def _canonical_forecast_rows(
     return factors, profiles, sorted(set(ticks))
 
 
+def _empty_weather_analysis(message: str = "Недостаточно данных для анализа прогноза.") -> Dict[str, Any]:
+    charts = {
+        "generation_vs_consumption": {
+            "title": "Генерация и потребление",
+            "available": False,
+            "reason": message,
+            "priority": "primary",
+        },
+        "balance_uncertainty": {
+            "title": "Баланс с коридором неопределённости",
+            "available": False,
+            "reason": message,
+            "priority": "primary",
+        },
+        "wind_forecast": {
+            "title": "Прогноз ветра",
+            "available": False,
+            "reason": message,
+            "priority": "primary",
+        },
+        "consumption_categories": {
+            "title": "Потребление по категориям",
+            "available": False,
+            "reason": message,
+            "priority": "primary",
+        },
+        "solar_models": {
+            "title": "Солнечная генерация: simple vs improved",
+            "available": False,
+            "reason": message,
+            "priority": "secondary",
+        },
+        "solar_activity": {
+            "title": "Солнечная активность east/west",
+            "available": False,
+            "reason": message,
+            "priority": "secondary",
+        },
+        "generation_types": {
+            "title": "Сравнение источников генерации",
+            "available": False,
+            "reason": message,
+            "priority": "secondary",
+        },
+        "source_mix": {
+            "title": "Структура генерации и потребление",
+            "available": False,
+            "reason": message,
+            "priority": "secondary",
+        },
+    }
+    return {
+        "mode": "partial",
+        "availability": {
+            "has_wind_range": False,
+            "has_solar_east_west": False,
+            "has_category_breakdown": False,
+        },
+        "kpis": {
+            "avg_generation": None,
+            "avg_consumption": None,
+            "avg_balance": None,
+            "deficit_count": 0,
+            "surplus_count": 0,
+            "max_deficit": {"value": None, "tick": None},
+            "max_surplus": {"value": None, "tick": None},
+            "wind_off_count": 0,
+            "wind_full_power_count": 0,
+            "solar_share_pct": None,
+            "wind_share_pct": None,
+        },
+        "series": {
+            "tick": [],
+            "status": [],
+            "total_consumption": [],
+            "total_generation": [],
+            "balance": [],
+            "balance_min": [],
+            "balance_max": [],
+            "wind_avg": [],
+            "wind_gen": [],
+            "solar_improved": [],
+            "solar_simple": [],
+            "solar_east_gen": [],
+            "solar_west_gen": [],
+            "sun_east": [],
+            "sun_west": [],
+            "category_consumption": {key: [] for key in WEATHER_CATEGORY_SERIES_ORDER},
+        },
+        "charts": charts,
+        "decision_support": {"headline": message, "cards": []},
+        "tables": {"main_stats": [], "generator_stats": []},
+        "insights": [message],
+    }
+
+
+def _weather_raw_series_from_periods(periods: Iterable[ForecastPeriod]) -> Dict[str, Dict[int, float]]:
+    raw_series: Dict[str, Dict[int, float]] = {}
+    for period in periods:
+        tick = int(period.tick)
+        extra = dict(period.extra_json or {})
+        raw_columns = dict(extra.get("raw_columns") or {})
+        combined: Dict[str, Any] = {}
+        for key, value in extra.items():
+            if key == "raw_columns":
+                continue
+            combined[str(key)] = value
+        combined.update(raw_columns)
+        for raw_key, raw_value in combined.items():
+            key = _norm(str(raw_key))
+            if not key:
+                continue
+            parsed = _parse_float(raw_value)
+            if parsed is None:
+                continue
+            raw_series.setdefault(key, {})[tick] = float(parsed)
+    return raw_series
+
+
+def _pick_weather_raw_series(
+    raw_series: Dict[str, Dict[int, float]], *aliases: str
+) -> Dict[int, float]:
+    for alias in aliases:
+        key = _norm(alias)
+        series = raw_series.get(key) or {}
+        if series:
+            return {int(tick): float(value) for tick, value in series.items()}
+    return {}
+
+
+def _pick_weather_alias_series(
+    raw_series: Dict[str, Dict[int, float]], key: str
+) -> Dict[int, float]:
+    return _pick_weather_raw_series(raw_series, *(WEATHER_RAW_ALIASES.get(key) or (key,)))
+
+
+def _compute_solar_from_east_west(
+    ticks: List[int],
+    sun_east: Dict[int, float],
+    sun_west: Dict[int, float],
+) -> Dict[str, Dict[int, float]]:
+    solar_east_gen: Dict[int, float] = {}
+    solar_west_gen: Dict[int, float] = {}
+    solar_simple: Dict[int, float] = {}
+    solar_improved: Dict[int, float] = {}
+    solar_min: Dict[int, float] = {}
+    solar_max: Dict[int, float] = {}
+
+    for tick in ticks:
+        east = _series_value(sun_east, tick)
+        west = _series_value(sun_west, tick)
+        east_gen = clamp(0.91 * east + 2.81, 0.0, 25.0) if east is not None else None
+        west_gen = clamp(0.91 * west + 2.81, 0.0, 25.0) if west is not None else None
+        if east_gen is not None:
+            solar_east_gen[tick] = float(east_gen)
+        if west_gen is not None:
+            solar_west_gen[tick] = float(west_gen)
+        if east_gen is None and west_gen is None:
+            continue
+        if east_gen is not None and west_gen is not None:
+            simple = (east_gen + west_gen) / 2.0
+            improved = simple
+            if east == 0 and west == 0:
+                improved = 0.0
+            elif east == 0:
+                improved = west_gen
+            elif west == 0:
+                improved = east_gen
+        else:
+            simple = east_gen if east_gen is not None else west_gen
+            improved = simple
+        if simple is None or improved is None:
+            continue
+        solar_simple[tick] = float(simple)
+        solar_improved[tick] = float(improved)
+        solar_min[tick] = float(max(0.0, improved - 0.455))
+        solar_max[tick] = float(min(25.0, improved + 0.455))
+
+    return {
+        "solar_east_gen": solar_east_gen,
+        "solar_west_gen": solar_west_gen,
+        "solar_simple": solar_simple,
+        "solar_improved": solar_improved,
+        "solar_min": solar_min,
+        "solar_max": solar_max,
+    }
+
+
+def _compute_solar_from_single_factor(ticks: List[int], solar_factor: Dict[int, float]) -> Dict[str, Dict[int, float]]:
+    solar_improved: Dict[int, float] = {}
+    solar_min: Dict[int, float] = {}
+    solar_max: Dict[int, float] = {}
+    for tick in ticks:
+        solar_value = _series_value(solar_factor, tick)
+        if solar_value is None:
+            continue
+        improved = clamp(0.91 * solar_value + 2.81, 0.0, 25.0)
+        solar_improved[tick] = float(improved)
+        solar_min[tick] = float(max(0.0, improved - 0.455))
+        solar_max[tick] = float(min(25.0, improved + 0.455))
+    return {
+        "solar_east_gen": {},
+        "solar_west_gen": {},
+        "solar_simple": {},
+        "solar_improved": solar_improved,
+        "solar_min": solar_min,
+        "solar_max": solar_max,
+    }
+
+
+def _compute_wind_from_average(ticks: List[int], wind_avg_source: Dict[int, float]) -> Dict[str, Dict[int, float]]:
+    wind_avg: Dict[int, float] = {}
+    wind_gen: Dict[int, float] = {}
+    for tick in ticks:
+        avg_value = _series_value(wind_avg_source, tick)
+        if avg_value is None:
+            continue
+        wind_avg[tick] = float(avg_value)
+        generated = min(avg_value * 8.0 / 6.0, 8.0)
+        if avg_value > 7.0:
+            generated = 0.0
+        wind_gen[tick] = float(generated)
+    return {"wind_avg": wind_avg, "wind_gen": wind_gen}
+
+
+def _compute_wind_from_range(
+    ticks: List[int],
+    wind_from: Dict[int, float],
+    wind_to: Dict[int, float],
+) -> Dict[str, Dict[int, float]]:
+    wind_avg: Dict[int, float] = {}
+    for tick in ticks:
+        low = _series_value(wind_from, tick)
+        high = _series_value(wind_to, tick)
+        if low is None and high is None:
+            continue
+        if low is None:
+            avg_value = float(high)
+        elif high is None:
+            avg_value = float(low)
+        else:
+            avg_value = (low + high) / 2.0
+        wind_avg[tick] = float(avg_value)
+    computed = _compute_wind_from_average(ticks, wind_avg)
+    computed["wind_from"] = {int(tick): float(value) for tick, value in wind_from.items()}
+    computed["wind_to"] = {int(tick): float(value) for tick, value in wind_to.items()}
+    return computed
+
+
+def _compute_total_consumption(
+    ticks: List[int],
+    category_series: Dict[str, Dict[int, float]],
+) -> Dict[str, Any]:
+    total_consumption: Dict[int, float] = {}
+    used_categories = {
+        key: {int(tick): float(value) for tick, value in values.items()}
+        for key, values in category_series.items()
+        if values
+    }
+    for tick in ticks:
+        values = [_series_value(series, tick) for series in used_categories.values()]
+        total = _sum_available(*values)
+        if total is None:
+            continue
+        total_consumption[tick] = float(total)
+    return {
+        "total_consumption": total_consumption,
+        "used_categories": used_categories,
+    }
+
+
+def _compute_generation_balance_metrics(
+    *,
+    ticks: List[int],
+    total_consumption: Dict[int, float],
+    solar_improved: Dict[int, float],
+    solar_min: Dict[int, float],
+    solar_max: Dict[int, float],
+    wind_gen: Dict[int, float],
+    consumption_uncertainty: float,
+) -> Dict[str, Dict[int, float] | Dict[int, str]]:
+    total_generation: Dict[int, float] = {}
+    balance: Dict[int, float] = {}
+    balance_min: Dict[int, float] = {}
+    balance_max: Dict[int, float] = {}
+    consumption_min: Dict[int, float] = {}
+    consumption_max: Dict[int, float] = {}
+    status: Dict[int, str] = {}
+
+    for tick in ticks:
+        generation = _sum_available(_series_value(solar_improved, tick), _series_value(wind_gen, tick))
+        consumption = _series_value(total_consumption, tick)
+        if generation is not None:
+            total_generation[tick] = float(generation)
+        if consumption is not None:
+            consumption_min[tick] = float(consumption - consumption_uncertainty)
+            consumption_max[tick] = float(consumption + consumption_uncertainty)
+        if generation is None or consumption is None:
+            continue
+        balance_value = generation - consumption
+        balance[tick] = float(balance_value)
+        if balance_value < 0:
+            status[tick] = "дефицит"
+        elif balance_value > 0:
+            status[tick] = "профицит"
+        else:
+            status[tick] = "баланс"
+        low_solar = _series_value(solar_min, tick)
+        high_solar = _series_value(solar_max, tick)
+        wind_value = _series_value(wind_gen, tick)
+        low_consumption = _series_value(consumption_min, tick)
+        high_consumption = _series_value(consumption_max, tick)
+        if low_solar is not None and wind_value is not None and high_consumption is not None:
+            balance_min[tick] = float((wind_value + low_solar) - high_consumption)
+        if high_solar is not None and wind_value is not None and low_consumption is not None:
+            balance_max[tick] = float((wind_value + high_solar) - low_consumption)
+
+    return {
+        "total_generation": total_generation,
+        "balance": balance,
+        "balance_min": balance_min,
+        "balance_max": balance_max,
+        "consumption_min": consumption_min,
+        "consumption_max": consumption_max,
+        "status": status,
+    }
+
+
+def _series_extreme_with_tick(
+    ticks: List[int], series: List[Optional[float]], *, direction: str, predicate
+) -> Dict[str, Optional[float] | Optional[int]]:
+    pairs = [
+        (int(tick), float(value))
+        for tick, value in zip(ticks, series)
+        if value is not None and predicate(float(value))
+    ]
+    if not pairs:
+        return {"value": None, "tick": None}
+    if direction == "min":
+        tick, value = min(pairs, key=lambda item: item[1])
+    else:
+        tick, value = max(pairs, key=lambda item: item[1])
+    return {"value": round(value, 4), "tick": int(tick)}
+
+
+def _build_weather_table_row(
+    key: str,
+    label: str,
+    series: List[Optional[float]],
+    **extra: Any,
+) -> Optional[Dict[str, Any]]:
+    if not series:
+        return None
+    values = _series_numbers(series)
+    if not values:
+        return None
+    row = {
+        "key": key,
+        "label": label,
+        "mean": round(sum(values) / len(values), 4),
+        "min": round(min(values), 4),
+        "max": round(max(values), 4),
+    }
+    row.update(extra)
+    return row
+
+
+def _build_weather_tables(series_payload: Dict[str, Any], kpis: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+    main_stats: List[Dict[str, Any]] = []
+    generator_stats: List[Dict[str, Any]] = []
+
+    for key in ("total_consumption", "total_generation", "balance", "wind_avg", "solar_improved"):
+        row = _build_weather_table_row(key, WEATHER_SERIES_LABELS[key], series_payload.get(key) or [])
+        if row is not None:
+            main_stats.append(row)
+
+    solar_improved = list(series_payload.get("solar_improved") or [])
+    wind_gen = list(series_payload.get("wind_gen") or [])
+    solar_simple = list(series_payload.get("solar_simple") or [])
+    solar_east_gen = list(series_payload.get("solar_east_gen") or [])
+    solar_west_gen = list(series_payload.get("solar_west_gen") or [])
+
+    solar_row = _build_weather_table_row(
+        "solar_improved",
+        WEATHER_SERIES_LABELS["solar_improved"],
+        solar_improved,
+        positive_count=sum(1 for value in solar_improved if value is not None and value > 0),
+    )
+    if solar_row is not None:
+        generator_stats.append(solar_row)
+
+    wind_row = _build_weather_table_row(
+        "wind_gen",
+        WEATHER_SERIES_LABELS["wind_gen"],
+        wind_gen,
+        wind_off_count=int(kpis.get("wind_off_count") or 0),
+        full_power_count=int(kpis.get("wind_full_power_count") or 0),
+    )
+    if wind_row is not None:
+        generator_stats.append(wind_row)
+
+    for key, label, series in (
+        ("solar_simple", WEATHER_SERIES_LABELS["solar_simple"], solar_simple),
+        ("solar_east_gen", WEATHER_SERIES_LABELS["solar_east_gen"], solar_east_gen),
+        ("solar_west_gen", WEATHER_SERIES_LABELS["solar_west_gen"], solar_west_gen),
+    ):
+        row = _build_weather_table_row(key, label, series)
+        if row is not None:
+            generator_stats.append(row)
+
+    return {"main_stats": main_stats, "generator_stats": generator_stats}
+
+
+def _weather_chart_available(series: List[Optional[float]] | List[int] | None) -> bool:
+    if not isinstance(series, list) or not series:
+        return False
+    return any(value is not None for value in series)
+
+
+def _build_weather_charts(
+    *,
+    availability: Dict[str, bool],
+    series_payload: Dict[str, Any],
+) -> Dict[str, Dict[str, Any]]:
+    category_consumption = dict(series_payload.get("category_consumption") or {})
+    category_has_values = any(_weather_chart_available(values) for values in category_consumption.values())
+    has_generation = _weather_chart_available(series_payload.get("total_generation"))
+    has_consumption = _weather_chart_available(series_payload.get("total_consumption"))
+    has_balance = _weather_chart_available(series_payload.get("balance"))
+    has_balance_min = _weather_chart_available(series_payload.get("balance_min"))
+    has_balance_max = _weather_chart_available(series_payload.get("balance_max"))
+    has_wind = _weather_chart_available(series_payload.get("wind_avg"))
+    has_solar_mix = _weather_chart_available(series_payload.get("solar_improved")) or _weather_chart_available(
+        series_payload.get("wind_gen")
+    )
+
+    return {
+        "generation_vs_consumption": {
+            "title": "Генерация и потребление",
+            "available": has_generation and has_consumption,
+            "reason": None
+            if has_generation and has_consumption
+            else "Недостаточно рядов для одновременного сравнения генерации и потребления.",
+            "priority": "primary",
+        },
+        "balance_uncertainty": {
+            "title": "Баланс с коридором неопределённости",
+            "available": has_balance and has_balance_min and has_balance_max,
+            "reason": None
+            if has_balance and has_balance_min and has_balance_max
+            else "Не удалось рассчитать полный коридор неопределённости.",
+            "priority": "primary",
+        },
+        "wind_forecast": {
+            "title": "Прогноз ветра и порог отключения",
+            "available": has_wind,
+            "reason": None if has_wind else "В прогнозе нет пригодного ряда ветра.",
+            "priority": "primary",
+        },
+        "consumption_categories": {
+            "title": "Потребление по категориям",
+            "available": category_has_values,
+            "reason": None
+            if category_has_values
+            else "В прогнозе нет разбивки потребления по категориям.",
+            "priority": "primary",
+        },
+        "solar_models": {
+            "title": "Солнечная генерация: simple vs improved",
+            "available": availability.get("has_solar_east_west", False)
+            and _weather_chart_available(series_payload.get("solar_simple"))
+            and _weather_chart_available(series_payload.get("solar_improved")),
+            "reason": None
+            if availability.get("has_solar_east_west", False)
+            and _weather_chart_available(series_payload.get("solar_simple"))
+            and _weather_chart_available(series_payload.get("solar_improved"))
+            else "Нужны отдельные ряды sun_east и sun_west.",
+            "priority": "secondary",
+        },
+        "solar_activity": {
+            "title": "Солнечная активность east/west",
+            "available": availability.get("has_solar_east_west", False)
+            and _weather_chart_available(series_payload.get("sun_east"))
+            and _weather_chart_available(series_payload.get("sun_west")),
+            "reason": None
+            if availability.get("has_solar_east_west", False)
+            and _weather_chart_available(series_payload.get("sun_east"))
+            and _weather_chart_available(series_payload.get("sun_west"))
+            else "Для этого графика нужны отдельные ряды east/west.",
+            "priority": "secondary",
+        },
+        "generation_types": {
+            "title": "Сравнение источников генерации",
+            "available": has_solar_mix,
+            "reason": None
+            if has_solar_mix
+            else "Недостаточно данных по солнечной или ветровой генерации.",
+            "priority": "secondary",
+        },
+        "source_mix": {
+            "title": "Структура генерации и потребление",
+            "available": has_consumption and has_solar_mix,
+            "reason": None
+            if has_consumption and has_solar_mix
+            else "Нужны и потребление, и хотя бы один источник генерации.",
+            "priority": "secondary",
+        },
+    }
+
+
+def _top_balance_ticks(
+    ticks: List[int],
+    balance_series: List[Optional[float]],
+    *,
+    sign: str,
+    limit: int = 3,
+) -> List[int]:
+    pairs = [
+        (int(tick), float(value))
+        for tick, value in zip(ticks, balance_series)
+        if value is not None and ((sign == "deficit" and value < 0) or (sign == "surplus" and value > 0))
+    ]
+    if sign == "deficit":
+        ordered = sorted(pairs, key=lambda item: item[1])
+    else:
+        ordered = sorted(pairs, key=lambda item: item[1], reverse=True)
+    return [tick for tick, _ in ordered[:limit]]
+
+
+def _build_weather_decision_support(
+    *,
+    mode: str,
+    kpis: Dict[str, Any],
+    series_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    balance_series = list(series_payload.get("balance") or [])
+    ticks = [int(tick) for tick in list(series_payload.get("tick") or [])]
+    deficit_ticks = _top_balance_ticks(ticks, balance_series, sign="deficit", limit=3)
+    surplus_ticks = _top_balance_ticks(ticks, balance_series, sign="surplus", limit=3)
+    deficit_count = int(kpis.get("deficit_count") or 0)
+    surplus_count = int(kpis.get("surplus_count") or 0)
+    avg_balance = kpis.get("avg_balance")
+    solar_share = kpis.get("solar_share_pct")
+    wind_share = kpis.get("wind_share_pct")
+    wind_off_count = int(kpis.get("wind_off_count") or 0)
+
+    if avg_balance is not None and float(avg_balance) < -0.1:
+        headline = "Покупать стоит генерацию и резерв: система чаще уходит в дефицит."
+    elif avg_balance is not None and float(avg_balance) > 0.1:
+        headline = "С генерацией запас есть: покупать её можно точечно, без перегруза портфеля."
+    else:
+        headline = "Баланс близок к нейтральному: лучше смотреть на устойчивость и качество профиля."
+
+    strengthen_parts: List[str] = []
+    if solar_share is not None and wind_share is not None:
+        if float(solar_share) >= float(wind_share) + 10:
+            strengthen_parts.append("солнечные лоты выглядят сильнее ветровых")
+        elif float(wind_share) >= float(solar_share) + 10 and wind_off_count == 0:
+            strengthen_parts.append("ветровые лоты выглядят сильнее солнечных")
+    if deficit_count > surplus_count:
+        strengthen_parts.append("полезны storage и смешанные пакеты генерации")
+    elif surplus_count > deficit_count and surplus_count > 0:
+        strengthen_parts.append("покупки генерации можно делать точечно, без агрессивного добора")
+    if not strengthen_parts:
+        strengthen_parts.append("лучше брать диверсифицированные лоты без перекоса в один источник")
+
+    caution_parts: List[str] = []
+    if wind_off_count > 0:
+        caution_parts.append("ветровые лоты рискованнее из-за отключения турбины при сильном ветре")
+    if mode == "partial":
+        caution_parts.append("прогноз неполный, поэтому покупать узкоспециализированные лоты стоит осторожнее")
+    if not caution_parts:
+        caution_parts.append("не видно явного провала по источникам, но перегружать портфель одним типом генерации не стоит")
+
+    timing_parts: List[str] = []
+    if deficit_ticks:
+        timing_parts.append("критичные такты: " + ", ".join(str(tick) for tick in deficit_ticks))
+    if surplus_ticks:
+        timing_parts.append("окна профицита: " + ", ".join(str(tick) for tick in surplus_ticks))
+    if not timing_parts:
+        timing_parts.append("резких провалов по тактам не видно")
+
+    return {
+        "headline": headline,
+        "cards": [
+            {"tone": "buy", "title": "Что усиливать", "text": "; ".join(strengthen_parts) + "."},
+            {"tone": "watch", "title": "С чем осторожно", "text": "; ".join(caution_parts) + "."},
+            {"tone": "timing", "title": "По каким тактам смотреть", "text": "; ".join(timing_parts) + "."},
+        ],
+    }
+
+
+def _build_weather_insights(
+    *,
+    mode: str,
+    availability: Dict[str, bool],
+    kpis: Dict[str, Any],
+    series_payload: Dict[str, Any],
+) -> List[str]:
+    insights: List[str] = []
+    avg_balance = kpis.get("avg_balance")
+    max_deficit = dict(kpis.get("max_deficit") or {})
+    max_surplus = dict(kpis.get("max_surplus") or {})
+    wind_off_count = int(kpis.get("wind_off_count") or 0)
+    solar_share = kpis.get("solar_share_pct")
+    wind_share = kpis.get("wind_share_pct")
+
+    if mode == "full_nto_2024":
+        insights.append(
+            "Используется полный NTO-style анализ: учтены sun_east/sun_west, wind_from/wind_to и разбиение нагрузки по категориям."
+        )
+    elif mode == "canonical_fallback":
+        insights.append(
+            "Используется canonical fallback: расчёт опирается на wind_factor, solar_factor и доступные canonical load series."
+        )
+    else:
+        insights.append(
+            "Анализ частичный: часть исходных рядов отсутствует, поэтому выводы построены только по доступным данным."
+        )
+
+    if not availability.get("has_solar_east_west"):
+        insights.append("Графики east/west отключены, потому что прогноз не содержит отдельных рядов sun_east и sun_west.")
+
+    if avg_balance is not None:
+        if float(avg_balance) < -0.1:
+            insights.append("В среднем наблюдается дефицит энергии.")
+        elif float(avg_balance) > 0.1:
+            insights.append("В среднем наблюдается профицит энергии.")
+        else:
+            insights.append("Средний баланс близок к нулю.")
+
+    if max_deficit.get("tick") is not None and max_deficit.get("value") is not None:
+        insights.append(
+            f"Максимальный дефицит приходится на такт {int(max_deficit['tick'])}: {abs(float(max_deficit['value'])):.2f}."
+        )
+    elif max_surplus.get("tick") is not None and max_surplus.get("value") is not None:
+        insights.append(
+            f"Максимальный профицит приходится на такт {int(max_surplus['tick'])}: {float(max_surplus['value']):.2f}."
+        )
+
+    if wind_off_count > 0:
+        insights.append(f"Ветряк отключается из-за сильного ветра в {wind_off_count} тактах.")
+
+    if solar_share is not None and wind_share is not None:
+        if float(solar_share) >= float(wind_share) + 10:
+            insights.append("Солнечная генерация доминирует над ветровой.")
+        elif float(wind_share) >= float(solar_share) + 10:
+            insights.append("Ветровая генерация доминирует над солнечной.")
+
+    generation_max = _series_max(series_payload.get("total_generation") or [])
+    consumption_max = _series_max(series_payload.get("total_consumption") or [])
+    if generation_max is not None and consumption_max is not None and consumption_max > generation_max:
+        insights.append("Пик потребления заметно выше пиковой генерации.")
+
+    if not availability.get("has_category_breakdown"):
+        insights.append("Детальная разбивка потребления по категориям недоступна для этого формата прогноза.")
+
+    unique_insights: List[str] = []
+    for item in insights:
+        text = str(item).strip()
+        if not text or text in unique_insights:
+            continue
+        unique_insights.append(text)
+    return unique_insights[:8]
+
+
+def build_weather_analysis_from_periods(
+    *,
+    periods: Iterable[ForecastPeriod],
+    factors: Dict[str, Dict[int, float]],
+    profiles: Dict[str, Dict[int, float]],
+    ticks: List[int],
+) -> Dict[str, Any]:
+    ordered_ticks = [int(tick) for tick in sorted(set(ticks))]
+    if not ordered_ticks:
+        return _empty_weather_analysis()
+
+    raw_series = _weather_raw_series_from_periods(periods)
+    wind_from = _pick_weather_alias_series(raw_series, "wind_from")
+    wind_to = _pick_weather_alias_series(raw_series, "wind_to")
+    sun_east = _pick_weather_alias_series(raw_series, "sun_east")
+    sun_west = _pick_weather_alias_series(raw_series, "sun_west")
+
+    raw_category_series = {
+        "hospital": _pick_weather_alias_series(raw_series, "hospital"),
+        "factory": _pick_weather_alias_series(raw_series, "factory"),
+        "house_a": _pick_weather_alias_series(raw_series, "house_a"),
+        "house_b": _pick_weather_alias_series(raw_series, "house_b"),
+        "office": _pick_weather_alias_series(raw_series, "office"),
+    }
+    canonical_category_series = {
+        "factory": {int(tick): float(value) for tick, value in (profiles.get("factory_load") or {}).items()},
+        "office": {int(tick): float(value) for tick, value in (profiles.get("office_load") or {}).items()},
+        "house_load": {int(tick): float(value) for tick, value in (profiles.get("house_load") or {}).items()},
+    }
+
+    has_wind_range = _series_has_values(wind_from) and _series_has_values(wind_to)
+    has_solar_east_west = _series_has_values(sun_east) and _series_has_values(sun_west)
+    has_full_categories = all(
+        _series_has_values(raw_category_series.get(key))
+        for key in ("hospital", "factory", "house_a", "house_b")
+    )
+    has_canonical_generation = bool((factors.get("wind_factor") or {}) and (factors.get("solar_factor") or {}))
+    has_canonical_loads = any(values for values in canonical_category_series.values())
+
+    if has_wind_range and has_solar_east_west and has_full_categories:
+        mode = "full_nto_2024"
+    elif has_canonical_generation and has_canonical_loads:
+        mode = "canonical_fallback"
+    else:
+        mode = "partial"
+
+    if mode == "full_nto_2024":
+        selected_categories = {
+            key: dict(raw_category_series[key])
+            for key in ("hospital", "factory", "house_a", "house_b")
+        }
+        solar_computed = _compute_solar_from_east_west(ordered_ticks, sun_east, sun_west)
+        wind_computed = _compute_wind_from_range(ordered_ticks, wind_from, wind_to)
+        consumption_uncertainty = 2.0
+    elif mode == "canonical_fallback":
+        selected_categories = {
+            key: dict(values) for key, values in canonical_category_series.items() if values
+        }
+        solar_computed = _compute_solar_from_single_factor(
+            ordered_ticks, dict(factors.get("solar_factor") or {})
+        )
+        wind_computed = _compute_wind_from_average(
+            ordered_ticks, dict(factors.get("wind_factor") or {})
+        )
+        consumption_uncertainty = 0.5 * len(selected_categories)
+    else:
+        selected_categories = {
+            key: dict(values) for key, values in raw_category_series.items() if values
+        }
+        if not selected_categories:
+            selected_categories = {
+                key: dict(values) for key, values in canonical_category_series.items() if values
+            }
+        if _series_has_values(sun_east) or _series_has_values(sun_west):
+            solar_computed = _compute_solar_from_east_west(ordered_ticks, sun_east, sun_west)
+        else:
+            solar_computed = _compute_solar_from_single_factor(
+                ordered_ticks, dict(factors.get("solar_factor") or {})
+            )
+        if _series_has_values(wind_from) or _series_has_values(wind_to):
+            wind_computed = _compute_wind_from_range(ordered_ticks, wind_from, wind_to)
+        else:
+            wind_computed = _compute_wind_from_average(
+                ordered_ticks, dict(factors.get("wind_factor") or {})
+            )
+        consumption_uncertainty = 0.5 * len(selected_categories)
+
+    consumption_computed = _compute_total_consumption(ordered_ticks, selected_categories)
+    balance_metrics = _compute_generation_balance_metrics(
+        ticks=ordered_ticks,
+        total_consumption=dict(consumption_computed["total_consumption"]),
+        solar_improved=dict(solar_computed["solar_improved"]),
+        solar_min=dict(solar_computed["solar_min"]),
+        solar_max=dict(solar_computed["solar_max"]),
+        wind_gen=dict(wind_computed["wind_gen"]),
+        consumption_uncertainty=consumption_uncertainty,
+    )
+
+    category_payload = {
+        "hospital": _series_payload(ordered_ticks, selected_categories.get("hospital")),
+        "factory": _series_payload(ordered_ticks, selected_categories.get("factory")),
+        "house_a": _series_payload(ordered_ticks, selected_categories.get("house_a")),
+        "house_b": _series_payload(ordered_ticks, selected_categories.get("house_b")),
+        "office": _series_payload(ordered_ticks, selected_categories.get("office")),
+        "house_load": _series_payload(ordered_ticks, selected_categories.get("house_load")),
+    }
+
+    series_payload = {
+        "tick": ordered_ticks,
+        "status": [
+            str((balance_metrics.get("status") or {}).get(int(tick)) or "")
+            for tick in ordered_ticks
+        ],
+        "total_consumption": _series_payload(
+            ordered_ticks, dict(consumption_computed["total_consumption"])
+        ),
+        "total_generation": _series_payload(ordered_ticks, balance_metrics.get("total_generation")),
+        "balance": _series_payload(ordered_ticks, balance_metrics.get("balance")),
+        "balance_min": _series_payload(ordered_ticks, balance_metrics.get("balance_min")),
+        "balance_max": _series_payload(ordered_ticks, balance_metrics.get("balance_max")),
+        "wind_avg": _series_payload(ordered_ticks, wind_computed.get("wind_avg")),
+        "wind_gen": _series_payload(ordered_ticks, wind_computed.get("wind_gen")),
+        "solar_improved": _series_payload(ordered_ticks, solar_computed.get("solar_improved")),
+        "solar_simple": _series_payload(ordered_ticks, solar_computed.get("solar_simple")),
+        "solar_east_gen": _series_payload(ordered_ticks, solar_computed.get("solar_east_gen")),
+        "solar_west_gen": _series_payload(ordered_ticks, solar_computed.get("solar_west_gen")),
+        "sun_east": _series_payload(ordered_ticks, sun_east),
+        "sun_west": _series_payload(ordered_ticks, sun_west),
+        "category_consumption": category_payload,
+    }
+
+    total_generation_series = list(series_payload["total_generation"])
+    total_consumption_series = list(series_payload["total_consumption"])
+    balance_series = list(series_payload["balance"])
+    wind_avg_series = list(series_payload["wind_avg"])
+    wind_gen_series = list(series_payload["wind_gen"])
+    solar_improved_series = list(series_payload["solar_improved"])
+
+    generation_sum = sum(_series_numbers(total_generation_series))
+    solar_generation_sum = sum(_series_numbers(solar_improved_series))
+    wind_generation_sum = sum(_series_numbers(wind_gen_series))
+
+    kpis = {
+        "avg_generation": _series_mean(total_generation_series),
+        "avg_consumption": _series_mean(total_consumption_series),
+        "avg_balance": _series_mean(balance_series),
+        "deficit_count": sum(1 for value in balance_series if value is not None and value < 0),
+        "surplus_count": sum(1 for value in balance_series if value is not None and value > 0),
+        "max_deficit": _series_extreme_with_tick(
+            ordered_ticks, balance_series, direction="min", predicate=lambda value: value < 0
+        ),
+        "max_surplus": _series_extreme_with_tick(
+            ordered_ticks, balance_series, direction="max", predicate=lambda value: value > 0
+        ),
+        "wind_off_count": sum(1 for value in wind_avg_series if value is not None and value > 7),
+        "wind_full_power_count": sum(
+            1 for value in wind_gen_series if value is not None and value >= 8.0
+        ),
+        "solar_share_pct": round((solar_generation_sum / generation_sum) * 100.0, 2)
+        if generation_sum > 0
+        else None,
+        "wind_share_pct": round((wind_generation_sum / generation_sum) * 100.0, 2)
+        if generation_sum > 0
+        else None,
+    }
+
+    availability = {
+        "has_wind_range": has_wind_range,
+        "has_solar_east_west": has_solar_east_west,
+        "has_category_breakdown": any(values for values in category_payload.values()),
+    }
+
+    charts = _build_weather_charts(availability=availability, series_payload=series_payload)
+    decision_support = _build_weather_decision_support(
+        mode=mode,
+        kpis=kpis,
+        series_payload=series_payload,
+    )
+    tables = _build_weather_tables(series_payload, kpis)
+    insights = _build_weather_insights(
+        mode=mode,
+        availability=availability,
+        kpis=kpis,
+        series_payload=series_payload,
+    )
+
+    return {
+        "mode": mode,
+        "availability": availability,
+        "kpis": kpis,
+        "series": series_payload,
+        "charts": charts,
+        "decision_support": decision_support,
+        "tables": tables,
+        "insights": insights,
+    }
+
+
 def _required_forecast_links(object_type: ObjectType) -> Dict[str, List[str]]:
     required_profiles: List[str] = []
     required_factors: List[str] = []
@@ -930,7 +1904,7 @@ def bundled_forecast_summary() -> Dict[str, Any]:
     load_series_display = _build_load_series_display(load_rows)
     series_stats_display = _build_series_stats_display(series_stats, load_rows)
 
-    return {
+    summary = {
         "mode": "builtin",
         "source_kind": "bundled_forecast",
         "forecast_id": None,
@@ -983,6 +1957,13 @@ def bundled_forecast_summary() -> Dict[str, Any]:
         "warnings": [],
         "text": "Используется встроенный прогноз тестовой игры.",
     }
+    summary["weather_analysis"] = build_weather_analysis_from_periods(
+        periods=[],
+        factors=factors,
+        profiles=profiles,
+        ticks=ticks,
+    )
+    return summary
 
 
 def summarize_forecast_for_session(*, session: GameSession, forecast: Forecast) -> Dict[str, Any]:
@@ -1128,11 +2109,16 @@ def parse_and_store_forecast(
             consumption[legacy_load] = float(value)
 
         extra: Dict[str, Any] = {}
+        raw_columns: Dict[str, Any] = {}
         for key, value in row.items():
+            parsed = _parse_float(value)
+            norm_key = _norm(key)
+            if parsed is not None:
+                raw_columns[norm_key] = float(parsed)
             if key in mapped_columns:
                 continue
-            parsed = _parse_float(value)
-            extra[_norm(key)] = parsed if parsed is not None else value
+            extra[norm_key] = parsed if parsed is not None else value
+        extra["raw_columns"] = raw_columns
 
         periods.append(
             ForecastPeriod(
@@ -1247,7 +2233,7 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
     periods = list(forecast.periods)
     if not periods:
         warnings = list((forecast.metadata_json or {}).get("warnings_detail") or [])
-        return {
+        summary = {
             "forecast_id": forecast.id,
             "source_kind": "selected_forecast",
             "name": forecast.name,
@@ -1290,6 +2276,10 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
             "warnings": warnings,
             "text": f"Прогноз '{forecast.name}' пустой.",
         }
+        summary["weather_analysis"] = _empty_weather_analysis(
+            f"Прогноз '{forecast.name}' пустой, weather analysis недоступен."
+        )
+        return summary
 
     factors, profiles, ticks = _canonical_forecast_rows(periods)
 
@@ -1349,7 +2339,7 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
         reason = forecast.incompatibility_reason or "совместимость прогноза неполная"
         text = f"{text} Блокировка оценки: {reason}."
 
-    return {
+    summary = {
         "forecast_id": forecast.id,
         "source_kind": "selected_forecast",
         "name": forecast.name,
@@ -1397,3 +2387,10 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
         "warnings": warnings,
         "text": text,
     }
+    summary["weather_analysis"] = build_weather_analysis_from_periods(
+        periods=periods,
+        factors=factors,
+        profiles=profiles,
+        ticks=ticks,
+    )
+    return summary

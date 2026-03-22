@@ -239,6 +239,104 @@ def test_strategy_snapshot_cache_hit_and_force(monkeypatch):
     assert "effective_group_size" in first["compute_stats"]
 
 
+def test_strategy_snapshot_keeps_group_strategies_for_large_lot_sets(monkeypatch):
+    session = SimpleNamespace(
+        id=21,
+        ruleset_id=1,
+        ruleset=SimpleNamespace(config_json={}),
+        budget_total=600.0,
+        allpay_spent=0.0,
+        lots=[
+            SimpleNamespace(
+                id=index,
+                status="available",
+                current_bid=10.0 + index,
+                purchase_price=None,
+                available_round=1,
+                name=f"Lot {index}",
+                items=[],
+            )
+            for index in range(1, 26)
+        ],
+        objects=[],
+    )
+
+    monkeypatch.setattr(
+        strategy_service,
+        "resolve_analysis_context",
+        lambda session, forecast_id=None: {
+            "forecast": None,
+            "forecast_summary": {"is_compatible": True, "compatibility_report": {}},
+            "forecast_context": {
+                "source": "bundled",
+                "source_label": "Bundled",
+                "forecast_id": None,
+                "forecast_name": "Bundled",
+            },
+        },
+    )
+
+    recorded: dict[str, int] = {}
+
+    def _row(*lot_ids: int, score: float) -> strategy_service.ComboEvaluation:
+        size = len(lot_ids)
+        working_bid = float(12 * size)
+        return strategy_service.ComboEvaluation(
+            lot_ids=tuple(lot_ids),
+            payload={},
+            total_price=float(10 * size),
+            risk_adjusted_net_profit=score,
+            utility_score=score,
+            net_profit_base=score,
+            risk_total=float(size),
+            recommended_bid_safe=working_bid * 0.8,
+            recommended_bid_balanced=working_bid,
+            recommended_bid_aggressive=working_bid * 1.1,
+            cautious_bid=working_bid * 0.9,
+            target_bid=working_bid,
+            hard_ceiling_bid=working_bid * 1.15,
+            budget_adjusted_bid=working_bid,
+            working_bid=working_bid,
+            working_bid_source="target",
+            working_bid_reason="test",
+            p_win=0.35,
+            serious_competitors=3,
+            synergy_score=0.0,
+            explanation="test",
+            lot_bid_breakdown=[],
+        )
+
+    def _fake_catalog(*, max_group_size, stats=None, **kwargs):
+        del kwargs
+        recorded["max_group_size"] = int(max_group_size)
+        if stats is not None:
+            stats["combo_eval_calls"] = 11
+            stats["pruned_by_budget"] = 2
+            stats["pruned_by_upper_bound"] = 4
+            stats["pruned_by_seed_cap"] = 10
+        return [
+            _row(1, score=32.0),
+            _row(1, 2, score=46.0),
+            _row(1, 2, 3, score=58.0),
+        ]
+
+    monkeypatch.setattr(strategy_service, "_build_combo_catalog", _fake_catalog)
+
+    snapshot = strategy_service.build_strategy_snapshot(
+        session=session,
+        top_n=3,
+        beam_width=7,
+        max_group_size=5,
+        cache_ttl_seconds=0.0,
+    )
+
+    assert recorded["max_group_size"] >= 3
+    assert snapshot["compute_stats"]["effective_group_size"] >= 3
+    assert snapshot["best_groups"]
+    assert snapshot["best_groups"][0]["lots_count"] == 3
+    assert snapshot["analysis_depth"] == "fast"
+
+
 def test_remaining_budget_subtracts_allpay_spend():
     session = SimpleNamespace(
         budget_total=200.0,
