@@ -1,4 +1,4 @@
-{% extends "../base.html" %}
+{% extends "base.html" %}
 {% block title %}{{ 'Редактирование лота' if editor_mode == 'edit' else 'Новый лот' }} {{ session.id }} | IES{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}

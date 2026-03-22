@@ -472,7 +472,7 @@ def system_view(session_id: int):
         fallback_values={"session_id": session.id},
     )
     return render_template(
-        "analysis/../templates/analysis/system.html",
+        "analysis/system.html",
         session=session,
         issues=issues,
         object_rows=object_rows,
@@ -676,7 +676,7 @@ def lots_page(session_id: int):
         fallback_values={"session_id": session.id},
     )
     return render_template(
-        "analysis/../templates/analysis/lots.html",
+        "analysis/lots.html",
         session=session,
         lot_rows=rows,
         sort_key=sort_key,
@@ -737,7 +737,7 @@ def lot_detail_page(lot_id: int):
         fallback_values={"session_id": session.id},
     )
     return render_template(
-        "analysis/../templates/analysis/lot_detail.html",
+        "analysis/lot_detail.html",
         session=session,
         lot=lot,
         lot_summary=lot_summary(lot),
@@ -1115,7 +1115,7 @@ def forecast_page(session_id: int):
     )
 
     return render_template(
-        "analysis/../templates/analysis/forecast.html",
+        "analysis/forecast.html",
         session=session,
         forecasts=forecasts,
         active_forecast_id=int(session.selected_forecast_id or 0),

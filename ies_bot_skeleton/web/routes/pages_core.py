@@ -168,7 +168,7 @@ def dashboard():
 
     sessions = db.session.query(GameSession).order_by(GameSession.updated_at.desc()).all()
     return render_template(
-        "core/../templates/core/dashboard.html",
+        "core/dashboard.html",
         sessions=sessions,
         session_cards=_dashboard_cards(sessions),
         form=form,
@@ -268,7 +268,7 @@ def session_page(session_id: int):
         fallback_endpoint="pages.dashboard",
     )
     return render_template(
-        "core/../templates/core/workbench.html",
+        "core/workbench.html",
         session=session,
         kpis=kpis,
         readiness_cards=readiness_cards,

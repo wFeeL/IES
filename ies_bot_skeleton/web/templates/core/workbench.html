@@ -1,4 +1,4 @@
-{% extends "../base.html" %}
+{% extends "base.html" %}
 {% block head_extra %}{{ super() }}<script defer src="{{ url_for('static', filename='js/analysis/strategy_snapshot.js') }}"></script>{% endblock %}
 {% block title %}Сессия {{ session.id }} | IES{% endblock %}
 {% block page_title %}Сессия #{{ session.id }}{% endblock %}
