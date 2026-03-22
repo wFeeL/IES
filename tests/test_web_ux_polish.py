@@ -108,6 +108,10 @@ def test_workbench_focuses_on_forecast_portfolio_and_export_actions(client):
     assert f"/recommend/{session_id}" not in html
     assert "Контур работы" not in html
     assert "Продуктовый контур" not in html
+    assert "Рабочая таблица принятия решений" in html
+    assert 'value="bid_desc" selected' in html
+    assert ">Ставки</th>" in html
+    assert 'class="grid cols-4 gap-3 mt-3 lots-filter-grid"' in html
 
 
 def test_dashboard_imports_session_via_ssr_form(client):
@@ -245,6 +249,8 @@ def test_layout_contract_for_compact_lots_and_quick_auction_tables(client):
         'class="lot-bid-meta"' in lots_html
     )
     assert 'class="row-actions row-actions-inline"' in lots_html
+    assert 'class="grid cols-4 gap-3 mt-3 lots-filter-grid"' in lots_html
+    assert 'class="col-text lot-metric-cell"' in lots_html
 
     quick_html = client.get(f"/quick-auction/{session_id}").get_data(as_text=True)
     assert 'class="col-text qa-name-cell"' in quick_html
@@ -255,6 +261,8 @@ def test_layout_contract_for_compact_lots_and_quick_auction_tables(client):
     assert "grid-template-columns: 206px minmax(0, 1fr);" in css
     assert ".table-lots,\n.table-auction-ranking" in css
     assert ".qa-row-actions" in css
+    assert ".table-lots .row-actions.row-actions-inline" in css
+    assert ".table-lots col.lot-status-col {\n  width: 16rem;" in css
 
 
 def test_forecast_page_shows_compatibility_block(client):

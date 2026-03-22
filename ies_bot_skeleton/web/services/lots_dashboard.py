@@ -328,7 +328,7 @@ def filter_lot_rows(rows: list[Dict[str, Any]], filters: Mapping[str, Any]) -> l
 
 
 def sort_lot_rows(rows: list[Dict[str, Any]], sort_key: str) -> list[Dict[str, Any]]:
-    sort_key = str(sort_key or "utility_desc")
+    sort_key = str(sort_key or "bid_desc")
     if sort_key == "profit_desc":
         return sorted(rows, key=lambda row: row["net_profit"], reverse=True)
     if sort_key == "risk_asc":
@@ -337,7 +337,11 @@ def sort_lot_rows(rows: list[Dict[str, Any]], sort_key: str) -> list[Dict[str, A
         return sorted(
             rows,
             key=lambda row: float(
-                row.get("recommended_bid") or row.get("working_bid") or row.get("target_bid") or 0.0
+                row.get("recommended_bid_balanced")
+                or row.get("recommended_bid")
+                or row.get("working_bid")
+                or row.get("target_bid")
+                or 0.0
             ),
             reverse=True,
         )

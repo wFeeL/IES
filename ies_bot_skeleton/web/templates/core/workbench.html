@@ -189,7 +189,7 @@
     </div>
     <a class="btn btn-primary" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Открыть расширенный список</a>
   </div>
-  <form method="get" class="grid cols-4 gap-3 mt-3">
+  <form method="get" class="grid cols-4 gap-3 mt-3 lots-filter-grid">
     <label class="label">Состав
       <select class="input" name="composition">
         <option value="all" {{ 'selected' if filters.get('composition', 'all') == 'all' else '' }}>Все</option>
@@ -202,10 +202,10 @@
     </label>
     <label class="label">Сортировка
       <select class="input" name="sort">
+        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Целевая ставка ↓</option>
         <option value="utility_desc" {{ 'selected' if sort_key == 'utility_desc' else '' }}>Полезность ↓</option>
         <option value="profit_desc" {{ 'selected' if sort_key == 'profit_desc' else '' }}>Чистая прибыль ↓</option>
         <option value="risk_asc" {{ 'selected' if sort_key == 'risk_asc' else '' }}>Риск ↑</option>
-        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Целевая ставка ↓</option>
         <option value="price_asc" {{ 'selected' if sort_key == 'price_asc' else '' }}>Цена ↑</option>
         <option value="price_desc" {{ 'selected' if sort_key == 'price_desc' else '' }}>Цена ↓</option>
       </select>
@@ -213,7 +213,7 @@
     <label class="label">Цена от <input class="input" name="price_min" value="{{ filters.get('price_min', '') }}" type="number" step="0.1" /></label>
     <label class="label">Риск до <input class="input" name="risk_max" value="{{ filters.get('risk_max', '') }}" type="number" step="0.1" /></label>
     <label class="label">Полезность от <input class="input" name="utility_min" value="{{ filters.get('utility_min', '') }}" type="number" step="0.1" /></label>
-    <div class="actions">
+    <div class="actions lots-filter-actions">
       <button class="btn btn-secondary" type="submit">Применить</button>
       <a class="btn btn-ghost" href="{{ url_for('pages.session_page', session_id=session.id) }}">Сбросить</a>
     </div>
@@ -234,8 +234,8 @@
           <th class="col-text">Лот</th>
           <th class="col-text">Состав</th>
           <th class="col-num">Текущая цена</th>
-          <th class="col-text">Полезность / чистая прибыль</th>
-          <th class="col-num">Безопасная / целевая / потолок</th>
+          <th class="col-text">Полезность / прибыль</th>
+          <th class="col-num" title="Безопасная / целевая / потолок">Ставки</th>
           <th class="col-text">Статус / причина</th>
           <th class="col-actions">Действия</th>
         </tr>
@@ -257,10 +257,10 @@
             </div>
           </td>
           <td class="num">{{ fmt_num(row.price, 1) }}</td>
-          <td class="col-text">
+          <td class="col-text lot-metric-cell">
             <strong>{{ fmt_num(row.utility, 2) }}</strong>
-            <div class="table-secondary">net {{ fmt_num(row.net_profit, 2) }}</div>
-            <div class="table-secondary">risk {{ fmt_num(row.risk, 2) }}</div>
+            <div class="table-secondary">чистая {{ fmt_num(row.net_profit, 2) }}</div>
+            <div class="table-secondary">риск {{ fmt_num(row.risk, 2) }}</div>
           </td>
           <td class="num lot-bid-cell">
             {% set balanced_bid = row.recommended_bid_balanced or row.recommended_bid or row.working_bid %}

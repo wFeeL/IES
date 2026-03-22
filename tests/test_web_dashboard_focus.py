@@ -47,9 +47,12 @@ def test_lots_table_uses_compact_headers_and_actions_menu(client):
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
 
-    assert "Полезность / чистая прибыль" in html
+    assert "Полезность / прибыль" in html
     assert "чистая" in html
     assert "Безопасная / целевая / потолок" in html
+    assert '>Целевая ставка ↓</option>' in html
+    assert 'value="bid_desc" selected' in html
+    assert ">Ставки</th>" in html
     assert "Ещё" in html
     assert 'aria-haspopup="menu"' in html
     assert 'role="menu"' in html
@@ -110,8 +113,9 @@ def test_theme_toggle_and_css_tokens_present(client):
     assert css_resp.status_code == 200
     css = css_resp.get_data(as_text=True)
     assert 'html[data-theme="dark"]' in css
-    assert "overflow-wrap: anywhere" in css
+    assert "overflow-wrap: break-word" in css
     assert ".row-actions-menu" in css
+    assert ".table-lots.table-lots-compact col.lot-bid-col {" in css
 
     js_resp = client.get("/static/js/theme.js")
     assert js_resp.status_code == 200

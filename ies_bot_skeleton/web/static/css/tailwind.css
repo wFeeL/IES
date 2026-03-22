@@ -1309,6 +1309,7 @@ html[data-theme="dark"] .weather-insight-card {
 }
 
 .table-lots .lot-name-cell,
+.table-lots .lot-metric-cell,
 .table-lots .lot-structure-cell,
 .table-lots .lot-status-cell,
 .table-auction-ranking .col-text {
@@ -1317,6 +1318,23 @@ html[data-theme="dark"] .weather-insight-card {
 
 .lot-bid-cell {
   min-width: 0;
+}
+
+.lot-metric-cell,
+.lot-status-cell {
+  line-height: 1.38;
+}
+
+.lot-metric-cell strong,
+.lot-status-cell strong {
+  display: block;
+  line-height: 1.28;
+}
+
+.lot-metric-cell .table-secondary,
+.lot-status-cell .table-secondary {
+  margin-top: 3px;
+  white-space: normal;
 }
 
 .lot-bid-stack {
@@ -1431,52 +1449,77 @@ html[data-theme="dark"] .weather-insight-card {
 .table-lots .row-actions .btn-ghost {
   min-width: 0;
   padding-inline: 10px;
+  width: 100%;
+}
+
+.table-lots .row-actions.row-actions-inline {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  justify-items: stretch;
+}
+
+.lots-filter-grid .actions.lots-filter-actions {
+  align-items: flex-end;
+  justify-content: flex-start;
 }
 
 .table-lots col.lot-name-col {
-  width: 16.5rem;
+  width: 15.4rem;
 }
 
 .table-lots col.lot-structure-col {
-  width: 17rem;
+  width: 14.8rem;
 }
 
 .table-lots col.lot-price-col {
-  width: 6.2rem;
+  width: 6.6rem;
 }
 
 .table-lots col.lot-metric-col,
 .table-lots col.lot-profit-col,
 .table-lots col.lot-risk-col {
-  width: 6.5rem;
+  width: 8.2rem;
 }
 
 .table-lots col.lot-profit-col {
-  width: 7.5rem;
+  width: 8.2rem;
 }
 
 .table-lots col.lot-bid-col {
-  width: 9.2rem;
+  width: 11.4rem;
 }
 
 .table-lots col.lot-status-col {
-  width: 10rem;
+  width: 16rem;
 }
 
 .table-lots col.lot-actions-col {
-  width: 10.8rem;
+  width: 9.8rem;
+}
+
+.table-lots {
+  min-width: 1380px;
 }
 
 .table-lots.table-lots-compact col.lot-name-col {
-  width: 15.2rem;
+  width: 14.2rem;
 }
 
 .table-lots.table-lots-compact col.lot-structure-col {
-  width: 16.5rem;
+  width: 13.8rem;
 }
 
 .table-lots.table-lots-compact col.lot-bid-col {
-  width: 8.8rem;
+  width: 10.6rem;
+}
+
+.table-lots.table-lots-compact col.lot-status-col {
+  width: 14.6rem;
+}
+
+.table-lots.table-lots-compact col.lot-actions-col {
+  width: 9.4rem;
 }
 
 .strategy-card,

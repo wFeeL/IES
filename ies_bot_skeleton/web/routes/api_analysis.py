@@ -490,7 +490,7 @@ def lots_analytics(session_id: int):
     utility_min = request.args.get("utility_min", type=float)
     utility_max = request.args.get("utility_max", type=float)
     risk_max = request.args.get("risk_max", type=float)
-    sort_key = str(request.args.get("sort", "utility_desc") or "utility_desc")
+    sort_key = str(request.args.get("sort", "bid_desc") or "bid_desc")
 
     enriched = []
     lots_by_id = {int(lot.id): lot for lot in session.lots}
@@ -752,7 +752,11 @@ def lots_analytics(session_id: int):
     elif sort_key == "bid_desc":
         enriched.sort(
             key=lambda row: float(
-                row.get("recommended_bid") or row.get("working_bid") or row.get("target_bid") or 0.0
+                row.get("recommended_bid_balanced")
+                or row.get("recommended_bid")
+                or row.get("working_bid")
+                or row.get("target_bid")
+                or 0.0
             ),
             reverse=True,
         )

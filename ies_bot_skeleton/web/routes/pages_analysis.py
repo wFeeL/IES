@@ -663,7 +663,7 @@ def lots_page(session_id: int):
     )
     rows = lot_rows_for_session(session, ranking_map=ranking_map)
     rows = filter_lot_rows(rows, request.args)
-    sort_key = str(request.args.get("sort", "utility_desc") or "utility_desc")
+    sort_key = str(request.args.get("sort", "bid_desc") or "bid_desc")
     rows = sort_lot_rows(rows, sort_key)
     shell_view = session_shell_view(session, analytics_by_lot=ranking_map)
     ctx = nav(

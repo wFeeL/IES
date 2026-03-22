@@ -214,7 +214,7 @@ def session_page(session_id: int):
     portfolio = shell_view["portfolio"]
     purchased_rows = portfolio_rows(session, analytics_by_lot=analytics_by_lot)
     rows = lot_rows_for_session(session, ranking_map=analytics_by_lot)
-    sort_key = str(request.args.get("sort", "utility_desc") or "utility_desc")
+    sort_key = str(request.args.get("sort", "bid_desc") or "bid_desc")
     available_rows = [row for row in rows if row["status"] == "available"]
     available_rows = sort_lot_rows(filter_lot_rows(available_rows, request.args), sort_key)
 
