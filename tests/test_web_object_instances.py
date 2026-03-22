@@ -121,7 +121,14 @@ def test_object_parent_must_be_substation_or_infrastructure(client):
         row
         for row in objects
         if str(row.get("object_type_code") or "")
-        in {"main_substation", "main", "main_substation_hq", "mini_substation_a", "mini_substation_b", "mini"}
+        in {
+            "main_substation",
+            "main",
+            "main_substation_hq",
+            "mini_substation_a",
+            "mini_substation_b",
+            "mini",
+        }
     )
 
     consumer = client.post(

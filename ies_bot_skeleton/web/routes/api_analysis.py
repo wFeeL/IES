@@ -155,7 +155,9 @@ def _session_recalculation_payload(
                 "count": 0,
                 "start_budget": float(portfolio["start_budget"]),
                 "budget_total": float(portfolio["budget_total"]),
-                "cash_available": float(portfolio.get("cash_available", portfolio["remaining_budget"])),
+                "cash_available": float(
+                    portfolio.get("cash_available", portfolio["remaining_budget"])
+                ),
                 "reserved_budget": float(portfolio.get("reserved_budget", 0.0)),
                 "purchase_spent": float(portfolio["purchase_spent"]),
                 "allpay_spent": float(portfolio["allpay_spent"]),
@@ -175,12 +177,16 @@ def _session_recalculation_payload(
             },
         }
 
-    available_lot_ids = {int(lot.id) for lot in session.lots if str(lot.status or "") == "available"}
+    available_lot_ids = {
+        int(lot.id) for lot in session.lots if str(lot.status or "") == "available"
+    }
     available_rows = [row for row in rows if int(row.get("lot_id") or 0) in available_lot_ids]
     non_zero_working = [
         row
         for row in available_rows
-        if float(row.get("working_bid") or (row.get("decision_summary") or {}).get("working_bid") or 0.0)
+        if float(
+            row.get("working_bid") or (row.get("decision_summary") or {}).get("working_bid") or 0.0
+        )
         > 0.0
     ]
     shortlist = sorted(
@@ -658,9 +664,7 @@ def lots_analytics(session_id: int):
                 "recommended_bid_balanced": float(recommended_bid_balanced),
                 "recommended_bid_aggressive": float(recommended_bid_aggressive),
                 "safe_bid": float(recommended_bid_safe),
-                "hard_ceiling_bid": float(
-                    decision_summary.get("hard_ceiling_bid", 0.0) or 0.0
-                ),
+                "hard_ceiling_bid": float(decision_summary.get("hard_ceiling_bid", 0.0) or 0.0),
                 "hard_cap": float(
                     decision_summary.get(
                         "hard_cap",
@@ -682,9 +686,7 @@ def lots_analytics(session_id: int):
                     or ""
                 ),
                 "zero_bid_reason": str(
-                    decision_summary.get("zero_bid_reason")
-                    or item.get("zero_bid_reason")
-                    or ""
+                    decision_summary.get("zero_bid_reason") or item.get("zero_bid_reason") or ""
                 ),
                 "cap_reason": str(
                     decision_summary.get("cap_reason")
@@ -702,9 +704,7 @@ def lots_analytics(session_id: int):
                     system_check.get("connection_block_reasons_count", 0) or 0
                 ),
                 "working_bid": float(
-                    item.get("working_bid")
-                    or decision_summary.get("working_bid")
-                    or 0.0
+                    item.get("working_bid") or decision_summary.get("working_bid") or 0.0
                 ),
                 "working_bid_source": str(
                     item.get("working_bid_source")
@@ -998,7 +998,11 @@ def auction_apply_action(session_id: int):
         lot=lot,
         action=str(payload.get("action", "")),
         bid_level=str(payload.get("bid_level", "target") or "target"),
-        bid_amount=(float(payload.get("bid_amount")) if payload.get("bid_amount") not in (None, "") else None),
+        bid_amount=(
+            float(payload.get("bid_amount"))
+            if payload.get("bid_amount") not in (None, "")
+            else None
+        ),
     )
     db.session.commit()
     refresh = _session_recalculation_payload(

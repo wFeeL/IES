@@ -75,7 +75,9 @@ def test_session_budget_summary_includes_allpay_spend(client):
     assert session_payload["start_budget"] == pytest.approx(session_payload["budget_total"])
     assert session_payload["allpay_spent"] == 37.5
     assert session_payload["remaining_budget"] == session_payload["budget_total"] - 37.5
-    settings_payload = client.get(f"/api/sessions/{session_id}/analysis-settings").get_json()["item"]
+    settings_payload = client.get(f"/api/sessions/{session_id}/analysis-settings").get_json()[
+        "item"
+    ]
     assert settings_payload["start_budget"] == pytest.approx(session_payload["start_budget"])
 
     dashboard = client.get(f"/sessions/{session_id}")
@@ -116,7 +118,14 @@ def test_bought_generated_objects_have_pending_and_integrated_lifecycle(client):
     assert warning_page.status_code == 200
     assert "нужно подключить" in warning_page.get_data(as_text=True).lower()
 
-    parent_codes = {"main_substation", "main", "main_substation_hq", "mini_substation_a", "mini_substation_b", "mini"}
+    parent_codes = {
+        "main_substation",
+        "main",
+        "main_substation_hq",
+        "mini_substation_a",
+        "mini_substation_b",
+        "mini",
+    }
     parent_candidates = [
         row
         for row in objects

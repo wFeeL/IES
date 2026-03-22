@@ -220,7 +220,7 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "budget_adjusted_bid": 0.0,
             "recommended_bid": 0.0,
             "max_bid": 0.0,
-            "bid_formula": "strategic_anchor_allpay_v3",
+            "bid_formula": "strategic_anchor_repeatable_v4",
             "legacy_bid_formula": "deprecated_pwin_share_model",
             "bid_share": 0.0,
             "p_win": 0.0,
@@ -228,6 +228,7 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
             "gross_expected_profit_before_bid": 0.0,
             "recommended_bid_reason": reason,
             "max_bid_reason": reason,
+            "bid_constraints_summary": reason,
             "budget_remaining": 0.0,
             "net_profit_at_recommended_bid": 0.0,
             "net_profit_at_max_bid": 0.0,
@@ -294,7 +295,10 @@ def _blocked_evaluation_payload(*, compatibility_report: Dict[str, Any]) -> Dict
                     "cap_share": 0.0,
                     "portfolio_synergy": 0.0,
                     "system_fit_score": 0.0,
-                    "conservative_utility": {"method": "weighted_expected_minus_volatility", "value": 0.0},
+                    "conservative_utility": {
+                        "method": "weighted_expected_minus_volatility",
+                        "value": 0.0,
+                    },
                     "reserve_margin": 0.0,
                     "cautious_bid": 0.0,
                     "target_bid": 0.0,
@@ -1212,7 +1216,7 @@ def quick_auction_page(session_id: int):
                         "bid_formula": str(
                             row.get("decision_summary", {}).get("bid_formula")
                             or payload.get("decision_summary", {}).get("bid_formula")
-                            or "strategic_anchor_allpay_v3"
+                            or "strategic_anchor_repeatable_v4"
                         ),
                         "bid_share": float(
                             row.get("decision_summary", {}).get("bid_share")
@@ -1221,15 +1225,16 @@ def quick_auction_page(session_id: int):
                         ),
                         "gross_expected_profit_before_bid": float(
                             row.get("decision_summary", {}).get("gross_expected_profit_before_bid")
-                            or payload.get("decision_summary", {}).get("gross_expected_profit_before_bid")
+                            or payload.get("decision_summary", {}).get(
+                                "gross_expected_profit_before_bid"
+                            )
                             or 0.0
                         ),
                         "recommended_bid_reason": str(
-                            row.get("recommended_bid_reason")
-                            or row.get("working_bid_reason")
-                            or ""
+                            row.get("recommended_bid_reason") or row.get("working_bid_reason") or ""
                         ),
                         "max_bid_reason": str(row.get("max_bid_reason") or ""),
+                        "bid_constraints_summary": str(row.get("bid_constraints_summary") or ""),
                         "net_profit_at_recommended_bid": float(
                             row.get("net_profit_at_recommended_bid", 0.0) or 0.0
                         ),
@@ -1295,7 +1300,9 @@ def quick_auction_page(session_id: int):
                         "hard_cap": float(
                             decision_summary.get(
                                 "hard_cap",
-                                decision_summary.get("hard_ceiling_bid", row.get("hard_ceiling_bid", 0.0)),
+                                decision_summary.get(
+                                    "hard_ceiling_bid", row.get("hard_ceiling_bid", 0.0)
+                                ),
                             )
                             or 0.0
                         ),
@@ -1303,6 +1310,11 @@ def quick_auction_page(session_id: int):
                         "working_bid_source": str(row.get("working_bid_source") or "none"),
                         "working_bid_reason": str(row.get("working_bid_reason") or ""),
                         "working_bid_short_reason": str(row.get("working_bid_short_reason") or ""),
+                        "decision_status": str(row.get("decision_status") or ""),
+                        "decision_status_label": str(row.get("decision_status_label") or ""),
+                        "decision_reason": str(row.get("decision_reason") or ""),
+                        "decision_reason_short": str(row.get("decision_reason_short") or ""),
+                        "bid_constraints_summary": str(row.get("bid_constraints_summary") or ""),
                         "budget_preservation_note": str(
                             row.get("budget_preservation_note") or BUDGET_PRESERVATION_NOTE
                         ),
@@ -1312,7 +1324,9 @@ def quick_auction_page(session_id: int):
                         "recommended_points": list(row.get("recommended_points") or []),
                         "bid_explainability": dict(
                             decision_summary.get("explainability")
-                            or ((payload.get("metrics") or {}).get("bids") or {}).get("explainability")
+                            or ((payload.get("metrics") or {}).get("bids") or {}).get(
+                                "explainability"
+                            )
                             or {}
                         ),
                         "decision_summary": decision_summary,
@@ -1376,6 +1390,7 @@ def strategy_fit_page(lot_id: int):
     if lot is None:
         return _missing_lot_redirect(lot_id=lot_id)
     flash(
-        "Отдельная страница strategy fit больше не нужна: вся аналитика собрана в карточке лота.", "warning"
+        "Отдельная страница strategy fit больше не нужна: вся аналитика собрана в карточке лота.",
+        "warning",
     )
     return redirect(url_for("pages.lot_detail_page", lot_id=lot.id))

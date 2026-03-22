@@ -135,18 +135,27 @@
     "hard_ceiling_bid": 58.0,
     "budget_adjusted_bid": 52.0,
     "budget_remaining": 70.0,
-    "bid_formula": "portfolio_marginal_allpay_v2",
-    "legacy_bid_formula": "pwin_aware_allpay",
-    "bid_share": 0.31,
+    "bid_formula": "strategic_anchor_repeatable_v4",
+    "legacy_bid_formula": "deprecated_pwin_share_model",
     "gross_expected_profit_before_bid": 164.0,
     "expected_net_profit": 64.0,
     "risk_adjusted_net_profit": 41.5,
     "model_working_bid": 52.0,
     "portfolio_synergy": 4.2,
     "system_fit_score": 3.6,
+    "value_anchor": 73.0,
+    "adjusted_value": 61.0,
+    "fit_factor": 0.93,
+    "risk_factor": 0.78,
+    "volatility_factor": 0.88,
+    "competition_factor": 0.97,
+    "bid_constraints_summary": "средний риск, сценарная волатильность, резерв и ликвидность",
+    "cap_bindings": ["profit", "risk_clean"],
     "working_bid": 52.0,
-    "working_bid_source": "target|budget_adjusted|zero",
+    "working_bid_source": "balanced|budget_adjusted|tight_entry|zero",
     "working_bid_reason": "...",
+    "zero_bid_reason": "",
+    "cap_reason": "...",
     "recommended_bid": 52.0,
     "recommended_bid_reason": "...",
     "max_bid": 58.0,
@@ -187,7 +196,7 @@
         "budget_adjusted_bid": 0.0,
         "working_bid": 0.0
       },
-      "valuation_basis": "portfolio_marginal_allpay_v2",
+      "valuation_basis": "strategic_anchor_repeatable_v4",
       "budget_remaining": 70.0,
       "gross_expected_profit_before_bid": 164.0,
       "net_profit_at_recommended_bid": 112.0,
@@ -229,16 +238,17 @@
 - отдельного режима без прогноза и отдельного compare-flow в схеме продукта нет.
 - исторические `evaluations` сохраняются в БД и экспорте, но не отображаются отдельным экраном в основном пользовательском UX.
 - `financial_breakdown.ui_rows` предназначен для UI: содержит только релевантные/ненулевые строки (`abs(value) > 1e-6`) + обязательные `entry_price` и `net_profit`.
-- `recommended_bid` - основная value-ставка из маржинальной портфельной формулы (`portfolio_delta * fit * scarcity - risk - reserve - opportunity_cost`), а не из фиксированной доли прибыли.
+- `recommended_bid` строится не от полной value лота, а от `adjusted_value`: риск-очищенного маржинального anchor value после fit/risk/volatility/synergy/liquidity/all-pay ограничений.
 - `working_bid` - alias `recommended_bid` для backward compatibility.
-- `budget_adjusted_bid` - технический alias итоговой рекомендуемой ставки; бюджет выступает только как верхний cap.
+- `budget_adjusted_bid` - рабочая ставка после жёсткого budget/liquidity cap.
 - `model_working_bid` сохраняется для совместимости и равен итоговому `working_bid`.
-- `max_bid` - агрессивный потолок для борьбы за текущий аукцион; он обязан оставлять положительную ожидаемую прибыль.
+- `safe_bid <= recommended_bid <= recommended_bid_aggressive <= hard_ceiling_bid`.
+- `max_bid` - UI-алиас для `hard_ceiling_bid`; потолок обязан сохранять крупную часть прибыли и не липнуть к полной чистой value.
 - `financial_breakdown.result.net_profit` и `financial_breakdown.result.net_profit_at_current_price` показывают прибыль при текущей цене, а не после рекомендуемой ставки.
 - `decision_summary.net_profit_at_recommended_bid` и `decision_summary.remaining_budget_after_recommended_bid` описывают экономику после рекомендуемой ставки на всём горизонте оценки.
 - `portfolio_synergy` и `system_fit_score` входят в valuation model и влияют на рекомендуемую ставку.
 - неиспользованный остаток бюджета сохраняется и может быть использован в следующих аукционах; модель не повышает ставку только потому, что деньги доступны.
-- если `working_bid == 0`, это честно отражается через `working_bid_reason`, а не замещается старым fallback-числом; типичный повод - неположительная взвешенная маржинальная прибыль или исчерпанный бюджет.
+- если `working_bid == 0`, это честно отражается через `working_bid_reason` и `zero_bid_reason`, а `cap_reason` и `bid_constraints_summary` объясняют, что именно зажало ставку.
 
 ## Forecast canonical schema
 

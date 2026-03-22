@@ -66,7 +66,7 @@
         <option value="utility_desc" {{ 'selected' if sort_key == 'utility_desc' else '' }}>Полезность ↓</option>
         <option value="profit_desc" {{ 'selected' if sort_key == 'profit_desc' else '' }}>Чистая прибыль ↓</option>
         <option value="risk_asc" {{ 'selected' if sort_key == 'risk_asc' else '' }}>Риск ↑</option>
-        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Balanced bid ↓</option>
+        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Целевая ставка ↓</option>
         <option value="price_asc" {{ 'selected' if sort_key == 'price_asc' else '' }}>Цена ↑</option>
         <option value="price_desc" {{ 'selected' if sort_key == 'price_desc' else '' }}>Цена ↓</option>
       </select>
@@ -91,8 +91,6 @@
         <col class="lot-structure-col" />
         <col class="lot-price-col" />
         <col class="lot-metric-col" />
-        <col class="lot-profit-col" />
-        <col class="lot-risk-col" />
         <col class="lot-bid-col" />
         <col class="lot-status-col" />
         <col class="lot-actions-col" />
@@ -101,12 +99,10 @@
         <tr>
           <th class="col-text">Лот</th>
           <th class="col-text">Состав</th>
-          <th class="col-num">Цена</th>
-          <th class="col-num">Полезность</th>
-          <th class="col-num">Чистая прибыль</th>
-          <th class="col-num">Риск</th>
-          <th class="col-num">Balanced / Max justified</th>
-          <th class="col-text">Статус</th>
+          <th class="col-num">Текущая цена</th>
+          <th class="col-text">Полезность / чистая прибыль</th>
+          <th class="col-num">Безопасная / целевая / потолок</th>
+          <th class="col-text">Статус / причина</th>
           <th class="col-actions">Действия</th>
         </tr>
       </thead>
@@ -127,26 +123,32 @@
             </div>
           </td>
           <td class="num">{{ fmt_num(row.price, 1) }}</td>
-          <td class="num">{{ fmt_num(row.utility, 2) }}</td>
-          <td class="num">{{ fmt_num(row.net_profit, 2) }}</td>
-          <td class="num">{{ fmt_num(row.risk, 2) }}</td>
+          <td class="col-text">
+            <strong>{{ fmt_num(row.utility, 2) }}</strong>
+            <div class="table-secondary">чистая {{ fmt_num(row.net_profit, 2) }}</div>
+            <div class="table-secondary">риск {{ fmt_num(row.risk, 2) }}</div>
+          </td>
           <td class="num lot-bid-cell">
             {% set balanced_bid = row.recommended_bid_balanced or row.recommended_bid or row.working_bid %}
             <div class="lot-bid-stack">
               <strong>{{ fmt_num(balanced_bid, 1) }}</strong>
               {% if balanced_bid > 0 %}
-              <span class="lot-bid-meta" title="safe {{ fmt_num(row.recommended_bid_safe, 1) }} / aggressive {{ fmt_num(row.recommended_bid_aggressive, 1) }}">safe {{ fmt_num(row.recommended_bid_safe, 1) }} · aggr {{ fmt_num(row.recommended_bid_aggressive, 1) }}</span>
-              <span class="lot-bid-meta" title="{{ row.max_bid_reason or ('Hard ceiling: ' ~ fmt_num(row.hard_ceiling_bid or row.max_bid, 1)) }}">max {{ fmt_num(row.max_bid, 1) }}</span>
-              {% if row.connection_fit_status and row.connection_fit_status != 'neutral' %}
-              <span class="lot-bid-meta">fit {{ row.connection_fit_status }}</span>
-              {% endif %}
+              <span class="lot-bid-meta">безопасная {{ fmt_num(row.recommended_bid_safe, 1) }}</span>
+              <span class="lot-bid-meta">целевая {{ fmt_num(balanced_bid, 1) }}</span>
+              <span class="lot-bid-meta" title="{{ row.max_bid_reason or ('Жёсткий потолок: ' ~ fmt_num(row.hard_ceiling_bid or row.max_bid, 1)) }}">потолок {{ fmt_num(row.max_bid, 1) }}</span>
               {% else %}
               <span class="lot-bid-reason text-clamp-2" title="{{ row.recommended_bid_reason or row.working_bid_reason }}">{{ row.working_bid_short_reason or 'Нет рекомендуемой ставки' }}</span>
               {% endif %}
             </div>
           </td>
           <td class="col-text lot-status-cell">
-            <span>{{ lot_status_label(row.status) }}</span>
+            <strong>{{ row.decision_status_label or lot_status_label(row.status) }}</strong>
+            <div class="table-secondary text-clamp-2" title="{{ row.decision_reason or row.working_bid_reason or row.recommended_bid_reason }}">
+              {{ row.decision_reason_short or row.working_bid_short_reason or row.recommended_bid_reason or '—' }}
+            </div>
+            {% if row.bid_constraints_summary %}
+            <div class="table-secondary text-clamp-2" title="{{ row.bid_constraints_summary }}">{{ row.bid_constraints_summary }}</div>
+            {% endif %}
             {% if row.recommended_points %}
             <div class="table-secondary text-clamp-2" title="Рекомендованные точки подключения: {{ row.recommended_points|join(', ') }}">
               Точки: {{ row.recommended_points|join(', ') }}
@@ -186,7 +188,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="9"><div class="empty-state">Лоты ещё не добавлены. Создайте первый лот или добавьте стартовый пакет.</div></td></tr>
+        <tr><td colspan="7"><div class="empty-state">Лоты ещё не добавлены. Создайте первый лот или добавьте стартовый пакет.</div></td></tr>
         {% endfor %}
       </tbody>
     </table>

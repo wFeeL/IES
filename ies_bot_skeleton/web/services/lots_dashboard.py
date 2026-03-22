@@ -138,6 +138,35 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         or 0.0
     )
     system_check = dict(evaluation.get("system_check") or {})
+    zero_bid_reason = str(
+        decision_summary.get("zero_bid_reason") or evaluation.get("zero_bid_reason") or ""
+    )
+    cap_reason = str(
+        decision_summary.get("cap_reason")
+        or evaluation.get("cap_reason")
+        or decision_summary.get("max_bid_reason")
+        or ""
+    )
+    bid_constraints_summary = str(
+        decision_summary.get("bid_constraints_summary")
+        or ((evaluation.get("metrics") or {}).get("bids") or {}).get("bid_constraints_summary")
+        or ""
+    )
+    working_bid_reason = str(
+        evaluation.get("working_bid_reason") or decision_summary.get("working_bid_reason") or ""
+    )
+    if zero_bid_reason:
+        decision_status = "pass"
+        decision_status_label = "Пас"
+        decision_reason = zero_bid_reason
+    elif recommended_bid <= max(0.0, max_bid * 0.35):
+        decision_status = "cheap_only"
+        decision_status_label = "Только дёшево"
+        decision_reason = working_bid_reason or bid_constraints_summary or cap_reason
+    else:
+        decision_status = "go"
+        decision_status_label = "Брать"
+        decision_reason = working_bid_reason or bid_constraints_summary or cap_reason
     recommended_points = [
         str(point).strip()
         for point in list(system_check.get("recommended_points") or [])
@@ -202,56 +231,40 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "recommended_bid_balanced": float(recommended_bid_balanced),
         "recommended_bid_aggressive": float(recommended_bid_aggressive),
         "recommended_bid": float(recommended_bid),
-        "hard_ceiling_bid": float(
-            decision_summary.get("hard_ceiling_bid", 0.0) or 0.0
-        ),
+        "hard_ceiling_bid": float(decision_summary.get("hard_ceiling_bid", 0.0) or 0.0),
         "max_bid": float(max_bid),
         "working_bid_source": str(
             evaluation.get("working_bid_source")
             or decision_summary.get("working_bid_source")
             or "none"
         ),
-        "working_bid_reason": str(
-            evaluation.get("working_bid_reason")
-            or decision_summary.get("working_bid_reason")
-            or ""
-        ),
-        "working_bid_short_reason": working_bid_reason_short(
-            evaluation.get("working_bid_reason")
-            or decision_summary.get("working_bid_reason")
-            or ""
-        ),
-        "target_bid": float(
-            decision_summary.get("target_bid", recommended_bid_balanced) or 0.0
-        ),
-        "cautious_bid": float(
-            decision_summary.get("cautious_bid", recommended_bid_safe) or 0.0
-        ),
+        "working_bid_reason": str(working_bid_reason),
+        "working_bid_short_reason": working_bid_reason_short(working_bid_reason),
+        "target_bid": float(decision_summary.get("target_bid", recommended_bid_balanced) or 0.0),
+        "cautious_bid": float(decision_summary.get("cautious_bid", recommended_bid_safe) or 0.0),
         "p_win": float(decision_summary.get("p_win", 0.0) or 0.0),
         "serious_competitors": int(decision_summary.get("serious_competitors", 0) or 0),
-        "budget_adjusted_bid": float(
-            decision_summary.get("budget_adjusted_bid", 0.0) or 0.0
-        ),
+        "budget_adjusted_bid": float(decision_summary.get("budget_adjusted_bid", 0.0) or 0.0),
         "recommended_bid_reason": str(
             decision_summary.get("recommended_bid_reason")
             or decision_summary.get("working_bid_reason")
             or evaluation.get("working_bid_reason")
             or ""
         ),
-        "zero_bid_reason": str(
-            decision_summary.get("zero_bid_reason")
-            or evaluation.get("zero_bid_reason")
-            or ""
+        "zero_bid_reason": str(zero_bid_reason),
+        "cap_reason": str(cap_reason),
+        "bid_constraints_summary": str(bid_constraints_summary),
+        "cap_bindings": list(decision_summary.get("cap_bindings") or []),
+        "decision_status": str(decision_status),
+        "decision_status_label": str(decision_status_label),
+        "decision_reason": str(decision_reason),
+        "decision_reason_short": working_bid_reason_short(decision_reason),
+        "decision_price_range": (
+            f"безопасная {recommended_bid_safe:.1f} · целевая {recommended_bid_balanced:.1f} · потолок {max_bid:.1f}"
+            if recommended_bid_balanced > 0.0
+            else "безопасная 0 · целевая 0 · потолок 0"
         ),
-        "cap_reason": str(
-            decision_summary.get("cap_reason")
-            or evaluation.get("cap_reason")
-            or decision_summary.get("max_bid_reason")
-            or ""
-        ),
-        "budget_preservation_note": str(
-            decision_summary.get("budget_preservation_note") or ""
-        ),
+        "budget_preservation_note": str(decision_summary.get("budget_preservation_note") or ""),
         "max_bid_reason": str(decision_summary.get("max_bid_reason") or ""),
         "system_check": system_check,
         "connection_fit_status": str(system_check.get("status") or "neutral"),
@@ -324,10 +337,7 @@ def sort_lot_rows(rows: list[Dict[str, Any]], sort_key: str) -> list[Dict[str, A
         return sorted(
             rows,
             key=lambda row: float(
-                row.get("recommended_bid")
-                or row.get("working_bid")
-                or row.get("target_bid")
-                or 0.0
+                row.get("recommended_bid") or row.get("working_bid") or row.get("target_bid") or 0.0
             ),
             reverse=True,
         )

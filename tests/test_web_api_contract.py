@@ -379,7 +379,9 @@ def test_forecast_compatibility_and_strategy_endpoints(client):
         assert "lot_bid_breakdown" in strategy_item["best_singles"][0]
     for bucket in ("best_singles", "best_pairs", "best_groups"):
         rows = list(strategy_item.get(bucket) or [])
-        profits = [float(row.get("net_profit_base", row.get("total_profit", 0.0)) or 0.0) for row in rows]
+        profits = [
+            float(row.get("net_profit_base", row.get("total_profit", 0.0)) or 0.0) for row in rows
+        ]
         assert profits == sorted(profits, reverse=True)
 
 
@@ -687,7 +689,13 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     assert item["decision_summary"]["recommended_bid"] == pytest.approx(item["recommended_bid"])
     assert item["decision_summary"]["max_bid"] == pytest.approx(item["max_bid"])
     assert item["decision_summary"]["working_bid_source"] == item["working_bid_source"]
-    assert item["working_bid_source"] in {"target", "balanced", "budget_adjusted", "zero"}
+    assert item["working_bid_source"] in {
+        "target",
+        "balanced",
+        "budget_adjusted",
+        "tight_entry",
+        "zero",
+    }
     assert item["decision_summary"]["budget_remaining"] == pytest.approx(
         item["portfolio_context"]["remaining_budget"]
     )
@@ -706,7 +714,7 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     assert item["recommended_bid"] == pytest.approx(item["working_bid"])
     assert item["recommended_bid"] <= item["max_bid"] + 1e-9
     assert item["decision_summary"]["budget_preservation_note"]
-    assert item["decision_summary"]["bid_formula"] == "strategic_anchor_allpay_v3"
+    assert item["decision_summary"]["bid_formula"] == "strategic_anchor_repeatable_v4"
     assert item["decision_summary"]["legacy_bid_formula"] == "deprecated_pwin_share_model"
     assert "value_anchor" in item["decision_summary"]
     assert "adjusted_value" in item["decision_summary"]
@@ -714,6 +722,8 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     assert "risk_factor" in item["decision_summary"]
     assert "volatility_factor" in item["decision_summary"]
     assert "competition_factor" in item["decision_summary"]
+    assert "bid_constraints_summary" in item["decision_summary"]
+    assert "cap_bindings" in item["decision_summary"]
     assert "zero_bid_reason" in item["decision_summary"]
     assert "cap_reason" in item["decision_summary"]
     assert isinstance(item["decision_summary"].get("explainability"), dict)
@@ -723,9 +733,9 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     assert item["financial_breakdown"]["result"]["net_profit_at_current_price"] == pytest.approx(
         item["financial_breakdown"]["result"]["net_profit"]
     )
-    assert item["financial_breakdown"]["result"]["remaining_budget_after_recommended_bid"] == pytest.approx(
-        item["decision_summary"]["remaining_budget_after_recommended_bid"]
-    )
+    assert item["financial_breakdown"]["result"][
+        "remaining_budget_after_recommended_bid"
+    ] == pytest.approx(item["decision_summary"]["remaining_budget_after_recommended_bid"])
     assert item["decision_summary"]["net_profit_at_recommended_bid"] == pytest.approx(
         item["financial_breakdown"]["result"]["gross_profit_before_bid"] - item["recommended_bid"]
     )
@@ -827,8 +837,7 @@ def test_allpay_flow_bid_lost_updates_budget_breakdown(client):
     history = client.get(f"/api/sessions/{session_id}/auction/events").get_json()
     assert history["ok"] is True
     assert any(
-        str(row["action"]) == "bid" and str(row["outcome"]) == "lost"
-        for row in history["items"]
+        str(row["action"]) == "bid" and str(row["outcome"]) == "lost" for row in history["items"]
     )
 
 
@@ -891,6 +900,48 @@ def test_allpay_flow_bid_won_keeps_allpay_zero_and_purchases_once(client):
     assert float(session_after["cash_available"]) == pytest.approx(
         float(session_after["budget_total"]) - bid_amount
     )
+
+
+def test_quick_auction_pass_is_soft_and_keeps_lot_available(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Soft pass")
+    wind_id = _type_id_by_code(client, "wind")
+
+    lot_resp = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Pass lot",
+            "scope": "normal",
+            "base_bid": 30.0,
+            "current_bid": 30.0,
+            "items": [{"object_type_id": wind_id, "quantity": 1}],
+        },
+    )
+    assert lot_resp.status_code == 200
+    lot_id = int(lot_resp.get_json()["item"]["id"])
+
+    pass_resp = client.post(
+        f"/api/sessions/{session_id}/auction/actions",
+        json={"lot_id": lot_id, "action": "pass"},
+    )
+    assert pass_resp.status_code == 200
+    payload = pass_resp.get_json()
+    event = dict(payload["item"]["event"])
+    assert event["action"] == "pass"
+    assert event["outcome"] == "none"
+    assert bool((event.get("details") or {}).get("soft_pass")) is True
+
+    lot_after = client.get(f"/api/lots/{lot_id}").get_json()["item"]
+    assert lot_after["status"] == "available"
+
+    refresh_items = list((payload.get("refresh") or {}).get("items") or [])
+    assert any(int(row.get("lot_id") or 0) == lot_id for row in refresh_items)
+
+    history = client.get(f"/api/sessions/{session_id}/auction/events").get_json()
+    assert history["ok"] is True
+    assert any(str(row["action"]) == "pass" for row in history["items"])
+
 
 def test_api_returns_structured_csrf_error_for_recalculate(tmp_path):
     db_path = tmp_path / "csrf_contract.db"

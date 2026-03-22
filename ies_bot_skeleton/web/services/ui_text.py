@@ -141,6 +141,8 @@ def working_bid_reason_short(reason: str | None) -> str:
     lowered = text.lower()
     if "balanced bid" in lowered and "ограничена бюджетом" in lowered:
         return "Balanced ограничена бюджетом"
+    if "только по дешёвому входу" in lowered or "можно брать только по дешёвому входу" in lowered:
+        return "Только дёшево"
     if "safe bid" in lowered:
         return "Safe режим"
     if "pwin-aware" in lowered:
@@ -163,8 +165,14 @@ def working_bid_reason_short(reason: str | None) -> str:
         return "Цена выше потолка"
     if "отрицательная экономика" in lowered:
         return "Отрицательная экономика"
+    if "отрицательная маржинальная экономика" in lowered:
+        return "Отрицательная экономика"
     if "структурно не поддерживается системой" in lowered or "критически низкий fit" in lowered:
         return "Лот несовместим"
+    if "маржинального anchor value" in lowered:
+        return "Рабочая ставка"
+    if "ликвидностью после all-pay" in lowered:
+        return "Ограничено ликвидностью"
     if "ставка небольшая" in lowered:
         return "Ставка снижена риском"
     if "снижена из-за бюджетного ограничения" in lowered:

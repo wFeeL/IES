@@ -161,20 +161,25 @@ def test_quick_auction_uses_user_facing_actions_without_debug_block(client):
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
     assert "Технический ответ" not in html
-    assert "Цена покупки (по умолчанию — balanced bid)" in html
+    assert "Цена сделки" in html
     assert 'id="purchasePriceInput"' in html
+    assert 'id="qaConfirmPrice"' in html
     assert f"/lots/item/{lot_a}" in html
     assert "Открыть сравнение" not in html
     assert "Пересчитать все лоты" in html
     assert 'id="qaPassAction"' in html
     assert 'id="qaWatchAction"' in html
+    assert 'id="qaShortlistToggle"' in html
     assert 'id="qaSafeBidAction"' in html
     assert 'id="qaTargetBidAction"' in html
     assert 'id="qaMaxBidAction"' in html
+    assert "Пропустить раунд" in html
+    assert "Пас фиксирует пропуск текущего раунда" in html
+    assert "Подтвердить покупку" in html
     assert 'id="qaPendingList"' in html
     assert 'id="qaHistoryList"' in html
-    assert "Cash available" in html
-    assert "All-pay spent" in html
+    assert "Свободные деньги" in html
+    assert "Потрачено на проигранные ставки" in html
 
 
 def test_quick_auction_script_keeps_selected_lot_after_refresh(client):
@@ -185,8 +190,15 @@ def test_quick_auction_script_keeps_selected_lot_after_refresh(client):
     assert "async function refreshRanking(preferredLotId)" in js
     assert "const selectedLotId = Number(preferredLotId ?? $('currentLotId')?.value ?? 0);" in js
     assert "const selected = rankingItemByLotId(selectedLotId) || state.ranking[0] || null;" in js
-    assert "await refreshRanking(Number(button.dataset.lotId || 0));" in js
+    assert "setStatus(`Лот ${lotId} выбран в панели решения.`);" in js
+    assert (
+        "setStatus(`Лот ${lotId} перенесён в панель. Проверьте цену и подтвердите покупку.`);" in js
+    )
     assert "function isHotkeyTarget(event)" in js
+    assert "function hotkeyCommand(event)" in js
+    assert "function toggleShortlist(lotId)" in js
+    assert "KeyP: 'pass'" in js
+    assert "з: 'pass'" in js
     assert "tag === 'input' || tag === 'textarea' || tag === 'select'" in js
     assert "event.preventDefault();" in js
     assert "async function recalculateAllLots(preferredLotId)" in js
@@ -194,6 +206,11 @@ def test_quick_auction_script_keeps_selected_lot_after_refresh(client):
     assert "const refresh = data?.refresh || null;" in js
     assert "await refreshRanking(0);" in js
     assert "function syncPurchasePriceInput" in js
+    assert "qaConfirmPrice" in js
+    assert "qaShortlistToggle" in js
+    assert "setSuggestedBid(level)" in js
+    assert "Подтвердите цену сделки перед покупкой." in js
+    assert "Раунд по лоту ${lotId} пропущен. Лот остался в потоке и не был отклонён." in js
     assert "apiFetchJson(`/api/lots/${lotId}`, {" not in js
     assert "body: JSON.stringify({current_bid: bid})" not in js
     assert "function syncAuctionListWithRanking(rows)" in js
@@ -224,7 +241,9 @@ def test_layout_contract_for_compact_lots_and_quick_auction_tables(client):
     )
 
     lots_html = client.get(f"/lots/{session_id}").get_data(as_text=True)
-    assert ('class="lot-bid-reason text-clamp-2"' in lots_html) or ('class="lot-bid-meta"' in lots_html)
+    assert ('class="lot-bid-reason text-clamp-2"' in lots_html) or (
+        'class="lot-bid-meta"' in lots_html
+    )
     assert 'class="row-actions row-actions-inline"' in lots_html
 
     quick_html = client.get(f"/quick-auction/{session_id}").get_data(as_text=True)

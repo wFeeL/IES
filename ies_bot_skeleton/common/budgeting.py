@@ -23,7 +23,9 @@ def allpay_spent_total(session: GameSession) -> float:
 
 
 def cash_available(session: GameSession) -> float:
-    return max(0.0, start_budget(session) - purchase_spent_total(session) - allpay_spent_total(session))
+    return max(
+        0.0, start_budget(session) - purchase_spent_total(session) - allpay_spent_total(session)
+    )
 
 
 def reserved_budget(session: GameSession, *, reserved_spend: float = 0.0) -> float:
@@ -37,7 +39,9 @@ def spent_total(session: GameSession, *, reserved_spend: float = 0.0) -> float:
 
 
 def remaining_budget(session: GameSession, *, reserved_spend: float = 0.0) -> float:
-    return max(0.0, cash_available(session) - reserved_budget(session, reserved_spend=reserved_spend))
+    return max(
+        0.0, cash_available(session) - reserved_budget(session, reserved_spend=reserved_spend)
+    )
 
 
 def budget_snapshot(

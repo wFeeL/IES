@@ -47,9 +47,9 @@ def test_lots_table_uses_compact_headers_and_actions_menu(client):
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
 
-    assert "Полезность" in html
-    assert "Чистая прибыль" in html
-    assert "Balanced / Max justified" in html
+    assert "Полезность / чистая прибыль" in html
+    assert "чистая" in html
+    assert "Безопасная / целевая / потолок" in html
     assert "Ещё" in html
     assert 'aria-haspopup="menu"' in html
     assert 'role="menu"' in html
@@ -84,7 +84,7 @@ def test_session_dashboard_shows_forecast_portfolio_and_quick_actions(client):
     assert "Готовность данных" in html
     assert "Бюджет и портфель" in html
     assert "Режим" in html
-    assert "одиночные лоты, пары и группы" in html
+    assert "Сценарная справка по комбинациям" in html
     assert "Совместимость" in html
     assert "Лоты" in html
     assert "Прогноз" in html
@@ -187,10 +187,10 @@ def test_lot_detail_renders_non_zero_income_for_legacy_load_forecast(client, app
     assert f"{income_total:.2f}" in html
     assert "Лучшие пары" in html
     assert "Синергия с этим лотом" in html
-    assert "Balanced bid" in html
-    assert "Max justified bid" in html
-    assert "Чистая прибыль после balanced bid" in html
-    assert "Остаток бюджета после balanced bid" in html
+    assert "Целевая ставка" in html
+    assert "Рабочий потолок" in html
+    assert "Чистая прибыль после целевой ставки" in html
+    assert "Остаток бюджета после целевой ставки" in html
     assert 'id="lotPairsCard"' in html
     assert f'data-strategy-url="/api/sessions/{session_id}/strategy?top_n=20"' in html
 

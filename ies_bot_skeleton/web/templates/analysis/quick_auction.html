@@ -29,23 +29,29 @@
 </section>
 {% endif %}
 
-<section class="page-grid mt-4">
-  <article class="card">
+<section class="page-grid auction-shell mt-4">
+  <article class="card auction-lane">
     <div class="section-head">
       <div>
-        <p class="section-kicker">Шорт-лист</p>
+        <p class="section-kicker">Операционный поток</p>
         <h1 class="h1">Быстрый аукцион</h1>
-        <p class="muted">Горячие клавиши: <kbd>1..9</kbd> выбрать лот, <kbd>P</kbd> pass, <kbd>W</kbd> watch, <kbd>S</kbd> safe, <kbd>T</kbd> target, <kbd>M</kbd> max, <kbd>R</kbd> глубокий пересчёт.</p>
+        <p class="muted">Горячие клавиши: <kbd>1..9</kbd> выбрать лот, <kbd>P/З</kbd> пропустить раунд, <kbd>W/Ц</kbd> наблюдать, <kbd>S/Ы</kbd> безопасная ставка, <kbd>T/Е</kbd> целевая ставка, <kbd>M/Ь</kbd> потолок, <kbd>B/И</kbd> купить, <kbd>E/У</kbd> оценить, <kbd>R/К</kbd> глубокий пересчёт.</p>
+        <p class="table-secondary">Паттерн экрана: слева шорт-лист и поток лотов, справа единая панель решения. Пас не удаляет лот из сессии.</p>
       </div>
     </div>
-    <ul id="auctionLots" class="stack gap-2 mt-3">
+    <ul id="auctionLots" class="stack gap-2 mt-3 auction-list">
       {% for lot in lots %}
       <li class="auction-item" data-lot-id="{{ lot.id }}" data-current-bid="{{ fmt_num(lot.current_bid, 1) }}">
-        <div class="key-value">
-          <strong>{{ loop.index }}.</strong>
-          <span class="text-clamp-2" title="{{ lot.name }}">{{ lot.name }}</span>
+        <div class="auction-item-head">
+          <div class="key-value">
+            <strong>{{ loop.index }}.</strong>
+            <span class="text-clamp-2" title="{{ lot.name }}">{{ lot.name }}</span>
+          </div>
+          <span class="auction-badge auction-badge-neutral">В потоке</span>
         </div>
-        <div class="muted auction-item-bid">bid {{ fmt_num(lot.current_bid, 1) }}</div>
+        <div class="auction-item-meta">
+          <span class="muted auction-item-bid">цена {{ fmt_num(lot.current_bid, 1) }}</span>
+        </div>
         <div class="table-secondary text-clamp-2" title="{{ lot.composition_label }}">{{ lot.composition_label }}</div>
         {% if lot.structure_items %}
         <div class="lot-chip-wrap mt-2" title="{{ lot.structure }}">
@@ -61,29 +67,50 @@
     </ul>
   </article>
 
-  <article class="card">
+  <article class="card decision-board">
     <div class="section-head">
       <div>
         <p class="section-kicker">Панель решения</p>
         <h2 class="h2">Текущий лот</h2>
+        <p class="table-secondary">Сначала смотрите диапазон входа и причину. Только потом подтверждайте цену сделки.</p>
       </div>
     </div>
     <div class="stack gap-3 mt-3">
       <input id="currentLotId" class="input" type="hidden" />
-      <label class="label">Цена покупки (по умолчанию — balanced bid) <input id="purchasePriceInput" class="input" type="number" step="0.1" /></label>
-      <div class="actions">
-        <button id="qaPassAction" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Pass</button>
-        <button id="qaWatchAction" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Watch</button>
-        <button id="qaSafeBidAction" class="btn btn-primary" type="button" {% if forecast_blocked %}disabled{% endif %}>Safe bid</button>
-        <button id="qaTargetBidAction" class="btn btn-primary" type="button" {% if forecast_blocked %}disabled{% endif %}>Target bid</button>
-        <button id="qaMaxBidAction" class="btn btn-primary" type="button" {% if forecast_blocked %}disabled{% endif %}>Max bid</button>
+      <div class="card inset-card">
+        <p class="section-kicker">Решение по лоту</p>
+        <div class="metric-strip mt-2">
+          <div><span class="metric-label">Текущая цена</span><strong id="qaCurrentPrice">—</strong></div>
+          <div><span class="metric-label">Безопасная</span><strong id="qaBidSafe">—</strong></div>
+          <div><span class="metric-label">Целевая</span><strong id="qaBid">—</strong></div>
+          <div><span class="metric-label">Потолок</span><strong id="qaBudgetBid">—</strong></div>
+        </div>
+        <div class="key-value mt-3">
+          <span class="metric-label">Статус</span>
+          <strong id="qaDecisionStatus">—</strong>
+        </div>
+        <div class="table-secondary mt-2" id="qaDecisionRange">безопасная — · целевая — · потолок —</div>
+        <div class="risk-block mt-3" id="qaDecisionReason">Выберите лот и посмотрите причину решения.</div>
       </div>
+      <label class="label">Цена сделки
+        <input id="purchasePriceInput" class="input" type="number" step="0.1" />
+      </label>
+      <div class="actions decision-actions-grid">
+        <button id="qaPassAction" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Пропустить раунд</button>
+        <button id="qaWatchAction" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>В наблюдение</button>
+        <button id="qaShortlistToggle" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>В шорт-лист</button>
+        <button id="qaSafeBidAction" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Цена: безопасная</button>
+        <button id="qaTargetBidAction" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Цена: целевая</button>
+        <button id="qaMaxBidAction" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Цена: потолок</button>
+      </div>
+      <div class="table-secondary" id="qaActionHint">Пас фиксирует пропуск текущего раунда, но не переводит лот в отклонённые и не удаляет его из списка.</div>
       <div class="actions">
         <button id="evalCurrent" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Оценить</button>
-        <button id="refreshRanking" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Пересчитать все лоты (Deep snapshot)</button>
+        <button id="refreshRanking" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Пересчитать все лоты (глубокий пересчёт)</button>
         <a id="openCurrentLot" class="btn btn-secondary" href="#">Открыть лот</a>
-        <button id="buyCurrentLot" class="btn btn-secondary" type="button" {% if forecast_blocked %}disabled{% endif %}>Купить</button>
+        <button id="buyCurrentLot" class="btn btn-primary" type="button" {% if forecast_blocked %}disabled{% endif %}>Подтвердить покупку</button>
       </div>
+      <label class="label"><input id="qaConfirmPrice" type="checkbox" /> Подтверждаю цену сделки и понимаю, что быстрый аукцион не покупает автоматически по целевой ставке.</label>
     </div>
     <div class="card mt-3">
       <p class="section-kicker">Состав текущего лота</p>
@@ -96,32 +123,29 @@
     <div class="metric-strip mt-4" id="decisionMetrics">
       <div><span class="metric-label">Итоговая полезность</span><strong id="qaScore">—</strong></div>
       <div><span class="metric-label">Риск</span><strong id="qaRisk">—</strong></div>
-      <div><span class="metric-label">Safe bid</span><strong id="qaBidSafe">—</strong></div>
-      <div><span class="metric-label">Balanced bid</span><strong id="qaBid">—</strong></div>
-      <div><span class="metric-label">Aggressive bid</span><strong id="qaBidAggressive">—</strong></div>
-      <div><span class="metric-label">Hard ceiling</span><strong id="qaBudgetBid">—</strong></div>
-      <div><span class="metric-label">Прибыль после balanced bid</span><strong id="qaBidProfit">—</strong></div>
-      <div><span class="metric-label">Остаток бюджета после balanced bid</span><strong id="qaBudgetLeft">—</strong></div>
+      <div><span class="metric-label">Агрессивная</span><strong id="qaBidAggressive">—</strong></div>
+      <div><span class="metric-label">Чистая прибыль после выбранной цены</span><strong id="qaBidProfit">—</strong></div>
+      <div><span class="metric-label">Остаток бюджета после выбранной цены</span><strong id="qaBudgetLeft">—</strong></div>
     </div>
-    <div class="risk-block mt-3" id="qaCommentary">Выберите лот и нажмите «Оценить».</div>
-    <div class="muted mt-2" id="qaBidAdvice">Оставшийся бюджет можно использовать позже.</div>
+    <div class="risk-block mt-3" id="qaCommentary">Выберите лот и посмотрите причину решения.</div>
+    <div class="muted mt-2" id="qaBidAdvice">Сначала посмотрите текущую цену, безопасную, целевую и потолок, затем подтвердите цену сделки.</div>
     <div class="muted mt-2" id="qaBidWarning"></div>
     <div class="muted mt-3" id="qaStatus">Статус обновления появится здесь.</div>
     <div class="card inset-card mt-3">
-      <p class="section-kicker">Budget live</p>
+      <p class="section-kicker">Бюджет сейчас</p>
       <div class="metric-strip mt-2">
-        <div><span class="metric-label">Budget total</span><strong id="qaBudgetTotal">—</strong></div>
-        <div><span class="metric-label">Cash available</span><strong id="qaCashAvailable">—</strong></div>
-        <div><span class="metric-label">Reserved</span><strong id="qaReservedBudget">—</strong></div>
-        <div><span class="metric-label">Purchase spent</span><strong id="qaPurchaseSpent">—</strong></div>
-        <div><span class="metric-label">All-pay spent</span><strong id="qaAllpaySpent">—</strong></div>
-        <div><span class="metric-label">Spent total</span><strong id="qaSpentTotal">—</strong></div>
+        <div><span class="metric-label">Бюджет всего</span><strong id="qaBudgetTotal">—</strong></div>
+        <div><span class="metric-label">Свободные деньги</span><strong id="qaCashAvailable">—</strong></div>
+        <div><span class="metric-label">Резерв</span><strong id="qaReservedBudget">—</strong></div>
+        <div><span class="metric-label">Потрачено на покупки</span><strong id="qaPurchaseSpent">—</strong></div>
+        <div><span class="metric-label">Потрачено на проигранные ставки</span><strong id="qaAllpaySpent">—</strong></div>
+        <div><span class="metric-label">Потрачено всего</span><strong id="qaSpentTotal">—</strong></div>
       </div>
     </div>
     <div class="card inset-card mt-3">
-      <p class="section-kicker">Pending ставки</p>
+      <p class="section-kicker">Активные ставки</p>
       <div id="qaPendingList" class="stack gap-2 mt-2">
-        <div class="muted">Нет pending-ставок.</div>
+        <div class="muted">Нет активных ставок.</div>
       </div>
     </div>
     <div class="card inset-card mt-3">
@@ -136,8 +160,8 @@
 <section class="card mt-4">
   <div class="section-head">
     <div>
-      <p class="section-kicker">Стратегия</p>
-      <h2 class="h2">Компактный план: текущий ход, Plan B/Plan C и сценарии после изменения портфеля</h2>
+      <p class="section-kicker">Стратегическая справка</p>
+      <h2 class="h2">Сценарная справка по комбинациям, а не точный план живого аукциона</h2>
     </div>
   </div>
   {% if forecast_blocked %}
@@ -149,27 +173,33 @@
 </section>
 
 <section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Сводная таблица</p>
+      <h2 class="h2">Где брать, где ждать, где пропускать</h2>
+    </div>
+  </div>
   <div class="grid cols-4 gap-3">
     <label class="label">Сортировка
       <select id="qaSort" class="input">
         <option value="utility_desc">Полезность ↓</option>
         <option value="profit_desc">Прибыль ↓</option>
         <option value="risk_asc">Риск ↑</option>
-        <option value="bid_desc">Balanced bid ↓</option>
+        <option value="bid_desc">Целевая цена ↓</option>
       </select>
     </label>
     <label class="label">Мин. полезность <input id="qaMinUtility" class="input" type="number" step="0.1" /></label>
     <label class="label">Макс. риск <input id="qaMaxRisk" class="input" type="number" step="0.1" /></label>
-    <label class="label">Только shortlist
+    <label class="label">Только шорт-лист
       <select id="qaShortlistOnly" class="input">
         <option value="0">Все лоты</option>
-        <option value="1">Только shortlist</option>
+        <option value="1">Только шорт-лист</option>
       </select>
     </label>
   </div>
   <div class="actions mt-3">
     <button id="qaApplyFilters" class="btn btn-secondary" type="button">Применить фильтры</button>
-    <a class="btn btn-secondary" href="{{ url_for('pages.session_page', session_id=session.id) }}">Вернуться в dashboard</a>
+    <a class="btn btn-secondary" href="{{ url_for('pages.session_page', session_id=session.id) }}">Вернуться к сессии</a>
   </div>
 </section>
 
@@ -177,26 +207,20 @@
   <div class="table-wrap">
     <table class="table table-fixed table-auction-ranking" id="rankingTable">
       <colgroup>
-        <col class="auction-rank-col" />
         <col class="auction-name-col" />
         <col class="auction-structure-col" />
         <col class="auction-metric-col" />
-        <col class="auction-profit-col" />
-        <col class="auction-risk-col" />
         <col class="auction-bid-col" />
         <col class="auction-reason-col" />
         <col class="auction-actions-col" />
       </colgroup>
       <thead>
         <tr>
-          <th>#</th>
           <th>Лот</th>
           <th>Состав</th>
-          <th>Полезность</th>
-          <th>Чистая прибыль</th>
-          <th>Риск</th>
-          <th>Balanced / Max justified</th>
-          <th>Причины</th>
+          <th>Цена / ценность</th>
+          <th>Диапазон входа</th>
+          <th>Статус / причина</th>
           <th>Действия</th>
         </tr>
       </thead>
@@ -204,7 +228,6 @@
         {% for row in ranking %}
         {% set full_reason = row.working_bid_reason or ((row.reasons[:2]|join('; ')) if row.reasons else row.risk_commentary) %}
         <tr data-lot-id="{{ row.lot_id }}">
-          <td class="num">{{ loop.index }}</td>
           <td class="col-text qa-name-cell">
             <strong class="text-clamp-2" title="{{ row.name }}">{{ row.name }}</strong>
             <div class="table-secondary">Лот #{{ row.lot_id }}</div>
@@ -218,43 +241,42 @@
               {% endfor %}
             </div>
           </td>
-          <td class="num">{{ fmt_num(row.summary_score, 2) }}</td>
-          <td class="num">{{ fmt_num(row.financial_breakdown.result.net_profit, 2) }}</td>
-          <td class="num">{{ fmt_num(row.financial_breakdown.losses_and_risks.risk_total, 2) }}</td>
+          <td class="col-text">
+            <strong>{{ fmt_num(row.price, 1) }}</strong>
+            <div class="table-secondary">чистая {{ fmt_num(row.financial_breakdown.result.net_profit, 2) }}</div>
+            <div class="table-secondary">полезность {{ fmt_num(row.summary_score, 2) }} · риск {{ fmt_num(row.financial_breakdown.losses_and_risks.risk_total, 2) }}</div>
+          </td>
           <td class="lot-bid-cell">
             {% set balanced_bid = row.recommended_bid_balanced or row.recommended_bid or row.decision_summary.recommended_bid_balanced or row.decision_summary.recommended_bid or row.working_bid or row.decision_summary.working_bid %}
             <div class="lot-bid-stack">
               <strong>{{ fmt_num(balanced_bid, 1) }}</strong>
               {% if balanced_bid > 0 %}
-              <span class="lot-bid-meta" title="safe {{ fmt_num(row.recommended_bid_safe or row.decision_summary.recommended_bid_safe, 1) }} / aggressive {{ fmt_num(row.recommended_bid_aggressive or row.decision_summary.recommended_bid_aggressive, 1) }}">safe {{ fmt_num(row.recommended_bid_safe or row.decision_summary.recommended_bid_safe, 1) }} · aggr {{ fmt_num(row.recommended_bid_aggressive or row.decision_summary.recommended_bid_aggressive, 1) }}</span>
-              <span class="lot-bid-meta" title="{{ row.max_bid_reason or row.decision_summary.max_bid_reason or ('Hard ceiling: ' ~ fmt_num(row.hard_ceiling_bid or row.decision_summary.hard_ceiling_bid, 1)) }}">max {{ fmt_num(row.max_bid or row.decision_summary.max_bid, 1) }}</span>
-              {% if row.connection_fit_status and row.connection_fit_status != 'neutral' %}
-              <span class="lot-bid-meta">fit {{ row.connection_fit_status }}</span>
-              {% endif %}
-              <span class="table-secondary" title="{{ row.recommended_bid_reason or row.working_bid_reason }}">
-                profit after bid {{ fmt_num(row.net_profit_at_recommended_bid, 2) }}
-              </span>
-              <span class="table-secondary" title="{{ row.budget_preservation_note or row.recommended_bid_reason }}">
-                budget left {{ fmt_num(row.remaining_budget_after_recommended_bid, 1) }}
-              </span>
+              <span class="lot-bid-meta">безопасная {{ fmt_num(row.recommended_bid_safe or row.decision_summary.recommended_bid_safe, 1) }}</span>
+              <span class="lot-bid-meta">целевая {{ fmt_num(balanced_bid, 1) }}</span>
+              <span class="lot-bid-meta" title="{{ row.max_bid_reason or row.decision_summary.max_bid_reason or ('Жёсткий потолок: ' ~ fmt_num(row.hard_ceiling_bid or row.decision_summary.hard_ceiling_bid, 1)) }}">потолок {{ fmt_num(row.max_bid or row.decision_summary.max_bid, 1) }}</span>
               {% else %}
               <span class="lot-bid-reason text-clamp-2" title="{{ full_reason }}">{{ row.working_bid_short_reason or 'Нет рекомендуемой ставки' }}</span>
               {% endif %}
             </div>
           </td>
           <td class="col-text qa-reason-cell">
-            <span class="text-clamp-2" title="{{ full_reason }}">{{ (row.working_bid_short_reason or full_reason or '—')[:120] ~ ('…' if (row.working_bid_short_reason or full_reason or '')|length > 120 else '') }}</span>
+            <strong>{{ row.decision_status_label or ('Пас' if balanced_bid <= 0 else 'Брать') }}</strong>
+            <div class="table-secondary text-clamp-2" title="{{ full_reason }}">{{ row.decision_reason_short or row.working_bid_short_reason or full_reason or '—' }}</div>
+            {% if row.bid_constraints_summary %}
+            <div class="table-secondary text-clamp-2" title="{{ row.bid_constraints_summary }}">{{ row.bid_constraints_summary }}</div>
+            {% endif %}
           </td>
           <td class="actions-col qa-actions-cell">
             <div class="qa-row-actions">
-              <button class="btn btn-secondary quickEvalRow" data-lot-id="{{ row.lot_id }}" type="button">Оценить</button>
-              <button class="btn btn-secondary quickBuyRow" data-lot-id="{{ row.lot_id }}" type="button">Купить</button>
-              <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть лот</a>
+              <button class="btn btn-secondary quickEvalRow" data-lot-id="{{ row.lot_id }}" type="button">Выбрать</button>
+              <button class="btn btn-secondary quickBuyRow" data-lot-id="{{ row.lot_id }}" type="button">К цене</button>
+              <button class="btn btn-secondary qaShortlistRow" data-lot-id="{{ row.lot_id }}" type="button">В шорт-лист</button>
+              <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть</a>
             </div>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="9" class="muted">Нет данных для ранжирования.</td></tr>
+        <tr><td colspan="6" class="muted">Нет данных для ранжирования.</td></tr>
         {% endfor %}
       </tbody>
     </table>

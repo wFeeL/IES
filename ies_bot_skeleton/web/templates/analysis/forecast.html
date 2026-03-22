@@ -26,14 +26,14 @@
       <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ fmt_num(active_forecast_summary.avg_wind, 2) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ fmt_num(active_forecast_summary.avg_illumination, 2) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя цена рынка</span><strong>{{ fmt_num(active_forecast_summary.avg_market_price, 2) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Raw CSV columns</span><strong>{{ (active_forecast_summary.raw_csv_columns or [])|length }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Used raw columns</span><strong>{{ (active_forecast_summary.used_raw_columns or [])|length }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Колонки исходного CSV</span><strong>{{ (active_forecast_summary.raw_csv_columns or [])|length }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Используемые колонки CSV</span><strong>{{ (active_forecast_summary.used_raw_columns or [])|length }}</strong></div>
       <div class="metric-card"><span class="metric-label">Лишние колонки CSV</span><strong>{{ (active_forecast_summary.unsupported_raw_columns or [])|length }}</strong></div>
     </div>
     <div class="risk-block mt-3">{{ active_forecast_summary.quality.text }}</div>
     <div class="forecast-columns-grid mt-4">
       <article class="card">
-        <p class="section-kicker">Raw CSV columns</p>
+        <p class="section-kicker">Колонки исходного CSV</p>
         <div class="lot-chip-wrap mt-2">
           {% for name in active_forecast_summary.raw_csv_columns or [] %}
           <span class="lot-chip">{{ name }}</span>

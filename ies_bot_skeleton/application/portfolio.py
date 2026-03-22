@@ -107,9 +107,7 @@ def buy_lot(session: GameSession, lot: Lot, purchase_price: float) -> Dict[str, 
     db.session.flush()
 
     _mark_portfolio_changed(session)
-    available_lots_count = sum(
-        1 for row in session.lots if str(row.status or "") == "available"
-    )
+    available_lots_count = sum(1 for row in session.lots if str(row.status or "") == "available")
 
     return {
         "lot_id": int(lot.id),
@@ -141,9 +139,7 @@ def undo_lot_purchase(session: GameSession, lot: Lot) -> Dict[str, Any]:
     db.session.add(lot)
 
     _mark_portfolio_changed(session)
-    available_lots_count = sum(
-        1 for row in session.lots if str(row.status or "") == "available"
-    )
+    available_lots_count = sum(1 for row in session.lots if str(row.status or "") == "available")
 
     return {
         "lot_id": int(lot.id),
@@ -232,7 +228,9 @@ def portfolio_summary(
     else:
         risk_profile = "Низкий"
     readiness = network_readiness_summary(session)
-    warning_message = str(readiness.get("message") or "") if readiness.get("action_required") else ""
+    warning_message = (
+        str(readiness.get("message") or "") if readiness.get("action_required") else ""
+    )
 
     return {
         "analysis_mode": "unified",

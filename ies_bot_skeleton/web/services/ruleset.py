@@ -105,7 +105,7 @@ def build_default_ruleset_config() -> Dict[str, Any]:
     auction_cfg.setdefault("balanced_multiplier", 1.0)
     auction_cfg.setdefault("aggressive_multiplier", 1.22)
     auction_cfg.setdefault("volatility_lambda_bid", 0.15)
-    auction_cfg.setdefault("auction_bid_model_version", "pwin_v1")
+    auction_cfg.setdefault("auction_bid_model_version", "strategic_anchor_v4")
     auction_cfg.setdefault("conservative_utility_method", "weighted_expected_minus_volatility")
     auction_cfg.setdefault("scope_signal_global", 0.65)
     auction_cfg.setdefault("scope_signal_local", -0.45)

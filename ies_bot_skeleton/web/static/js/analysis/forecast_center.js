@@ -57,8 +57,8 @@
         <div>Средний ветер: ${formatNum(payload.avg_wind, 2)}</div>
         <div>Средняя освещённость: ${formatNum(payload.avg_illumination, 2)}</div>
         <div>Средняя цена рынка: ${formatNum(payload.avg_market_price, 2)}</div>
-        <div>Raw CSV columns: ${rawColumns.length}</div>
-        <div>Used raw columns: ${usedRawColumns.length}</div>
+        <div>Колонки исходного CSV: ${rawColumns.length}</div>
+        <div>Используемые колонки CSV: ${usedRawColumns.length}</div>
         <div>Лишние колонки CSV: ${unsupportedColumns.length}</div>
         <div class="mt-3">${payload.quality?.text || ''}</div>
         ${problems ? `<div class="mt-2">Проблемные ряды: ${problems}</div>` : ''}
@@ -67,16 +67,16 @@
       </div>
       <div class="forecast-columns-grid mt-3">
         <article class="card">
-          <p class="section-kicker">Raw CSV</p>
-          <div class="muted mt-2">${rawColumns.length ? rawColumns.join(', ') : 'Для встроенного прогноза raw CSV columns не используются.'}</div>
+          <p class="section-kicker">Исходный CSV</p>
+          <div class="muted mt-2">${rawColumns.length ? rawColumns.join(', ') : 'Для встроенного прогноза исходные CSV-колонки не используются.'}</div>
         </article>
         <article class="card">
-          <p class="section-kicker">Mapping</p>
+          <p class="section-kicker">Сопоставление</p>
           <div class="mapping-list mt-2">${mappingBlocks}</div>
         </article>
         <article class="card">
           <p class="section-kicker">Лишние колонки CSV</p>
-          <div class="muted mt-2">${unsupportedColumns.length ? unsupportedColumns.join(', ') : 'Лишних raw-колонок нет.'}</div>
+          <div class="muted mt-2">${unsupportedColumns.length ? unsupportedColumns.join(', ') : 'Лишних колонок нет.'}</div>
         </article>
       </div>
       <div class="table-wrap">
@@ -87,7 +87,7 @@
       </div>
       <div class="table-wrap">
         <table class="table">
-          <thead><tr><th>Object type</th><th>Coverage</th><th>Required</th><th>Missing</th></tr></thead>
+          <thead><tr><th>Тип объекта</th><th>Покрытие</th><th>Нужно</th><th>Не хватает</th></tr></thead>
           <tbody>${coverageHtml}</tbody>
         </table>
       </div>

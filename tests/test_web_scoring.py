@@ -132,7 +132,9 @@ def test_recommended_bid_is_within_budget(app_ctx):
     soft = float(out["recommended_bid_soft"])
     ceiling = float(out["hard_ceiling_bid"])
     remaining = float(out["portfolio_context"]["remaining_budget"])
-    assert float(out["portfolio_context"]["start_budget"]) == pytest.approx(float(session.budget_total))
+    assert float(out["portfolio_context"]["start_budget"]) == pytest.approx(
+        float(session.budget_total)
+    )
     budget_adjusted = float(out["budget_adjusted_bid"])
     decision_summary = dict(out["decision_summary"])
     result = dict((out["financial_breakdown"] or {}).get("result") or {})
@@ -227,7 +229,9 @@ def test_recommended_bid_is_within_budget(app_ctx):
     assert out["forecast_context"]["source"] == "selected_forecast"
     assert "system_check" in out
     assert "message" in out["system_check"]
-    assert out["decision_summary"]["bid_formula"] == "strategic_anchor_allpay_v3"
+    assert out["decision_summary"]["bid_formula"] == "strategic_anchor_repeatable_v4"
+    assert "bid_constraints_summary" in out["decision_summary"]
+    assert "cap_bindings" in out["decision_summary"]
 
 
 def test_valuation_model_keeps_non_zero_working_bid_for_slim_positive_expected_value():
@@ -270,8 +274,10 @@ def test_valuation_model_keeps_non_zero_working_bid_for_slim_positive_expected_v
     )
 
     assert float(out["target_bid"]) > 0.0
-    assert float(out["recommended_bid_safe"]) <= float(out["target_bid"]) <= float(
-        out["recommended_bid_aggressive"]
+    assert (
+        float(out["recommended_bid_safe"])
+        <= float(out["target_bid"])
+        <= float(out["recommended_bid_aggressive"])
     )
     assert float(out["recommended_bid_aggressive"]) <= float(out["hard_ceiling_bid"]) + 1e-9
     assert float(out["target_bid"]) <= float(out["gross_expected_profit_before_bid"]) * 0.42 + 1e-9
@@ -315,9 +321,12 @@ def test_valuation_model_profitable_compatible_lot_is_not_zeroed_without_hard_re
     assert float(out["recommended_bid_balanced"]) > 0.0
     assert float(out["hard_ceiling_bid"]) > 0.0
     assert str(out.get("zero_bid_reason") or "") == ""
-    assert float(out["recommended_bid_safe"]) <= float(out["recommended_bid_balanced"]) <= float(
-        out["recommended_bid_aggressive"]
-    ) <= float(out["hard_ceiling_bid"]) + 1e-9
+    assert (
+        float(out["recommended_bid_safe"])
+        <= float(out["recommended_bid_balanced"])
+        <= float(out["recommended_bid_aggressive"])
+        <= float(out["hard_ceiling_bid"]) + 1e-9
+    )
 
 
 def test_valuation_model_zeroes_bids_when_weighted_expected_is_negative():
@@ -385,9 +394,14 @@ def test_valuation_model_factors_reduce_bids_as_expected():
         "entry_price_total": 3.0,
         "horizon_ticks": 24,
         "remaining_budget": 120.0,
-        "role_profile": {"dominant_role": "mixed", "multipliers": {"target": 1.0, "cautious": 1.0, "ceiling": 1.0}},
+        "role_profile": {
+            "dominant_role": "mixed",
+            "multipliers": {"target": 1.0, "cautious": 1.0, "ceiling": 1.0},
+        },
         "portfolio_synergy": 0.0,
-        "rules_cfg": {"auction": {"conservative_utility_method": "weighted_expected", "scope_weight": 0.0}},
+        "rules_cfg": {
+            "auction": {"conservative_utility_method": "weighted_expected", "scope_weight": 0.0}
+        },
         "available_lots_count": 18,
     }
     base_eval_cfg = {
@@ -469,16 +483,33 @@ def test_valuation_model_factors_reduce_bids_as_expected():
     assert float(base["target_bid"]) > 0.0
     assert float(low_fit["target_bid"]) < float(base["target_bid"])
     assert float(low_fit["target_bid"]) > 0.0
-    assert float(high_risk["target_bid"]) < float(medium_risk["target_bid"]) < float(base["target_bid"])
+    assert (
+        float(high_risk["target_bid"])
+        < float(medium_risk["target_bid"])
+        < float(base["target_bid"])
+    )
     assert float(high_risk["target_bid"]) < float(base["target_bid"])
     assert float(high_volatility["target_bid"]) < float(base["target_bid"])
     assert float(reserve_limited["target_bid"]) < float(base["target_bid"])
-    assert float(high_competition["target_bid"]) > float(low_competition["target_bid"])
+    assert float(low_competition["target_bid"]) > 0.0
+    assert float(high_competition["target_bid"]) > 0.0
+    assert abs(float(high_competition["target_bid"]) - float(low_competition["target_bid"])) <= (
+        float(base["target_bid"]) * 0.12
+    )
+    assert float(high_competition["competition_factor"]) <= float(
+        low_competition["competition_factor"]
+    )
     assert float(reserve_limited["budget_ceiling"]) < float(base["budget_ceiling"])
-    assert float(reserve_limited["hard_ceiling_bid"]) <= float(reserve_limited["budget_ceiling"]) + 1e-9
-    assert float(base["recommended_bid_safe"]) <= float(base["target_bid"]) <= float(
-        base["recommended_bid_aggressive"]
-    ) <= float(base["hard_ceiling_bid"]) + 1e-9
+    assert (
+        float(reserve_limited["hard_ceiling_bid"])
+        <= float(reserve_limited["budget_ceiling"]) + 1e-9
+    )
+    assert (
+        float(base["recommended_bid_safe"])
+        <= float(base["target_bid"])
+        <= float(base["recommended_bid_aggressive"])
+        <= float(base["hard_ceiling_bid"]) + 1e-9
+    )
 
 
 def test_valuation_model_reserve_margin_alias_reduces_bid():

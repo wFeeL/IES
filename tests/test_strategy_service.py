@@ -25,7 +25,15 @@ def test_build_combo_catalog_limits_combination_growth(monkeypatch):
         portfolio_lots=None,
         reserved_spend=0.0,
     ):
-        del session, strategy, forecast, singles_net_profit, standalone_bids, portfolio_lots, reserved_spend
+        del (
+            session,
+            strategy,
+            forecast,
+            singles_net_profit,
+            standalone_bids,
+            portfolio_lots,
+            reserved_spend,
+        )
         lot_ids = tuple(int(lot.id) for lot in lots)
         calls.append(lot_ids)
         size = len(lot_ids)
@@ -88,7 +96,15 @@ def test_build_combo_catalog_keeps_lot_when_working_bid_fits_budget(monkeypatch)
         portfolio_lots=None,
         reserved_spend=0.0,
     ):
-        del session, strategy, forecast, singles_net_profit, standalone_bids, portfolio_lots, reserved_spend
+        del (
+            session,
+            strategy,
+            forecast,
+            singles_net_profit,
+            standalone_bids,
+            portfolio_lots,
+            reserved_spend,
+        )
         return strategy_service.ComboEvaluation(
             lot_ids=tuple(int(item.id) for item in lots),
             payload={},
@@ -211,9 +227,16 @@ def test_strategy_snapshot_cache_hit_and_force(monkeypatch):
     assert first["cache"]["hit"] is False
     assert second["cache"]["hit"] is True
     assert forced["cache"]["hit"] is False
+    assert first["snapshot_kind"] == "what_if_advisory"
+    assert first["is_advisory"] is True
+    assert first["is_exact_plan"] is False
+    assert first["analysis_depth"] == "fast"
+    assert forced["analysis_depth"] == "deep"
     assert first["compute_stats"]["combo_eval_calls"] == 7
     assert first["compute_stats"]["pruned_by_budget"] == 2
     assert first["compute_stats"]["pruned_by_upper_bound"] == 1
+    assert "effective_beam_width" in first["compute_stats"]
+    assert "effective_group_size" in first["compute_stats"]
 
 
 def test_remaining_budget_subtracts_allpay_spend():

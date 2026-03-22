@@ -7,7 +7,7 @@
     return;
   }
 
-  const PLAN_TITLES = ['Plan B', 'Plan C'];
+  const PLAN_TITLES = ['План Б', 'План В'];
   const FALLBACK_SCENARIO_TITLES = {
     full_budget: 'Полный бюджет',
     after_purchase: 'После покупки',
@@ -190,6 +190,8 @@
 
   function renderSessionStrategy(item, remainingBudget) {
     const scenarios = item?.scenarios || {};
+    const disclaimer = String(item?.disclaimer || '').trim();
+    const depth = String(item?.analysis_depth || '').trim();
     const blocks = [
       {key: 'full_budget', scenario: scenarios.full_budget},
       {key: 'after_purchase', scenario: scenarios.after_purchase},
@@ -214,7 +216,10 @@
         },
       });
     }
-    return `<div class="stack gap-4 mt-3">${blocks
+    const intro = disclaimer
+      ? `<article class="card"><p class="section-kicker">Сценарная справка${depth ? ` · ${escapeHtml(depth)}` : ''}</p><div class="muted mt-2">${escapeHtml(disclaimer)}</div></article>`
+      : '';
+    return `<div class="stack gap-4 mt-3">${intro}${blocks
       .map((entry) => renderScenarioBlock(entry.scenario, remainingBudget, entry.key))
       .join('')}</div>`;
   }

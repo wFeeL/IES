@@ -95,11 +95,22 @@ def test_active_forecast_uses_raw_csv_columns_and_zero_tick_range(client):
     forecasts = client.get(f"/api/forecast/{forecast_id}")
     assert forecasts.status_code == 200
     summary = forecasts.get_json()["item"]["summary"]
-    assert summary["raw_csv_columns"] == ["tick", "wind", "illumination", "house", "office", "factory", "market_price"]
+    assert summary["raw_csv_columns"] == [
+        "tick",
+        "wind",
+        "illumination",
+        "house",
+        "office",
+        "factory",
+        "market_price",
+    ]
     assert "house" in list(summary.get("used_raw_columns") or [])
     assert list(summary.get("unsupported_raw_columns") or []) == []
     mapping_rows = list(summary.get("column_mapping_rows") or [])
-    assert any(str(row.get("raw_name")) == "house" and str(row.get("canonical_key")) == "house_load" for row in mapping_rows)
+    assert any(
+        str(row.get("raw_name")) == "house" and str(row.get("canonical_key")) == "house_load"
+        for row in mapping_rows
+    )
     mapped_columns = list(summary.get("mapped_raw_columns") or [])
     assert "class3" not in mapped_columns
     stats_rows = list(summary.get("mapped_raw_stats_display") or [])
@@ -144,12 +155,19 @@ def test_strategy_snapshot_has_titles_and_per_lot_prices(client):
     rows = list(item.get("best_singles") or []) + list(item.get("best_pairs") or [])
     rows += list(item.get("best_groups") or [])
     assert rows
+    assert item["snapshot_kind"] == "what_if_advisory"
+    assert item["is_advisory"] is True
+    assert item["is_exact_plan"] is False
+    assert item["analysis_depth"] == "fast"
+    assert "disclaimer" in item
     assert "scenarios" in item
     assert "full_budget" in item["scenarios"]
     assert "after_purchase" in item["scenarios"]
     assert "after_loss" in item["scenarios"]
     for scenario_key in ("full_budget", "after_purchase", "after_loss"):
         scenario = item["scenarios"][scenario_key]
+        assert scenario["is_advisory"] is True
+        assert scenario["is_exact_plan"] is False
         for bucket in ("best_singles", "best_pairs", "best_groups"):
             for row in scenario.get(bucket) or []:
                 assert float(row["working_bid"]) > 0.0
@@ -160,7 +178,7 @@ def test_strategy_snapshot_has_titles_and_per_lot_prices(client):
     assert "общая прибыль:" in strategy_js
     assert "прибыль:" in strategy_js
     assert "strategy-lot-list" in strategy_js
-    assert "Plan B" in strategy_js
+    assert "План Б" in strategy_js
     assert "После покупки" in strategy_js
     assert "ставить до:" not in strategy_js
     assert "Название группы -" not in strategy_js
@@ -209,9 +227,9 @@ def test_strategy_snapshot_rows_are_sorted_by_descending_profit(client):
                 float(row.get("working_bid") or 0.0)
             )
         if len(row.get("lot_ids") or []) >= 2 and breakdown_rows:
-            assert sum(float(part.get("recommended_bid") or 0.0) for part in breakdown_rows) == pytest.approx(
-                float(row.get("working_bid") or 0.0)
-            )
+            assert sum(
+                float(part.get("recommended_bid") or 0.0) for part in breakdown_rows
+            ) == pytest.approx(float(row.get("working_bid") or 0.0))
         for breakdown in breakdown_rows:
             assert "budget_adjusted_bid" in breakdown
             assert "allocated_net_profit" in breakdown
@@ -291,7 +309,9 @@ def test_lot_evaluation_accounts_for_connection_sectors_when_points_differ(clien
     )
     assert float(row_a["financial_breakdown"]["losses_and_risks"]["risk_total"]) >= 0.0
     assert float(row_b["financial_breakdown"]["losses_and_risks"]["risk_total"]) >= 0.0
-    assert float(row_a["system_check"]["system_fit_score"]) >= float(row_b["system_check"]["system_fit_score"])
+    assert float(row_a["system_check"]["system_fit_score"]) >= float(
+        row_b["system_check"]["system_fit_score"]
+    )
     assert "recommended_points" in row_a["system_check"]
     assert "recommended_points" in row_b["system_check"]
     assert "connection_block_reasons_count" in row_a["system_check"]
@@ -368,14 +388,18 @@ def test_quick_auction_buys_by_field_price_without_confirm_link(client):
     assert quick.status_code == 200
     quick_html = quick.get_data(as_text=True)
     assert f"/lots/item/{lot_id}/buy" not in quick_html
-    assert "Цена покупки (по умолчанию — balanced bid)" in quick_html
+    assert "Цена сделки" in quick_html
     assert 'id="purchasePriceInput"' in quick_html
+    assert 'id="qaConfirmPrice"' in quick_html
+    assert "Подтверждаю цену сделки" in quick_html
 
     script = client.get("/static/js/analysis/quick_auction.js").get_data(as_text=True)
     assert "/api/lots/${lotId}/buy" in script
     assert "/api/sessions/${cfg().sessionId}/recalculate" in script
     assert "row.working_bid" in script
     assert "purchasePriceInput" in script
+    assert "setSuggestedBid(level)" in script
+    assert "qaConfirmPrice" in script
 
     session_payload = client.get(f"/api/sessions/{session_id}").get_json()["item"]
     budget_before = float(session_payload["budget_total"])
@@ -446,28 +470,32 @@ def test_buy_api_returns_full_post_buy_refresh_for_remaining_lots_and_strategy(c
     assert lot_a_id not in list(meta.get("shortlist_suggested_ids") or [])
 
     refreshed_rows = list(refresh.get("items") or [])
-    remaining_row = next(
-        row for row in refreshed_rows if int(row.get("lot_id") or 0) == lot_b_id
-    )
+    remaining_row = next(row for row in refreshed_rows if int(row.get("lot_id") or 0) == lot_b_id)
     expected_remaining = float(payload["item"]["remaining_budget"])
-    assert float((remaining_row.get("decision_summary") or {}).get("budget_remaining", 0.0)) == pytest.approx(
-        expected_remaining
-    )
-    assert float((remaining_row.get("portfolio_context") or {}).get("remaining_budget", 0.0)) == pytest.approx(
-        expected_remaining
-    )
-    assert float((remaining_row.get("metrics") or {}).get("portfolio_delta", {}).get("net_profit_base", 0.0)) == pytest.approx(
-        float((remaining_row.get("scenario_breakdown") or {}).get("base", {}).get("net_profit", 0.0))
+    assert float(
+        (remaining_row.get("decision_summary") or {}).get("budget_remaining", 0.0)
+    ) == pytest.approx(expected_remaining)
+    assert float(
+        (remaining_row.get("portfolio_context") or {}).get("remaining_budget", 0.0)
+    ) == pytest.approx(expected_remaining)
+    assert float(
+        (remaining_row.get("metrics") or {}).get("portfolio_delta", {}).get("net_profit_base", 0.0)
+    ) == pytest.approx(
+        float(
+            (remaining_row.get("scenario_breakdown") or {}).get("base", {}).get("net_profit", 0.0)
+        )
     )
 
     strategy = refresh.get("strategy") or {}
+    assert strategy["snapshot_kind"] == "what_if_advisory"
+    assert strategy["is_advisory"] is True
     assert "scenarios" in strategy
     assert "full_budget" in strategy["scenarios"]
     assert "after_purchase" in strategy["scenarios"]
     assert "after_loss" in strategy["scenarios"]
-    assert float((strategy.get("portfolio_context") or {}).get("remaining_budget", 0.0)) == pytest.approx(
-        expected_remaining
-    )
+    assert float(
+        (strategy.get("portfolio_context") or {}).get("remaining_budget", 0.0)
+    ) == pytest.approx(expected_remaining)
 
 
 def test_undo_buy_api_returns_full_recalculation_snapshot(client):
@@ -506,9 +534,9 @@ def test_undo_buy_api_returns_full_recalculation_snapshot(client):
     assert int(meta.get("bought_lots_count", -1)) == 0
     rows = list(refresh.get("items") or [])
     restored_row = next(row for row in rows if int(row.get("lot_id") or 0) == lot_id)
-    assert float((restored_row.get("decision_summary") or {}).get("budget_remaining", 0.0)) == pytest.approx(
-        budget_total
-    )
+    assert float(
+        (restored_row.get("decision_summary") or {}).get("budget_remaining", 0.0)
+    ) == pytest.approx(budget_total)
 
 
 def test_quick_auction_evaluate_does_not_mutate_market_bid(client):
@@ -634,9 +662,9 @@ def test_lot_detail_marks_scenario_bid_as_non_operational_metric(client):
     _upload_and_select_forecast(client, session_id)
 
     html = client.get(f"/lots/item/{lot_id}").get_data(as_text=True)
-    assert "Balanced bid по сценарию" in html
-    assert "Чистая прибыль после balanced bid" in html
-    assert "Hard ceiling по сценарию" in html
+    assert "Целевая ставка по сценарию" in html
+    assert "Чистая прибыль после целевой ставки" in html
+    assert "Потолок по сценарию" in html
     assert "Рабочая ставка сценария" not in html
 
 
@@ -673,7 +701,9 @@ def test_session_api_exposes_budget_snapshot_and_updates_after_purchase(client):
     assert after.status_code == 200
     after_item = after.get_json()["item"]
     assert float(after_item["spent_total"]) == pytest.approx(55.0)
-    assert float(after_item["remaining_budget"]) == pytest.approx(float(after_item["budget_total"]) - 55.0)
+    assert float(after_item["remaining_budget"]) == pytest.approx(
+        float(after_item["budget_total"]) - 55.0
+    )
     assert int(after_item["bought_lots_count"]) == 1
 
 
@@ -707,7 +737,9 @@ def test_workbench_and_forecast_pages_share_current_budget_snapshot_after_purcha
     forecast_html = client.get(f"/forecast/{session_id}").get_data(as_text=True)
 
     assert f"Потрачено: <span data-session-spent-total>{spent_label}</span>" in workbench_html
-    assert f"Остаток: <span data-session-remaining-budget>{remaining_label}</span>" in workbench_html
+    assert (
+        f"Остаток: <span data-session-remaining-budget>{remaining_label}</span>" in workbench_html
+    )
     assert f"Потрачено: <span data-session-spent-total>{spent_label}</span>" in forecast_html
     assert f"Остаток: <span data-session-remaining-budget>{remaining_label}</span>" in forecast_html
 
@@ -738,7 +770,10 @@ def test_post_buy_unconnected_objects_show_network_readiness_alerts(client):
     assert buy.status_code == 200
 
     session_html = client.get(f"/sessions/{session_id}").get_data(as_text=True)
-    assert "После покупки лотов добавленные объекты нужно подключить в разделе энергосистемы" in session_html
+    assert (
+        "После покупки лотов добавленные объекты нужно подключить в разделе энергосистемы"
+        in session_html
+    )
     assert f"/system/{session_id}" in session_html
 
     lot_html = client.get(f"/lots/item/{lot_id}").get_data(as_text=True)
@@ -779,7 +814,9 @@ def test_import_export_roundtrip_keeps_bought_lot_links_and_purchase_lifecycle(c
     imported_lots = client.get(f"/api/lots?session_id={imported_session_id}")
     assert imported_lots.status_code == 200
     imported_lot = next(
-        row for row in imported_lots.get_json()["items"] if row.get("name") == "Roundtrip bought lot"
+        row
+        for row in imported_lots.get_json()["items"]
+        if row.get("name") == "Roundtrip bought lot"
     )
     imported_lot_id = int(imported_lot["id"])
     assert imported_lot["status"] == "bought"
@@ -843,8 +880,7 @@ def test_delete_bought_lot_is_blocked_and_does_not_orphan_objects(client):
     objects_payload = client.get(f"/api/objects?session_id={session_id}")
     assert objects_payload.status_code == 200
     assert any(
-        int(row.get("source_lot_id") or 0) == lot_id
-        for row in objects_payload.get_json()["items"]
+        int(row.get("source_lot_id") or 0) == lot_id for row in objects_payload.get_json()["items"]
     )
 
 
@@ -882,7 +918,9 @@ def test_evaluation_does_not_use_district_as_connection_point_without_explicit_f
 
     assert str(item.get("current_point") or "").upper() != "NORTH"
     assert str(item.get("recommended_point") or "").upper() != "NORTH"
-    assert "NORTH" not in [str(point).upper() for point in (payload["system_check"].get("recommended_points") or [])]
+    assert "NORTH" not in [
+        str(point).upper() for point in (payload["system_check"].get("recommended_points") or [])
+    ]
 
 
 def test_evaluation_never_uses_district_even_if_it_matches_point_code(client, app):
@@ -1079,5 +1117,6 @@ def test_invalid_topology_blocks_system_check_inside_lot_evaluation(client, app)
 def test_readme_mentions_buy_guard_quick_auction_and_topology_write_guard():
     readme = Path("README.md").read_text(encoding="utf-8")
     assert "Покупка лота блокируется, если активный прогноз несовместим" in readme
+    assert "покупка требует явного checkbox-confirmation цены сделки" in readme
     assert "Оценка в quick auction не меняет `current_bid`" in readme
     assert "Циклы и разрывы до главной подстанции блокируются на write-path" in readme

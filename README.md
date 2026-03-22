@@ -50,34 +50,42 @@ flask run
 ## Актуальное поведение
 
 - Единый формат чисел: целые значения отображаются без `.0` во всех основных экранах (dashboard, lots, lot detail, forecast, quick auction, system).
-- Рекомендуемая ставка (`recommended_bid`, она же `working_bid` для backward compatibility) теперь считается как портфельная маржинальная оценка:
-  - `target_raw = portfolio_delta * fit_multiplier * scarcity_phase_multiplier - risk_premium - reserve_impact - opportunity_cost`;
-  - `safe_bid`/`recommended_bid_safe` - консервативный уровень (`safe_factor` + дополнительный risk guard);
-  - `target_bid`/`recommended_bid_balanced` - рабочая ставка;
-  - `hard_cap`/`hard_ceiling_bid`/`max_bid` - абсолютный потолок, который может заходить в резерв, но не за cash available.
-- В `decision_summary` и `metrics.bids` есть explainability-блок: `portfolio_delta_value`, `system_fit_adjustment`, `risk_premium`, `reserve_required`, `reserve_impact`, `opportunity_cost`, `scarcity_phase_multiplier`, `final_caps`, `reason_codes`.
+- Рекомендуемая ставка (`recommended_bid`, она же `working_bid` для backward compatibility) считается как повторяемая аукционная ставка, а не как доля полной value лота:
+  - сначала строится `value_anchor` из консервативной полезности, gross-profit и риск-очищенной маржи;
+  - затем anchor жёстко режется через `fit_factor`, `risk_factor`, `volatility_factor`, `synergy_factor`, `reserve_factor`, `allpay_factor`, `reserve_budget_factor`, `budget_pressure_factor`;
+  - `p_win` и `serious_competitors` участвуют только как мягкий `competition_factor`, а не как главный драйвер ставки;
+  - `adjusted_value` становится базой для трёх уровней цены: `safe_bid`, `target_bid`, `recommended_bid_aggressive`;
+  - `hard_ceiling_bid`/`max_bid` ограничивается одновременно value, риском и ликвидностью и обязан оставлять крупную долю прибыли в запасе.
+- Логика зануления теперь узкая и объяснимая:
+  - ставка `0` даётся при отрицательной экономике, перегретой текущей цене, критическом system fit или нехватке бюджета после reserve/all-pay;
+  - прибыльный совместимый лот не зануляется без серьёзной причины;
+  - если лот годный, но вход возможен только очень дёшево, `working_bid_source` будет `tight_entry`, а не `zero`.
+- В `decision_summary` и `metrics.bids` есть explainability-блок: `value_anchor`, `adjusted_value`, `fit_factor`, `risk_factor`, `volatility_factor`, `competition_factor`, `bid_constraints_summary`, `cap_bindings`, `zero_bid_reason`, `cap_reason`.
 - UI и API показывают раздельный бюджетный breakdown: `budget_total`, `cash_available`, `reserved_budget`, `purchase_spent`, `allpay_spent`, `spent_total`, `remaining_budget`.
 - All-pay работает через event flow:
   - `Bid` создаёт pending-событие;
   - `Lost` уменьшает `cash_available` через `allpay_spent`;
   - `Won` проводит покупку по ставке без двойного all-pay списания.
 - Остаток бюджета после покупки не сгорает и считается ресурсом следующих аукционов, поэтому модель не пытается искусственно поднять ставку до всего доступного остатка.
-- UI одновременно показывает:
-  - `Чистая прибыль при текущей цене`;
-  - `Чистая прибыль после рекомендуемой ставки`;
-  - `Чистая прибыль после максимальной ставки`;
-  - остаток бюджета после рекомендуемой и максимальной ставки.
+- UI на рабочих экранах упрощён:
+  - в таблицах на первом экране остаются название, состав, текущая цена, краткий net/utility, safe-target-cap и короткий статус;
+  - подробные числа и объяснения уходят в detail page и в secondary text;
+  - короткие статусы сведены к `Брать`, `Только дёшево`, `Пас`.
 - `working_bid` не остаётся положительным при неположительной взвешенной маржинальной прибыли: если ставка равна `0`, UI обязан показать честную причину через `working_bid_reason`.
 - Оценка лота считается как маржинальный вклад к текущему портфелю на всём горизонте активного прогноза, а не как статическое число из summary.
 - После покупки лота рабочие цены и стратегия остальных лотов пересчитываются на новом контексте портфеля.
-- В quick auction кнопка `Купить` покупает лот сразу по цене из поля без confirm-step.
+- Quick auction теперь безопаснее:
+  - выбор текущего лота идёт кликом из списка или из ranking table, ручного ввода ID нет;
+  - поле цены по умолчанию заполняется текущей рыночной ценой, а не автоматически завышенным working bid;
+  - кнопки `Pass`, `Watch`, `Подставить safe`, `Подставить target`, `Подставить max cap` только подсказывают/подставляют цену;
+  - покупка требует явного checkbox-confirmation цены сделки;
+  - если ставка `0` или лот нужно брать только очень дёшево, quick auction показывает причину прямо в decision panel.
 - Покупка лота блокируется, если активный прогноз несовместим, и в API, и в SSR-форме покупки.
-- Если поле цены в quick auction не меняли, туда подставляется актуальная рабочая цена.
 - Оценка в quick auction не меняет `current_bid`: рыночная ставка и цена покупки разделены.
 - После покупки в quick auction автоматически запускается пересчёт и обновление:
   - бюджета;
   - shortlist;
-  - стратегий `Current best / Plan B / Plan C / After purchase / After loss`.
+  - strategy snapshot.
 - Для quick flow используется fast scoring, а глубокий пересчёт стратегии запускается отдельно через `Deep snapshot` (кнопка и API `force=1`) с кэшем по fingerprint состояния.
 - Budget snapshot (`budget / spent / remaining`) синхронизирован между workbench, forecast, lots, lot detail и quick auction через единый session hero.
 - На forecast-странице и в active forecast на dashboard горизонт показывается один раз в одном формате, например `0–47 (48 периодов)`.
@@ -89,10 +97,11 @@ flask run
   - покрытие объектов и профилей;
   - short horizon / missing / partial coverage;
   - реально используемые raw columns без подстановки выдуманных имён.
-- Strategy snapshot показывает комбинации в формате `Название (ID) + ...`, per-lot детализацию и три сценарных среза:
-  - `full_budget`;
-  - `after_purchase`;
-  - `after_loss`.
+- Strategy snapshot честно размечен как `what-if`-справка, а не как точный live-план:
+  - быстрый режим отдаёт ranking и лёгкий advisory snapshot без тяжёлого follow-up на каждый просмотр;
+  - deep mode включает более дорогой пересчёт и follow-up сценарии;
+  - `after_purchase` и `after_loss` в fast mode могут быть скрыты или показаны как placeholder с явным текстом, что нужен deep snapshot.
+- Snapshot показывает комбинации в формате `Название (ID) + ...`, per-lot детализацию и сценарные срезы `full_budget`, `after_purchase`, `after_loss`.
 - Для каждой комбинации доступны:
   - `<лот> (<id>) — цена: <...>, прибыль: <...>`
 - `display_title`, `total_price`, `total_profit`, `synergy`, `utility`, `budget_fit`, `explanation`.
@@ -114,8 +123,8 @@ flask run
 1. Загрузить CSV прогноза и проверить `Raw CSV columns`, `Mapping`, `Лишние колонки CSV`.
 2. Проверить object coverage и убедиться, что прогноз совместим с текущими объектами и лотами.
 3. Открыть `Lots` или `Lot Detail` и сравнить `Worst / Base / Best`, декомпозицию прибыли, `portfolio synergy` и `system-check`.
-4. Использовать `Quick Auction` для фактической покупки по `recommended_bid`/`working_bid` и проверить live-пересчёт прибыли и остатка бюджета.
-5. После покупки перейти к новому shortlist и к пересчитанной стратегии на сохранённый остаток бюджета.
+4. Использовать `Quick Auction`: выбрать лот, посмотреть `current price / safe / target / max cap`, затем явно подтвердить цену сделки.
+5. После покупки перейти к новому shortlist и к пересчитанной what-if стратегии на сохранённый остаток бюджета.
 6. Проверить `System` и `Object Edit`, если лот/объект требует другой точки подключения.
 
 ## Что где лежит
@@ -155,10 +164,16 @@ flask run
 
 ## Что считать важным в данных
 
-- `recommended_bid` - основная пользовательская value-ставка.
+- `recommended_bid` - основная рабочая ставка для повторяющегося аукциона; она заметно ниже полной экономической value лота.
 - `working_bid` - alias `recommended_bid` для совместимости старых потребителей.
-- `max_bid` - потолок для агрессивной борьбы за текущий аукцион.
-- `budget_adjusted_bid` - технический alias рекомендуемой ставки после budget-cap.
+- `safe_bid` - консервативная цена, с которой безопасно начинать торг.
+- `target_bid` - основная рабочая цена.
+- `recommended_bid_aggressive` - агрессивная, но ещё экономически оправданная цена.
+- `hard_ceiling_bid` / `max_bid` - жёсткий потолок; выше него UI должен толкать только в сторону `pass`.
+- `budget_adjusted_bid` - техническая рабочая ставка после budget/liquidity cap.
+- `zero_bid_reason` - явная причина, почему ставка обнулилась.
+- `cap_reason` - явная причина, почему потолок именно такой.
+- `bid_constraints_summary` - короткая сводка, какие ограничения реально зажали ставку.
 - `system_check` - сетевой комментарий к лоту или объекту: лучшая точка, альтернативы, потери, ограничения.
 - `portfolio_synergy` - насколько лот усиливает или ослабляет уже собранный портфель относительно standalone-эффекта.
 - `raw_csv_columns / used_raw_columns / unsupported_raw_columns` - базовая тройка для интерпретации прогноза без смешения raw и canonical имён.
@@ -183,7 +198,7 @@ flask --app ies_bot_skeleton.web.app:create_app run
 ```bash
 .venv/bin/python -m compileall -q ies_bot_skeleton tests
 .venv/bin/ruff check .
-# advisory: black --check не блокирует CI, пока закрывается форматный долг
+# advisory: black --check пока не блокирует CI, форматный долг по репозиторию ещё не закрыт полностью
 .venv/bin/black --check .
 .venv/bin/pytest -q
 .venv/bin/python -m build

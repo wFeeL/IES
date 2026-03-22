@@ -97,10 +97,13 @@ def _expected_power_from_type(
         ports = max(1.0, _to_float(params.get("ports"), 1.0))
         soft_flow = max(0.0, _to_float(params.get("soft_flow_limit_mw"), 0.0))
         return max(ports * 0.25, soft_flow * 0.08) * qty
-    return max(
-        max(0.0, _to_float(params.get("generation_mw"), 0.0)),
-        max(0.0, _to_float(params.get("expected_consumption_mw"), 0.0)),
-    ) * qty
+    return (
+        max(
+            max(0.0, _to_float(params.get("generation_mw"), 0.0)),
+            max(0.0, _to_float(params.get("expected_consumption_mw"), 0.0)),
+        )
+        * qty
+    )
 
 
 def _expected_power_for_object(obj: ObjectInstance) -> float:
@@ -187,7 +190,10 @@ def _infrastructure_support(
 
 def _global_slot_headroom(support_by_point: Mapping[str, Mapping[str, float]]) -> float:
     return float(
-        sum(float((row or {}).get("slot_remaining", 0.0) or 0.0) for row in support_by_point.values())
+        sum(
+            float((row or {}).get("slot_remaining", 0.0) or 0.0)
+            for row in support_by_point.values()
+        )
     )
 
 
@@ -372,11 +378,16 @@ def _score_point_details(
         + max(0.0, float(used_power_mw)) * market_price * 0.02
         + max(0.0, util_after) * max(0.0, float(expected_power_mw)) * market_price * 0.20
     )
-    topology_penalty = 0.0 if slot_headroom > 0 or category == "infrastructure" else market_price * 1.5
+    topology_penalty = (
+        0.0 if slot_headroom > 0 or category == "infrastructure" else market_price * 1.5
+    )
     headroom_ratio = (
         1.0
         if not math.isfinite(float(capacity_mw))
-        else max(0.0, min(1.0, (float(capacity_mw) - float(used_power_mw)) / max(1.0, float(capacity_mw))))
+        else max(
+            0.0,
+            min(1.0, (float(capacity_mw) - float(used_power_mw)) / max(1.0, float(capacity_mw))),
+        )
     )
     risk_penalty = max(0.0, util_after - 0.85) * market_price * max(1.0, expected_power_mw)
     portfolio_match_bonus = _portfolio_match_bonus(
@@ -384,7 +395,13 @@ def _score_point_details(
         mix=point_mix,
         market_price=market_price,
     )
-    score = adjusted_value + portfolio_match_bonus - congestion_penalty - topology_penalty - risk_penalty
+    score = (
+        adjusted_value
+        + portfolio_match_bonus
+        - congestion_penalty
+        - topology_penalty
+        - risk_penalty
+    )
     return {
         "score": float(score),
         "adjusted_value": float(adjusted_value),
@@ -494,7 +511,9 @@ def recommend_connection_for_profile(
             used_power_mw=used_power_mw,
             expected_power_mw=expected_power_mw,
             capacity_mw=capacity_mw,
-            slot_headroom=global_slot_headroom if category != "infrastructure" else slot_headroom + 1.0,
+            slot_headroom=(
+                global_slot_headroom if category != "infrastructure" else slot_headroom + 1.0
+            ),
             point_mix=point_mix,
         )
         fits_topology = bool(score_details["fits_topology"])
@@ -584,7 +603,9 @@ def recommend_connection_for_profile(
             "is_efficient": False,
             "profile_key": _profile_key(object_type, merged_params),
             "forecast_model_type": str(getattr(object_type, "forecast_model_type", "") or ""),
-            "resource_dependencies": list(getattr(object_type, "resource_dependencies_json", []) or []),
+            "resource_dependencies": list(
+                getattr(object_type, "resource_dependencies_json", []) or []
+            ),
             "economic_role": str(getattr(object_type, "economic_role", "") or ""),
             "message": message,
             "ranked_points": [],

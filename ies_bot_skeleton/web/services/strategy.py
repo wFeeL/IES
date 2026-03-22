@@ -15,7 +15,11 @@ from ...common.budgeting import (
 )
 from ..models import Forecast, GameSession, Lot
 from .analysis_context import resolve_analysis_context
-from .evaluation import ForecastCompatibilityError, evaluate_lot_bundle, prepare_fast_scoring_context
+from .evaluation import (
+    ForecastCompatibilityError,
+    evaluate_lot_bundle,
+    prepare_fast_scoring_context,
+)
 
 
 @dataclass(frozen=True)
@@ -114,13 +118,16 @@ def _snapshot_fingerprint(
     top_n: int,
     beam_width: int,
     max_group_size: int,
+    analysis_depth: str,
 ) -> str:
     lots_state = [
         {
             "id": int(lot.id),
             "status": str(lot.status or ""),
             "current_bid": float(lot.current_bid or 0.0),
-            "purchase_price": float(lot.purchase_price or 0.0) if lot.purchase_price is not None else None,
+            "purchase_price": (
+                float(lot.purchase_price or 0.0) if lot.purchase_price is not None else None
+            ),
             "available_round": int(lot.available_round or 1),
         }
         for lot in sorted(_session_lots(session), key=lambda row: int(row.id))
@@ -145,6 +152,7 @@ def _snapshot_fingerprint(
         "top_n": int(top_n),
         "beam_width": int(beam_width),
         "max_group_size": int(max_group_size),
+        "analysis_depth": str(analysis_depth),
         "rules_cfg": dict(getattr(getattr(session, "ruleset", None), "config_json", {}) or {}),
         "lots": lots_state,
         "objects": objects_state,
@@ -180,7 +188,9 @@ def _snapshot_cache_put(*, key: str, payload: Dict[str, Any]) -> None:
         return
     oldest_key = min(
         _STRATEGY_SNAPSHOT_CACHE.keys(),
-        key=lambda cache_key: float(_STRATEGY_SNAPSHOT_CACHE[cache_key].get("_cached_at", 0.0) or 0.0),
+        key=lambda cache_key: float(
+            _STRATEGY_SNAPSHOT_CACHE[cache_key].get("_cached_at", 0.0) or 0.0
+        ),
     )
     _STRATEGY_SNAPSHOT_CACHE.pop(oldest_key, None)
 
@@ -214,12 +224,18 @@ def _combo_fast_context(
     key_payload = {
         "session_id": int(session.id),
         "forecast_id": int(forecast.id) if forecast is not None else None,
-        "portfolio_lots": [int(lot.id) for lot in sorted(list(portfolio_lots or []), key=lambda row: int(row.id))],
+        "portfolio_lots": [
+            int(lot.id) for lot in sorted(list(portfolio_lots or []), key=lambda row: int(row.id))
+        ],
         "reserved_spend": round(float(reserved_spend), 4),
-        "available_lots": [int(lot.id) for lot in sorted(available_lots, key=lambda row: int(row.id))],
+        "available_lots": [
+            int(lot.id) for lot in sorted(available_lots, key=lambda row: int(row.id))
+        ],
     }
     key = hashlib.sha1(
-        json.dumps(key_payload, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+        json.dumps(key_payload, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
     ).hexdigest()
     cached = _COMBO_FAST_CONTEXT_CACHE.get(key)
     if cached is not None:
@@ -388,7 +404,9 @@ def _combo_eval(
         bids.get("recommended_bid_aggressive", bids.get("target_bid", 0.0)) or 0.0
     )
     combo_budget_adjusted = float(bids.get("budget_adjusted_bid", 0.0) or 0.0)
-    combo_working_bid = float(payload.get("working_bid") or decision_summary.get("working_bid") or 0.0)
+    combo_working_bid = float(
+        payload.get("working_bid") or decision_summary.get("working_bid") or 0.0
+    )
     provisional_allocations: List[Dict[str, Any]] = []
     for row in standalone_rows:
         share = float(row["weight"]) / weight_total
@@ -525,10 +543,7 @@ def _combo_eval(
             or ""
         ),
         p_win=float(
-            payload.get("p_win")
-            or decision_summary.get("p_win")
-            or bids.get("p_win")
-            or 0.0
+            payload.get("p_win") or decision_summary.get("p_win") or bids.get("p_win") or 0.0
         ),
         serious_competitors=int(
             payload.get("serious_competitors")
@@ -682,7 +697,11 @@ def _build_combo_catalog(
         expanded: Dict[Tuple[int, ...], ComboEvaluation] = {}
         objective_baseline = sorted(combos.values(), key=_objective_key, reverse=True)
         min_keep_objective = (
-            float(objective_baseline[min(len(objective_baseline), keep_per_size) - 1].risk_adjusted_net_profit)
+            float(
+                objective_baseline[
+                    min(len(objective_baseline), keep_per_size) - 1
+                ].risk_adjusted_net_profit
+            )
             if objective_baseline
             else float("-inf")
         )
@@ -696,12 +715,14 @@ def _build_combo_catalog(
                     continue
                 if candidate_ids in expanded or candidate_ids in combos:
                     continue
-                optimistic = float(sum(float(singles_net_profit.get(idx, 0.0) or 0.0) for idx in candidate_ids))
+                optimistic = float(
+                    sum(float(singles_net_profit.get(idx, 0.0) or 0.0) for idx in candidate_ids)
+                )
                 optimistic += max(0.0, float(size - 1) * max_single_profit * 0.12)
                 if optimistic + 1e-9 < min_keep_objective:
-                    counters["pruned_by_upper_bound"] = int(
-                        counters.get("pruned_by_upper_bound", 0)
-                    ) + 1
+                    counters["pruned_by_upper_bound"] = (
+                        int(counters.get("pruned_by_upper_bound", 0)) + 1
+                    )
                     continue
                 candidate_lots = [lot_map[row_id] for row_id in candidate_ids]
                 counters["combo_eval_calls"] = int(counters.get("combo_eval_calls", 0)) + 1
@@ -747,9 +768,7 @@ def _snapshot_sections(
     scenario_title: str,
     scenario_note: str,
 ) -> Dict[str, Any]:
-    actionable_rows = [
-        row for row in rows if float(row.working_bid) > 0.0
-    ]
+    actionable_rows = [row for row in rows if float(row.working_bid) > 0.0]
     actionable_rows.sort(key=_presentation_key, reverse=True)
     singles = [row for row in actionable_rows if len(row.lot_ids) == 1]
     pairs = [row for row in actionable_rows if len(row.lot_ids) == 2]
@@ -759,6 +778,8 @@ def _snapshot_sections(
     return {
         "key": scenario_key,
         "title": scenario_title,
+        "is_advisory": True,
+        "is_exact_plan": False,
         "note": (
             scenario_note
             if actionable_rows
@@ -798,6 +819,28 @@ def _snapshot_sections(
     }
 
 
+def _placeholder_scenario(
+    *,
+    scenario_key: str,
+    scenario_title: str,
+    scenario_note: str,
+) -> Dict[str, Any]:
+    return {
+        "key": scenario_key,
+        "title": scenario_title,
+        "is_advisory": True,
+        "is_exact_plan": False,
+        "note": scenario_note,
+        "best_singles": [],
+        "best_pairs": [],
+        "best_groups": [],
+        "best_combination": None,
+        "alternatives": [],
+        "plan_b": None,
+        "plan_c": None,
+    }
+
+
 def build_strategy_snapshot(
     *,
     session: GameSession,
@@ -820,12 +863,31 @@ def build_strategy_snapshot(
     if not bool(forecast_summary.get("is_compatible", True)):
         raise ForecastCompatibilityError(compatibility)
 
+    available_lots = [lot for lot in _session_lots(session) if str(lot.status or "") == "available"]
+    analysis_depth = "deep" if force else "fast"
+    effective_beam_width = max(2, int(beam_width))
+    effective_group_size = max(2, int(max_group_size))
+    if not force:
+        if len(available_lots) >= 18:
+            effective_beam_width = min(effective_beam_width, 3)
+            effective_group_size = min(effective_group_size, 2)
+        elif len(available_lots) >= 12:
+            effective_beam_width = min(effective_beam_width, 4)
+            effective_group_size = min(effective_group_size, 3)
+        else:
+            effective_beam_width = min(effective_beam_width, 5)
+            effective_group_size = min(effective_group_size, 3)
+    else:
+        effective_beam_width = min(effective_beam_width, 8)
+        effective_group_size = min(effective_group_size, 4)
+
     fingerprint = _snapshot_fingerprint(
         session=session,
         forecast=forecast,
         top_n=int(top_n),
-        beam_width=int(beam_width),
-        max_group_size=int(max_group_size),
+        beam_width=int(effective_beam_width),
+        max_group_size=int(effective_group_size),
+        analysis_depth=analysis_depth,
     )
     if not force:
         cached = _snapshot_cache_get(key=fingerprint, ttl_seconds=float(cache_ttl_seconds))
@@ -837,29 +899,29 @@ def build_strategy_snapshot(
             }
             return cached
 
-    available_lots = [lot for lot in _session_lots(session) if str(lot.status or "") == "available"]
     lot_names = {int(lot.id): lot.name for lot in available_lots}
     remaining_budget = _remaining_budget(session)
     compute_stats: Dict[str, int] = {}
 
     if not available_lots:
-        empty_scenario = {
-            "key": "empty",
-            "title": "Нет доступных лотов",
-            "note": "В сессии не осталось доступных лотов для пересчёта стратегии.",
-            "best_singles": [],
-            "best_pairs": [],
-            "best_groups": [],
-            "best_combination": None,
-            "alternatives": [],
-            "plan_b": None,
-            "plan_c": None,
-        }
+        empty_scenario = _placeholder_scenario(
+            scenario_key="empty",
+            scenario_title="Нет доступных лотов",
+            scenario_note="В сессии не осталось доступных лотов для пересчёта стратегии.",
+        )
         return {
             "session_id": int(session.id),
             "strategy": "unified",
             "analysis_mode": "unified",
             "objective": "risk_adjusted_net_profit",
+            "snapshot_kind": "what_if_advisory",
+            "analysis_depth": analysis_depth,
+            "is_advisory": True,
+            "is_exact_plan": False,
+            "disclaimer": (
+                "Стратегическая справка — это сценарный обзор комбинаций и бюджетных "
+                "состояний, а не точный пошаговый план последовательного аукциона."
+            ),
             "forecast_context": dict(analysis_ctx["forecast_context"]),
             "forecast_compatibility": compatibility,
             "portfolio_context": _portfolio_context(session),
@@ -875,7 +937,13 @@ def build_strategy_snapshot(
                 "after_purchase": dict(empty_scenario),
                 "after_loss": dict(empty_scenario),
             },
-            "compute_stats": compute_stats,
+            "compute_stats": {
+                **compute_stats,
+                "analysis_depth": analysis_depth,
+                "effective_beam_width": int(effective_beam_width),
+                "effective_group_size": int(effective_group_size),
+                "available_lots_count": int(len(available_lots)),
+            },
             "cache": {
                 "hit": False,
                 "fingerprint": fingerprint,
@@ -889,8 +957,8 @@ def build_strategy_snapshot(
         strategy=selected_strategy,
         forecast=forecast,
         remaining_budget=remaining_budget,
-        beam_width=max(2, int(beam_width)),
-        max_group_size=max(3, int(max_group_size)),
+        beam_width=int(effective_beam_width),
+        max_group_size=int(effective_group_size),
         stats=compute_stats,
     )
     full_budget = _snapshot_sections(
@@ -899,17 +967,19 @@ def build_strategy_snapshot(
         top_n=top_n,
         remaining_budget=remaining_budget,
         scenario_key="full_budget",
-        scenario_title="Полный бюджет",
+        scenario_title="Что если играть от текущего бюджета",
         scenario_note=(
-            "Единая оценка по текущему портфелю и доступному бюджету. Recommended bids не обязаны "
-            "тратить весь остаток: сохранённые деньги переходят в следующие аукционы."
+            "Сценарный обзор по текущему портфелю и доступному бюджету. Комбинации не "
+            "являются точным пошаговым планом последовательного аукциона; для живых "
+            "решений используйте таблицу текущих лотов и быстрый аукцион."
         ),
     )
 
     best_current = next((row for row in rows if float(row.working_bid) > 0.0), None)
     after_purchase_rows: List[ComboEvaluation] = []
     after_purchase_budget = remaining_budget
-    if best_current is not None:
+    can_compute_followups = bool(force or len(available_lots) <= 10)
+    if best_current is not None and can_compute_followups:
         purchased_ids = set(best_current.lot_ids)
         purchased_lots = [lot for lot in available_lots if int(lot.id) in purchased_ids]
         after_purchase_budget = max(0.0, remaining_budget - float(best_current.working_bid))
@@ -919,8 +989,8 @@ def build_strategy_snapshot(
             strategy=selected_strategy,
             forecast=forecast,
             remaining_budget=after_purchase_budget,
-            beam_width=max(2, int(beam_width)),
-            max_group_size=max(3, int(max_group_size)),
+            beam_width=int(effective_beam_width),
+            max_group_size=int(effective_group_size),
             portfolio_lots=purchased_lots,
             reserved_spend=_scenario_reserved_spend(
                 lots=purchased_lots,
@@ -928,19 +998,31 @@ def build_strategy_snapshot(
             ),
             stats=compute_stats,
         )
-    after_purchase = _snapshot_sections(
-        rows=after_purchase_rows,
-        lot_names=lot_names,
-        top_n=top_n,
-        remaining_budget=after_purchase_budget,
-        scenario_key="after_purchase",
-        scenario_title="После покупки лучшей комбинации",
-        scenario_note=(
-            "Показывает, что делать следующим шагом, если лучший план уже реализован и "
-            "неиспользованный остаток бюджета сохранён."
-            if best_current is not None
-            else "Лучшая комбинация не определена, сценарий не рассчитан."
-        ),
+    after_purchase = (
+        _snapshot_sections(
+            rows=after_purchase_rows,
+            lot_names=lot_names,
+            top_n=top_n,
+            remaining_budget=after_purchase_budget,
+            scenario_key="after_purchase",
+            scenario_title="Что если лучший ход уже куплен",
+            scenario_note=(
+                "Глубокий сценарный пересчёт после покупки текущего лучшего набора."
+                if best_current is not None
+                else "Лучшая комбинация не определена, сценарий не рассчитан."
+            ),
+        )
+        if best_current is not None and can_compute_followups
+        else _placeholder_scenario(
+            scenario_key="after_purchase",
+            scenario_title="Что если лучший ход уже куплен",
+            scenario_note=(
+                "Сценарий скрыт в быстром режиме, чтобы не тормозить основной UX. "
+                "Запустите глубокий пересчёт для подробного сценария."
+                if best_current is not None
+                else "Лучшая комбинация не определена, сценарий не рассчитан."
+            ),
+        )
     )
 
     top_single = next(
@@ -949,7 +1031,7 @@ def build_strategy_snapshot(
     )
     after_loss_rows: List[ComboEvaluation] = []
     excluded_lot_id = None
-    if top_single is not None:
+    if top_single is not None and can_compute_followups:
         excluded_lot_id = int(top_single.lot_ids[0])
         after_loss_rows = _build_combo_catalog(
             session=session,
@@ -957,22 +1039,34 @@ def build_strategy_snapshot(
             strategy=selected_strategy,
             forecast=forecast,
             remaining_budget=remaining_budget,
-            beam_width=max(2, int(beam_width)),
-            max_group_size=max(3, int(max_group_size)),
+            beam_width=int(effective_beam_width),
+            max_group_size=int(effective_group_size),
             stats=compute_stats,
         )
-    after_loss = _snapshot_sections(
-        rows=after_loss_rows,
-        lot_names=lot_names,
-        top_n=top_n,
-        remaining_budget=remaining_budget,
-        scenario_key="after_loss",
-        scenario_title="После потери лучшего лота",
-        scenario_note=(
-            f"Пересчёт без лота {lot_names.get(excluded_lot_id or 0, f'#{excluded_lot_id}')}"
-            if excluded_lot_id is not None
-            else "Лучший одиночный лот не определён, сценарий не рассчитан."
-        ),
+    after_loss = (
+        _snapshot_sections(
+            rows=after_loss_rows,
+            lot_names=lot_names,
+            top_n=top_n,
+            remaining_budget=remaining_budget,
+            scenario_key="after_loss",
+            scenario_title="Что если лучший одиночный лот уйдёт",
+            scenario_note=(
+                f"Глубокий сценарный пересчёт без лота {lot_names.get(excluded_lot_id or 0, f'#{excluded_lot_id}')}"
+                if excluded_lot_id is not None
+                else "Лучший одиночный лот не определён, сценарий не рассчитан."
+            ),
+        )
+        if top_single is not None and can_compute_followups
+        else _placeholder_scenario(
+            scenario_key="after_loss",
+            scenario_title="Что если лучший одиночный лот уйдёт",
+            scenario_note=(
+                "Сценарий скрыт в быстром режиме, чтобы не гонять тяжёлый перебор на каждый просмотр."
+                if top_single is not None
+                else "Лучший одиночный лот не определён, сценарий не рассчитан."
+            ),
+        )
     )
 
     out = {
@@ -980,6 +1074,15 @@ def build_strategy_snapshot(
         "strategy": "unified",
         "analysis_mode": "unified",
         "objective": "risk_adjusted_net_profit",
+        "snapshot_kind": "what_if_advisory",
+        "analysis_depth": analysis_depth,
+        "is_advisory": True,
+        "is_exact_plan": False,
+        "disclaimer": (
+            "Стратегическая справка — это сценарный обзор комбинаций. Он полезен для "
+            "ориентира, но не равен точному последовательному плану покупок на живом аукционе."
+        ),
+        "fast_ranking_source": "lots_analytics",
         "forecast_context": dict(analysis_ctx["forecast_context"]),
         "forecast_compatibility": compatibility,
         "portfolio_context": _portfolio_context(session),
@@ -995,7 +1098,14 @@ def build_strategy_snapshot(
             "after_purchase": after_purchase,
             "after_loss": after_loss,
         },
-        "compute_stats": compute_stats,
+        "compute_stats": {
+            **compute_stats,
+            "analysis_depth": analysis_depth,
+            "effective_beam_width": int(effective_beam_width),
+            "effective_group_size": int(effective_group_size),
+            "available_lots_count": int(len(available_lots)),
+            "followup_scenarios_computed": bool(can_compute_followups),
+        },
         "cache": {
             "hit": False,
             "fingerprint": fingerprint,

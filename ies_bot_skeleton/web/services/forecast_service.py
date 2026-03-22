@@ -1306,9 +1306,7 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
     mapped_columns = _ordered_mapped_columns(headers=headers, resolved_map=resolved_map)
     column_mapping_rows = _column_mapping_rows(mapped_columns)
     mapped_raw_columns = [
-        str(row.get("raw_name"))
-        for row in mapped_columns
-        if str(row.get("raw_name") or "").strip()
+        str(row.get("raw_name")) for row in mapped_columns if str(row.get("raw_name") or "").strip()
     ]
     unsupported_raw_columns = [
         str(column)
@@ -1364,7 +1362,9 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
         "avg_market_price": avg((factors.get("market_price_buy") or {}).values()),
         "factors_keys": sorted(factors.keys()),
         "profiles_keys": sorted(profiles.keys()),
-        "load_series": [str(row.get("label") or row.get("key") or "") for row in load_series_display],
+        "load_series": [
+            str(row.get("label") or row.get("key") or "") for row in load_series_display
+        ],
         "load_series_display": load_series_display,
         "load_series_raw": list(mapped_raw_columns),
         "raw_csv_columns": [str(header) for header in headers if str(header).strip()],

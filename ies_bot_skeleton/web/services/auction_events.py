@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from ...common.budgeting import budget_snapshot
-from ...application.portfolio import buy_lot, reject_lot
+from ...application.portfolio import buy_lot
 from ..extensions import db
 from ..models import AuctionEvent, GameSession, Lot
 from .evaluation import evaluate_lot
@@ -107,21 +107,22 @@ def apply_auction_action(
         raise ValueError("Допустимые действия: pass, watch, bid")
 
     if action_norm == "pass":
-        if str(lot.status or "") == "available":
-            reject_lot(lot)
         event = AuctionEvent(
             session_id=int(session.id),
             lot_id=int(lot.id),
             action="pass",
             bid_level="",
             amount=0.0,
-            outcome="resolved",
+            outcome="none",
             budget_effect=0.0,
-            details_json={"lot_status": str(lot.status or "")},
+            details_json={
+                "lot_status_before": str(lot.status or ""),
+                "lot_status_after": str(lot.status or ""),
+                "soft_pass": True,
+            },
             resolved_at=_utcnow(),
         )
         db.session.add(event)
-        mark_stale_for_session(session.id, reason="lot_changed")
     elif action_norm == "watch":
         event = AuctionEvent(
             session_id=int(session.id),
@@ -195,7 +196,11 @@ def resolve_bid_outcome(
         event = db.session.get(AuctionEvent, int(event_id))
     if event is None:
         event = _latest_pending_bid_event(session_id=int(session.id), lot_id=int(lot.id))
-    if event is None or int(event.session_id) != int(session.id) or int(event.lot_id) != int(lot.id):
+    if (
+        event is None
+        or int(event.session_id) != int(session.id)
+        or int(event.lot_id) != int(lot.id)
+    ):
         raise ValueError("Не найдена pending-ставка для этого лота")
     if str(event.action or "") != "bid" or str(event.outcome or "") != "pending":
         raise ValueError("Событие ставки уже закрыто")

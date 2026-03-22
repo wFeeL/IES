@@ -228,9 +228,7 @@ class GameSession(db.Model):
         from ..common.budgeting import budget_snapshot
 
         budget = budget_snapshot(self)
-        bought_lots_count = int(
-            sum(1 for lot in self.lots if str(lot.status or "") == "bought")
-        )
+        bought_lots_count = int(sum(1 for lot in self.lots if str(lot.status or "") == "bought"))
         return {
             "id": self.id,
             "title": self.title,

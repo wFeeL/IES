@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Tuple
 
 from ..extensions import db
@@ -167,7 +167,8 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
         selected_strategy="unified",
         selected_forecast_id=None,
         budget_total=float(
-            session_payload.get("start_budget", session_payload.get("budget_total", 9999.0)) or 9999.0
+            session_payload.get("start_budget", session_payload.get("budget_total", 9999.0))
+            or 9999.0
         ),
         allpay_spent=float(session_payload.get("allpay_spent", 0.0) or 0.0),
     )
@@ -354,7 +355,7 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
                 budget_effect=float(row.get("budget_effect", 0.0) or 0.0),
                 details_json=dict(row.get("details") or {}),
                 resolved_at=_parse_iso_datetime(row.get("resolved_at")),
-                created_at=_parse_iso_datetime(row.get("created_at")) or datetime.utcnow(),
+                created_at=_parse_iso_datetime(row.get("created_at")) or datetime.now(timezone.utc),
             )
         )
 

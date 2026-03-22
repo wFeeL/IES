@@ -524,7 +524,7 @@ def ruleset_form_values(
             config, "auction", "volatility_lambda_bid", default=0.15
         ),
         "auction_bid_model_version": _get_nested(
-            config, "auction", "auction_bid_model_version", default="pwin_v1"
+            config, "auction", "auction_bid_model_version", default="strategic_anchor_v4"
         ),
         "auction_conservative_utility_method": _get_nested(
             config,
@@ -690,7 +690,7 @@ def ruleset_payload_from_request(
             "balanced_multiplier": num("auction_balanced_multiplier", 1.0),
             "aggressive_multiplier": num("auction_aggressive_multiplier", 1.22),
             "volatility_lambda_bid": num("auction_volatility_lambda_bid", 0.15),
-            "auction_bid_model_version": text("auction_bid_model_version", "pwin_v1"),
+            "auction_bid_model_version": text("auction_bid_model_version", "strategic_anchor_v4"),
             "conservative_utility_method": text(
                 "auction_conservative_utility_method", "weighted_expected_minus_volatility"
             ),
@@ -766,7 +766,7 @@ def ruleset_payload_from_request(
         "balanced_multiplier": num("auction_balanced_multiplier", 1.0),
         "aggressive_multiplier": num("auction_aggressive_multiplier", 1.22),
         "volatility_lambda_bid": num("auction_volatility_lambda_bid", 0.15),
-        "auction_bid_model_version": text("auction_bid_model_version", "pwin_v1"),
+        "auction_bid_model_version": text("auction_bid_model_version", "strategic_anchor_v4"),
         "conservative_utility_method": text(
             "auction_conservative_utility_method", "weighted_expected_minus_volatility"
         ),

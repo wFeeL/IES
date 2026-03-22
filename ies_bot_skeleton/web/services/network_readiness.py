@@ -69,9 +69,7 @@ def _bought_lot_name(session: GameSession, lot_id: int) -> str:
 
 def network_readiness_summary(session: GameSession) -> Dict[str, Any]:
     objects = _active_objects(session)
-    bought_lot_ids = {
-        int(lot.id) for lot in session.lots if str(lot.status or "") == "bought"
-    }
+    bought_lot_ids = {int(lot.id) for lot in session.lots if str(lot.status or "") == "bought"}
     purchased_objects = [
         obj
         for obj in objects

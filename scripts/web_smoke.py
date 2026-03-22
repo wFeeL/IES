@@ -47,7 +47,9 @@ def main() -> None:
         session_id = int(created.get_json()["item"]["id"])
 
         _expect(
-            client.post(f"/api/sessions/{session_id}/recalculate", json={"include_strategy": False}).status_code,
+            client.post(
+                f"/api/sessions/{session_id}/recalculate", json={"include_strategy": False}
+            ).status_code,
             (200,),
             endpoint="POST /api/sessions/<id>/recalculate",
         )
@@ -62,8 +64,14 @@ def main() -> None:
             endpoint="GET /api/sessions/<id>/auction/events",
         )
 
-        _expect(client.get(f"/sessions/{session_id}").status_code, (200,), endpoint="GET /sessions/<id>")
-        _expect(client.get(f"/quick-auction/{session_id}").status_code, (200,), endpoint="GET /quick-auction/<id>")
+        _expect(
+            client.get(f"/sessions/{session_id}").status_code, (200,), endpoint="GET /sessions/<id>"
+        )
+        _expect(
+            client.get(f"/quick-auction/{session_id}").status_code,
+            (200,),
+            endpoint="GET /quick-auction/<id>",
+        )
         _expect(client.get(f"/lots/{session_id}").status_code, (200,), endpoint="GET /lots/<id>")
 
         db.session.remove()

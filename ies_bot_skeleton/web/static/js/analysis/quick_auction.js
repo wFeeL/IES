@@ -74,6 +74,23 @@
     return normalized;
   }
 
+  function isShortlisted(lotId) {
+    return getShortlist().includes(Number(lotId || 0));
+  }
+
+  function toggleShortlist(lotId) {
+    const targetId = Number(lotId || 0);
+    if (!targetId) {
+      return false;
+    }
+    const shortlist = getShortlist();
+    const next = shortlist.includes(targetId)
+      ? shortlist.filter((value) => Number(value) !== targetId)
+      : [...shortlist, targetId];
+    setShortlist(next);
+    return next.includes(targetId);
+  }
+
   function updateHeroBudget(snapshot) {
     const budgetTotal = Number(snapshot?.budget_total);
     const cashAvailable = Number(snapshot?.cash_available);
@@ -154,8 +171,10 @@
     refreshRanking: Boolean($('refreshRanking')?.disabled),
     qaApplyFilters: Boolean($('qaApplyFilters')?.disabled),
     buyCurrentLot: Boolean($('buyCurrentLot')?.disabled),
+    qaConfirmPrice: Boolean($('qaConfirmPrice')?.disabled),
     qaPassAction: Boolean($('qaPassAction')?.disabled),
     qaWatchAction: Boolean($('qaWatchAction')?.disabled),
+    qaShortlistToggle: Boolean($('qaShortlistToggle')?.disabled),
     qaSafeBidAction: Boolean($('qaSafeBidAction')?.disabled),
     qaTargetBidAction: Boolean($('qaTargetBidAction')?.disabled),
     qaMaxBidAction: Boolean($('qaMaxBidAction')?.disabled),
@@ -167,8 +186,10 @@
       'refreshRanking',
       'qaApplyFilters',
       'buyCurrentLot',
+      'qaConfirmPrice',
       'qaPassAction',
       'qaWatchAction',
+      'qaShortlistToggle',
       'qaSafeBidAction',
       'qaTargetBidAction',
       'qaMaxBidAction',
@@ -180,6 +201,9 @@
       }
       node.disabled = Boolean(busy || initialDisabled[id]);
     });
+    if (!busy) {
+      updateBuyActionState();
+    }
   }
 
   function netProfit(row) {
@@ -209,6 +233,48 @@
 
   function workingBid(row) {
     return bidBalanced(row);
+  }
+
+  function decisionStatusLabel(row) {
+    const explicit = String(row?.decision_status_label || '').trim();
+    if (explicit) {
+      return explicit;
+    }
+    const bid = workingBid(row);
+    if (bid <= 0) {
+      return 'Пас';
+    }
+    if (bid <= maxJustifiedBid(row) * 0.35) {
+      return 'Только дёшево';
+    }
+    return 'Брать';
+  }
+
+  function decisionReason(row) {
+    return (
+      String(row?.decision_reason || '').trim() ||
+      String(row?.bid_constraints_summary || '').trim() ||
+      fullReason(row)
+    );
+  }
+
+  function decisionTone(row) {
+    const bid = workingBid(row);
+    if (bid <= 0) {
+      return 'pass';
+    }
+    if (bid <= maxJustifiedBid(row) * 0.35) {
+      return 'cheap';
+    }
+    return 'go';
+  }
+
+  function decisionRangeText(row) {
+    return (
+      `безопасная ${formatNumber(bidSafe(row), 1)} · ` +
+      `целевая ${formatNumber(workingBid(row), 1)} · ` +
+      `потолок ${formatNumber(maxJustifiedBid(row), 1)}`
+    );
   }
 
   function bidSafe(row) {
@@ -334,6 +400,28 @@
     return compactReason(text || 'Существенных блокирующих рисков не выявлено.');
   }
 
+  function shortlistButtonLabel(lotId) {
+    return isShortlisted(lotId) ? 'Убрать из шорт-листа' : 'В шорт-лист';
+  }
+
+  function shortlistBadgeHtml(lotId) {
+    if (!isShortlisted(lotId)) {
+      return '';
+    }
+    return '<span class="auction-badge auction-badge-shortlist">Шорт-лист</span>';
+  }
+
+  function decisionBadgeHtml(row) {
+    const tone = decisionTone(row);
+    const label =
+      tone === 'go'
+        ? 'Брать'
+        : tone === 'cheap'
+          ? 'Только дёшево'
+          : 'Пас';
+    return `<span class="auction-badge auction-badge-${tone}">${label}</span>`;
+  }
+
   function maxJustifiedBid(row) {
     return Number(
       (row.decision_summary || {}).max_bid ||
@@ -453,14 +541,25 @@
       return;
     }
     const scenarios = snapshot.scenarios || {};
+    const disclaimer = String(snapshot?.disclaimer || '').trim();
+    const depth = String(snapshot?.analysis_depth || '').trim();
     const blocks = [
       {title: 'Текущий лучший ход', row: scenarios.full_budget?.best_combination || snapshot.best_combination},
-      {title: 'Plan B', row: scenarios.full_budget?.plan_b || snapshot.plan_b},
-      {title: 'Plan C', row: scenarios.full_budget?.plan_c || snapshot.plan_c},
+      {title: 'План Б', row: scenarios.full_budget?.plan_b || snapshot.plan_b},
+      {title: 'План В', row: scenarios.full_budget?.plan_c || snapshot.plan_c},
       {title: 'После покупки', row: scenarios.after_purchase?.best_combination},
       {title: 'Если лучший лот ушёл', row: scenarios.after_loss?.best_combination},
     ];
-    content.innerHTML = blocks.map((block) => renderStrategyRow(block.row, block.title)).join('');
+    const depthLabel = depth === 'deep' ? 'глубокий' : depth === 'fast' ? 'быстрый' : depth;
+    const intro = disclaimer
+      ? `
+        <article class="card">
+          <p class="section-kicker">Сценарная справка${depthLabel ? ` · ${escapeHtml(depthLabel)}` : ''}</p>
+          <div class="muted mt-2">${escapeHtml(disclaimer)}</div>
+        </article>
+      `
+      : '';
+    content.innerHTML = intro + blocks.map((block) => renderStrategyRow(block.row, block.title)).join('');
     content.hidden = false;
     if (status) status.hidden = true;
   }
@@ -480,12 +579,21 @@
   function eventLabel(row) {
     const action = String(row?.action || '').trim();
     const outcome = String(row?.outcome || '').trim();
-    if (action === 'pass') return 'Pass';
-    if (action === 'watch') return 'Watch';
-    if (action === 'bid' && outcome === 'pending') return `Bid ${String(row?.bid_level || '').trim() || 'target'}`;
-    if (action === 'bid' && outcome === 'lost') return 'Lost';
-    if (action === 'bid' && outcome === 'won') return 'Won';
-    return action || 'Action';
+    if (action === 'pass') return 'Пропуск раунда';
+    if (action === 'watch') return 'Наблюдение';
+    if (action === 'bid' && outcome === 'pending') {
+      const bidLevel = String(row?.bid_level || '').trim();
+      const bidLevelLabel =
+        bidLevel === 'safe'
+          ? 'безопасная'
+          : bidLevel === 'max'
+            ? 'потолок'
+            : 'целевая';
+      return `Ставка (${bidLevelLabel})`;
+    }
+    if (action === 'bid' && outcome === 'lost') return 'Проиграно';
+    if (action === 'bid' && outcome === 'won') return 'Выиграно';
+    return action ? `Действие: ${action}` : 'Действие';
   }
 
   function renderAuctionEvents() {
@@ -495,7 +603,7 @@
     state.pendingEvents = events.filter((row) => String(row?.outcome || '') === 'pending');
     if (pendingNode) {
       if (!state.pendingEvents.length) {
-        pendingNode.innerHTML = '<div class="muted">Нет pending-ставок.</div>';
+        pendingNode.innerHTML = '<div class="muted">Нет активных ставок.</div>';
       } else {
         pendingNode.innerHTML = state.pendingEvents
           .map((row) => {
@@ -506,8 +614,8 @@
                 <strong>${lotName}</strong>
                 <div class="table-secondary mt-1">${escapeHtml(eventLabel(row))} · ставка ${amount}</div>
                 <div class="actions mt-2">
-                  <button class="btn btn-secondary qaOutcomeWon" data-event-id="${Number(row?.id || 0)}" data-lot-id="${Number(row?.lot_id || 0)}" type="button">Won</button>
-                  <button class="btn btn-secondary qaOutcomeLost" data-event-id="${Number(row?.id || 0)}" data-lot-id="${Number(row?.lot_id || 0)}" type="button">Lost</button>
+                  <button class="btn btn-secondary qaOutcomeWon" data-event-id="${Number(row?.id || 0)}" data-lot-id="${Number(row?.lot_id || 0)}" type="button">Выиграл</button>
+                  <button class="btn btn-secondary qaOutcomeLost" data-event-id="${Number(row?.id || 0)}" data-lot-id="${Number(row?.lot_id || 0)}" type="button">Проиграл</button>
                 </div>
               </div>
             `;
@@ -575,7 +683,15 @@
     const url = cfg().auctionActionsUrl;
     if (!url) return;
     setBusy(true);
-    setStatus(`Выполняю действие ${action} для лота ${lotId}...`);
+    const actionLabel =
+      action === 'pass'
+        ? 'пропуск раунда'
+        : action === 'watch'
+          ? 'наблюдение'
+          : action === 'bid'
+            ? 'ставка'
+            : action;
+    setStatus(`Выполняю действие «${actionLabel}» для лота ${lotId}...`);
     try {
       const body = {
         lot_id: lotId,
@@ -609,6 +725,17 @@
         await refreshRanking(0);
       }
       const selected = rankingItemByLotId(lotId) || state.ranking[0] || null;
+      if (action === 'pass') {
+        const nextLotId = nextVisibleLotIdAfter(lotId);
+        const nextSelected = rankingItemByLotId(nextLotId) || selected;
+        if (nextSelected) {
+          updateDecisionPanel(nextSelected);
+        }
+        setStatus(
+          `Раунд по лоту ${lotId} пропущен. Лот остался в потоке и не был отклонён.`
+        );
+        return;
+      }
       if (selected) {
         updateDecisionPanel(selected);
       }
@@ -657,7 +784,8 @@
         state.strategy = refresh.strategy;
         renderStrategySnapshot(state.strategy);
       }
-      setStatus(`Исход ${outcome} зафиксирован для лота ${lotId}.`);
+      const outcomeLabel = outcome === 'won' ? 'выигрыш' : outcome === 'lost' ? 'проигрыш' : outcome;
+      setStatus(`Исход «${outcomeLabel}» зафиксирован для лота ${lotId}.`);
     } catch (_) {
       setStatus('Не удалось зафиксировать исход из-за сетевой ошибки.');
     } finally {
@@ -722,16 +850,71 @@
     return rankingItemByLotId(Number($('currentLotId')?.value || 0));
   }
 
+  function nextVisibleLotIdAfter(lotId) {
+    const rows = Array.isArray(state.visibleRanking) ? state.visibleRanking : [];
+    const currentId = Number(lotId || 0);
+    const currentIndex = rows.findIndex((row) => Number(row?.lot_id || 0) === currentId);
+    if (currentIndex < 0) {
+      return Number(rows[0]?.lot_id || 0);
+    }
+    const next = rows[currentIndex + 1] || rows[currentIndex - 1] || null;
+    return Number(next?.lot_id || 0);
+  }
+
   function syncPurchasePriceInput(lotId, force = false) {
     const input = $('purchasePriceInput');
     if (!input) return;
     const ranked = rankingItemByLotId(lotId);
     const fallback = document.querySelector(`.auction-item[data-lot-id="${lotId}"]`)?.dataset.currentBid;
-    const nextValue = ranked ? workingBid(ranked) : toNumber(fallback);
+    const nextValue = ranked ? marketBid(ranked) : toNumber(fallback);
     if (force || !input.value) {
       input.value = formatNumber(nextValue, 1);
     }
     setCurrentLinks(lotId);
+  }
+
+  function updateBuyActionState() {
+    const button = $('buyCurrentLot');
+    if (!button) {
+      return;
+    }
+    const lotId = Number($('currentLotId')?.value || 0);
+    const purchasePrice = Number($('purchasePriceInput')?.value || 0);
+    const confirmed = Boolean($('qaConfirmPrice')?.checked);
+    const allowed =
+      lotId > 0 &&
+      Number.isFinite(purchasePrice) &&
+      purchasePrice > 0 &&
+      confirmed &&
+      !initialDisabled.buyCurrentLot;
+    button.disabled = !allowed;
+  }
+
+  function resetBuyConfirmation() {
+    if ($('qaConfirmPrice')) {
+      $('qaConfirmPrice').checked = false;
+    }
+    updateBuyActionState();
+  }
+
+  function setSuggestedBid(level) {
+    const item = selectedDecisionItem();
+    if (!item) {
+      setStatus('Сначала выберите лот.');
+      return;
+    }
+    const nextValue =
+      level === 'safe' ? bidSafe(item) :
+      level === 'max' ? maxJustifiedBid(item) :
+      workingBid(item);
+    if ($('purchasePriceInput')) {
+      $('purchasePriceInput').value = formatNumber(nextValue, 1);
+    }
+    resetBuyConfirmation();
+    updateLiveBidMetrics(item);
+    const levelLabel =
+      level === 'safe' ? 'безопасная' : level === 'max' ? 'потолок' : 'целевая';
+    setStatus(`В поле подставлена ${levelLabel} ставка: ${formatNumber(nextValue, 1)}.`);
   }
 
   function updateLiveBidMetrics(item) {
@@ -740,39 +923,45 @@
     }
     const input = $('purchasePriceInput');
     const rawValue = input?.value || '';
-    const enteredBid = rawValue ? toNumber(rawValue) : workingBid(item);
+    const enteredBid = rawValue ? toNumber(rawValue) : marketBid(item);
     const recommended = workingBid(item);
+    const safe = bidSafe(item);
+    const cap = maxJustifiedBid(item);
     const profit = profitAfterBid(item, enteredBid);
     const budgetLeft = budgetLeftAfterBid(item, enteredBid);
     const profitDelta = profitAfterBid(item, recommended) - profit;
     const budgetDelta = budgetLeftAfterBid(item, recommended) - budgetLeft;
 
-    let advice = String(
-      item?.budget_preservation_note ||
-      (item?.decision_summary || {}).budget_preservation_note ||
-      'Оставшийся бюджет можно использовать позже.'
-    ).trim();
+    let advice =
+      `Текущая цена ${formatNumber(marketBid(item), 1)} · ` +
+      `безопасная ${formatNumber(safe, 1)} · целевая ${formatNumber(recommended, 1)} · ` +
+      `потолок ${formatNumber(cap, 1)}.`;
     if (enteredBid > recommended + 1e-9) {
       advice +=
-        ` По сравнению с рекомендуемой ставкой вы теряете ` +
+        ` Цена выше целевой: вы теряете ` +
         `${formatNumber(profitDelta, 2)} прибыли и ${formatNumber(Math.max(0, budgetDelta), 1)} бюджета.`;
     }
-    if (enteredBid < recommended - 1e-9 && enteredBid > 0) {
-      advice +=
-        ` Вы оставляете ещё ${formatNumber(Math.max(0, budgetLeft - budgetLeftAfterBid(item, recommended)), 1)} бюджета в резерве.`;
+    if (enteredBid < safe - 1e-9 && enteredBid > 0 && recommended > 0) {
+      advice += ' Это ниже безопасной ставки и подходит скорее для наблюдения, чем для активной борьбы.';
     }
+    advice += ` ${decisionReason(item)}`;
     if ($('qaBidAdvice')) $('qaBidAdvice').textContent = advice;
 
     let warning = '';
     if (enteredBid <= 0) {
       warning = 'Ставка должна быть больше нуля, иначе купить лот нельзя.';
+    } else if (recommended <= 0) {
+      warning = `Система рекомендует пас: ${decisionReason(item)}`;
     } else if (profit <= 0) {
       warning = 'Предупреждение: после введённой ставки ожидаемая прибыль становится неположительной.';
-    } else if (enteredBid > maxJustifiedBid(item) + 1e-9) {
-      warning = `Предупреждение: введённая цена выше max justified bid ${formatNumber(maxJustifiedBid(item), 1)}.`;
+    } else if (enteredBid > cap + 1e-9) {
+      warning = `Предупреждение: введённая цена выше потолка ${formatNumber(cap, 1)}.`;
+    } else if (enteredBid > recommended + 1e-9) {
+      warning = 'Предупреждение: вы входите выше целевой ставки, быстрый аукцион не рекомендует переплачивать автоматически.';
     }
     if ($('qaBidWarning')) $('qaBidWarning').textContent = warning;
     if ($('qaBidWarning')) $('qaBidWarning').hidden = !warning;
+    updateBuyActionState();
   }
 
   function updateDecisionPanel(item) {
@@ -781,16 +970,21 @@
     const safe = bidSafe(item);
     const aggressive = bidAggressive(item);
     const hardCeiling = hardCeilingBid(item);
-    const balancedProfit = profitAfterBid(item, balanced);
-    const balancedBudgetLeft = budgetLeftAfterBid(item, balanced);
+    const selectedPrice = Number($('purchasePriceInput')?.value || marketBid(item));
+    const selectedProfit = profitAfterBid(item, selectedPrice);
+    const selectedBudgetLeft = budgetLeftAfterBid(item, selectedPrice);
     $('qaScore').textContent = formatNumber(item.summary_score, 2);
     $('qaRisk').textContent = formatNumber(riskValue(item), 2);
+    if ($('qaCurrentPrice')) $('qaCurrentPrice').textContent = formatNumber(marketBid(item), 1);
     if ($('qaBidSafe')) $('qaBidSafe').textContent = formatNumber(safe, 1);
     $('qaBid').textContent = formatNumber(balanced, 1);
     if ($('qaBidAggressive')) $('qaBidAggressive').textContent = formatNumber(aggressive, 1);
     if ($('qaBudgetBid')) $('qaBudgetBid').textContent = formatNumber(hardCeiling, 1);
-    if ($('qaBidProfit')) $('qaBidProfit').textContent = formatNumber(balancedProfit, 2);
-    if ($('qaBudgetLeft')) $('qaBudgetLeft').textContent = formatNumber(balancedBudgetLeft, 1);
+    if ($('qaBidProfit')) $('qaBidProfit').textContent = formatNumber(selectedProfit, 2);
+    if ($('qaBudgetLeft')) $('qaBudgetLeft').textContent = formatNumber(selectedBudgetLeft, 1);
+    if ($('qaDecisionStatus')) $('qaDecisionStatus').textContent = decisionStatusLabel(item);
+    if ($('qaDecisionRange')) $('qaDecisionRange').textContent = decisionRangeText(item);
+    if ($('qaDecisionReason')) $('qaDecisionReason').textContent = decisionReason(item) || '—';
     if ($('qaLotName')) $('qaLotName').textContent = String(item?.name || `Лот ${Number(item?.lot_id || 0)}`);
     if ($('qaLotType')) $('qaLotType').textContent = compositionLabel(item);
     if ($('qaLotStructure')) {
@@ -801,16 +995,20 @@
     if ($('qaLotRisks')) $('qaLotRisks').textContent = `Риски: ${topRisks(item)}`;
     const reasons = Array.isArray(item.reasons) ? item.reasons.slice(0, 3).join('; ') : '';
     const systemMessage = String((item.system_check || {}).message || '');
-    $('qaCommentary').textContent = reasons || workingBidReason(item) || systemMessage || 'Нет комментария.';
+    $('qaCommentary').textContent = decisionReason(item) || reasons || systemMessage || 'Нет комментария.';
     if (balanced <= 0) {
-      $('qaCommentary').textContent = workingBidReason(item) || systemMessage || 'Balanced bid недоступна для текущего лота.';
+      $('qaCommentary').textContent = decisionReason(item) || systemMessage || 'Ставка недоступна для текущего лота.';
     }
     const lotId = Number(item.lot_id || 0);
+    if ($('qaShortlistToggle')) {
+      $('qaShortlistToggle').textContent = shortlistButtonLabel(lotId);
+    }
     $('currentLotId').value = String(lotId || '');
     setCurrentLinks(lotId);
     setActiveAuctionItem(lotId);
     syncPurchasePriceInput(lotId, true);
     updateLiveBidMetrics(item);
+    resetBuyConfirmation();
   }
 
   async function evalLot(lotId) {
@@ -844,12 +1042,15 @@
     }
   }
 
-  function rowActionsHtml(lotId) {
+  function rowActionsHtml(row) {
+    const lotId = Number(row?.lot_id || 0);
+    const shortlistLabel = shortlistButtonLabel(lotId);
     return `
       <div class="qa-row-actions">
-        <button class="btn btn-secondary quickEvalRow" data-lot-id="${lotId}" type="button">Оценить</button>
-        <button class="btn btn-secondary quickBuyRow" data-lot-id="${lotId}" type="button">Купить</button>
-        <a class="btn btn-secondary" href="/lots/item/${lotId}">Открыть лот</a>
+        <button class="btn btn-secondary quickEvalRow" data-lot-id="${lotId}" type="button">Выбрать</button>
+        <button class="btn btn-secondary quickBuyRow" data-lot-id="${lotId}" type="button">К цене</button>
+        <button class="btn btn-secondary qaShortlistRow" data-lot-id="${lotId}" type="button">${shortlistLabel}</button>
+        <a class="btn btn-secondary" href="/lots/item/${lotId}">Открыть</a>
       </div>
     `;
   }
@@ -858,6 +1059,7 @@
     const list = $('auctionLots');
     if (!list) return;
     const rankingRows = Array.isArray(rows) ? rows : [];
+    const shortlist = getShortlist();
     const byId = new Map();
     list.querySelectorAll('.auction-item').forEach((item) => {
       const lotId = Number(item.dataset.lotId || 0);
@@ -880,12 +1082,24 @@
       item.dataset.currentBid = String(marketBid(row));
       const lotTitle = row?.name || `Лот ${lotId}`;
       const chips = structureChipsHtml(row, 4);
+      const badges = [
+        decisionBadgeHtml(row),
+        shortlist.includes(lotId) ? shortlistBadgeHtml(lotId) : '',
+      ]
+        .filter(Boolean)
+        .join('');
       item.innerHTML = `
-        <div class="key-value">
-          <strong>${index + 1}.</strong>
-          <span class="text-clamp-2" title="${escapeHtml(lotTitle)}">${escapeHtml(lotTitle)}</span>
+        <div class="auction-item-head">
+          <div class="key-value">
+            <strong>${index + 1}.</strong>
+            <span class="text-clamp-2" title="${escapeHtml(lotTitle)}">${escapeHtml(lotTitle)}</span>
+          </div>
+          <div class="auction-badge-row">${badges}</div>
         </div>
-        <div class="muted auction-item-bid">bid ${formatNumber(marketBid(row), 1)}</div>
+        <div class="auction-item-meta">
+          <span class="muted auction-item-bid">цена ${formatNumber(marketBid(row), 1)}</span>
+          <span class="table-secondary">целевая ${formatNumber(workingBid(row), 1)}</span>
+        </div>
         <div class="lot-chip-wrap mt-2" title="${escapeHtml(structureText(row))}">${chips}</div>
       `;
       fragment.appendChild(item);
@@ -921,7 +1135,7 @@
     syncAuctionListWithRanking(filtered);
 
     if (!filtered.length) {
-      body.innerHTML = '<tr><td colspan="9" class="muted">Нет строк после фильтрации.</td></tr>';
+      body.innerHTML = '<tr><td colspan="6" class="muted">Нет строк после фильтрации.</td></tr>';
       $('currentLotId').value = '';
       if ($('purchasePriceInput')) $('purchasePriceInput').value = '';
       if ($('qaBidProfit')) $('qaBidProfit').textContent = '—';
@@ -939,6 +1153,7 @@
     filtered.forEach((row, index) => {
       const tr = document.createElement('tr');
       const lotId = Number(row?.lot_id || 0);
+      const selectedLotId = Number($('currentLotId')?.value || 0);
       const bid = workingBid(row);
       const safeBid = bidSafe(row);
       const aggressiveBid = bidAggressive(row);
@@ -947,13 +1162,11 @@
       const fullReasonText = fullReason(row);
       const shortReasonText = shortReason(row);
       const lotName = escapeHtml(row?.name || `Лот ${lotId || '—'}`);
-      const fitStatus = String(row?.connection_fit_status || '').trim();
-      const fitBadge = fitStatus && fitStatus !== 'neutral'
-        ? `<span class=\"lot-bid-meta\">fit ${escapeHtml(fitStatus)}</span>`
-        : '';
+      const statusLabel = escapeHtml(decisionStatusLabel(row));
+      const decisionText = escapeHtml(decisionReason(row) || shortReasonText || '—');
       tr.dataset.lotId = String(row.lot_id || '');
+      tr.classList.toggle('row-selected', lotId > 0 && lotId === selectedLotId);
       tr.innerHTML = `
-        <td class="num">${index + 1}</td>
         <td class="col-text qa-name-cell">
           <strong class="text-clamp-2" title="${lotName}">${lotName}</strong>
           <div class="table-secondary">Лот #${lotId || '—'}</div>
@@ -961,23 +1174,33 @@
         <td class="col-text qa-structure-cell">
           ${structureCellHtml(row)}
         </td>
-        <td class="num">${formatNumber(row.summary_score, 2)}</td>
-        <td class="num">${formatNumber(netProfit(row), 2)}</td>
-        <td class="num">${formatNumber(riskValue(row), 2)}</td>
+        <td class="col-text">
+          <strong>${formatNumber(marketBid(row), 1)}</strong>
+          <div class="table-secondary">чистая ${formatNumber(netProfit(row), 2)}</div>
+          <div class="table-secondary">полезность ${formatNumber(row.summary_score, 2)} · риск ${formatNumber(riskValue(row), 2)}</div>
+        </td>
         <td class="lot-bid-cell">
           <div class="lot-bid-stack">
             <strong>${formatNumber(bid, 1)}</strong>
             ${
               bid > 0
-                ? `<span class="lot-bid-meta" title="safe ${formatNumber(safeBid, 1)} / aggressive ${formatNumber(aggressiveBid, 1)}">safe ${formatNumber(safeBid, 1)} · aggr ${formatNumber(aggressiveBid, 1)}</span>
-                   <span class="lot-bid-meta" title="hard ceiling ${formatNumber(ceilingBid, 1)} / max justified ${formatNumber(justifiedBid, 1)}">ceiling ${formatNumber(ceilingBid, 1)}</span>
-                   ${fitBadge}`
+                ? `<span class="lot-bid-meta">безопасная ${formatNumber(safeBid, 1)}</span>
+                   <span class="lot-bid-meta">целевая ${formatNumber(bid, 1)}</span>
+                   <span class="lot-bid-meta" title="жёсткий потолок ${formatNumber(ceilingBid, 1)} / потолок ${formatNumber(justifiedBid, 1)}">потолок ${formatNumber(justifiedBid, 1)}</span>`
                 : `<span class="lot-bid-reason text-clamp-2" title="${escapeHtml(fullReasonText)}">${escapeHtml(shortReasonText || 'Нет рекомендуемой ставки')}</span>`
             }
           </div>
         </td>
-        <td class="col-text qa-reason-cell"><span class="text-clamp-2" title="${escapeHtml(fullReasonText)}">${escapeHtml(shortReasonText || '—')}</span></td>
-        <td class="actions-col qa-actions-cell">${rowActionsHtml(row.lot_id)}</td>
+        <td class="col-text qa-reason-cell">
+          <strong>${statusLabel}</strong>
+          <div class="table-secondary text-clamp-2" title="${escapeHtml(decisionText)}">${escapeHtml(shortReasonText || decisionText || '—')}</div>
+          ${
+            row?.bid_constraints_summary
+              ? `<div class="table-secondary text-clamp-2" title="${escapeHtml(String(row.bid_constraints_summary))}">${escapeHtml(String(row.bid_constraints_summary))}</div>`
+              : ''
+          }
+        </td>
+        <td class="actions-col qa-actions-cell">${rowActionsHtml(row)}</td>
       `;
       body.appendChild(tr);
     });
@@ -991,26 +1214,50 @@
     }
 
     body.querySelectorAll('.quickEvalRow').forEach((button) => {
-      button.addEventListener('click', async () => {
-        $('currentLotId').value = button.dataset.lotId;
-        syncPurchasePriceInput(button.dataset.lotId, true);
-        await evalLot(button.dataset.lotId);
-        await refreshRanking(Number(button.dataset.lotId || 0));
+      button.addEventListener('click', () => {
+        const lotId = Number(button.dataset.lotId || 0);
+        const selected = rankingItemByLotId(lotId);
+        if (selected) {
+          updateDecisionPanel(selected);
+          setStatus(`Лот ${lotId} выбран в панели решения.`);
+        }
       });
     });
 
     body.querySelectorAll('.quickBuyRow').forEach((button) => {
-      button.addEventListener('click', async () => {
-        $('currentLotId').value = button.dataset.lotId;
-        syncPurchasePriceInput(button.dataset.lotId, true);
-        await buyCurrentLot();
+      button.addEventListener('click', () => {
+        const lotId = Number(button.dataset.lotId || 0);
+        const selected = rankingItemByLotId(lotId);
+        if (selected) {
+          updateDecisionPanel(selected);
+          $('purchasePriceInput')?.focus();
+          setStatus(`Лот ${lotId} перенесён в панель. Проверьте цену и подтвердите покупку.`);
+        }
+      });
+    });
+
+    body.querySelectorAll('.qaShortlistRow').forEach((button) => {
+      button.addEventListener('click', () => {
+        const lotId = Number(button.dataset.lotId || 0);
+        const enabled = toggleShortlist(lotId);
+        renderRanking(state.ranking);
+        const selected = rankingItemByLotId(lotId);
+        if (selected) {
+          updateDecisionPanel(selected);
+        }
+        setStatus(
+          enabled
+            ? `Лот ${lotId} добавлен в шорт-лист.`
+            : `Лот ${lotId} убран из шорт-листа.`
+        );
+        persistState();
       });
     });
   }
 
   async function refreshRanking(preferredLotId) {
     setBusy(true);
-    setStatus('Обновляю shortlist...');
+      setStatus('Обновляю шорт-лист...');
     try {
       const params = new URLSearchParams();
       params.set('status', 'available');
@@ -1054,7 +1301,7 @@
       }
       setStatus(`Получено лотов: ${state.ranking.length}.`);
     } catch (_) {
-      setStatus('Не удалось обновить shortlist из-за сетевой ошибки.');
+      setStatus('Не удалось обновить шорт-лист из-за сетевой ошибки.');
     } finally {
       setBusy(false);
     }
@@ -1107,6 +1354,11 @@
       setStatus('Цена покупки должна быть числом больше нуля.');
       return;
     }
+    if (!$('qaConfirmPrice')?.checked) {
+      setStatus('Подтвердите цену сделки перед покупкой.');
+      updateBuyActionState();
+      return;
+    }
 
     setBusy(true);
     setStatus(`Покупаю лот ${lotId} по цене ${formatNumber(purchasePrice, 1)}...`);
@@ -1141,6 +1393,7 @@
         renderStrategySnapshot(state.strategy);
       }
       await refreshRanking(0);
+      resetBuyConfirmation();
       const refreshedCount = Number(refresh?.meta?.count || state.ranking.length || 0);
       setStatus(
         `Лот ${lotId} куплен. Остаток бюджета: ${remaining}. Пересчитано лотов: ${refreshedCount}.`
@@ -1174,6 +1427,43 @@
     return false;
   }
 
+  function hotkeyCommand(event) {
+    const code = String(event?.code || '');
+    const key = String(event?.key || '').toLowerCase();
+    const byCode = {
+      KeyE: 'evaluate',
+      KeyR: 'refresh',
+      KeyP: 'pass',
+      KeyW: 'watch',
+      KeyS: 'safe',
+      KeyT: 'target',
+      KeyM: 'max',
+      KeyB: 'buy',
+    };
+    if (byCode[code]) {
+      return byCode[code];
+    }
+    const byKey = {
+      e: 'evaluate',
+      у: 'evaluate',
+      r: 'refresh',
+      к: 'refresh',
+      p: 'pass',
+      з: 'pass',
+      w: 'watch',
+      ц: 'watch',
+      s: 'safe',
+      ы: 'safe',
+      t: 'target',
+      е: 'target',
+      m: 'max',
+      ь: 'max',
+      b: 'buy',
+      и: 'buy',
+    };
+    return byKey[key] || '';
+  }
+
   window.addEventListener('DOMContentLoaded', () => {
     restoreState();
     state.ranking = Array.isArray(cfg().initialRanking) ? cfg().initialRanking : [];
@@ -1188,6 +1478,7 @@
     if (selected) {
       updateDecisionPanel(selected);
     }
+    updateBuyActionState();
 
     $('auctionLots')?.addEventListener('click', (event) => {
       const target = event?.target;
@@ -1231,16 +1522,35 @@
       await applyAuctionAction('watch');
       persistState();
     });
+    $('qaShortlistToggle')?.addEventListener('click', () => {
+      const lotId = Number($('currentLotId')?.value || 0);
+      if (!lotId) {
+        setStatus('Сначала выберите лот.');
+        return;
+      }
+      const enabled = toggleShortlist(lotId);
+      renderRanking(state.ranking);
+      const selected = rankingItemByLotId(lotId);
+      if (selected) {
+        updateDecisionPanel(selected);
+      }
+      setStatus(
+        enabled
+          ? `Лот ${lotId} добавлен в шорт-лист.`
+          : `Лот ${lotId} убран из шорт-листа.`
+      );
+      persistState();
+    });
     $('qaSafeBidAction')?.addEventListener('click', async () => {
-      await applyAuctionAction('bid', 'safe');
+      setSuggestedBid('safe');
       persistState();
     });
     $('qaTargetBidAction')?.addEventListener('click', async () => {
-      await applyAuctionAction('bid', 'target');
+      setSuggestedBid('target');
       persistState();
     });
     $('qaMaxBidAction')?.addEventListener('click', async () => {
-      await applyAuctionAction('bid', 'max');
+      setSuggestedBid('max');
       persistState();
     });
     $('qaApplyFilters')?.addEventListener('click', () => {
@@ -1260,11 +1570,13 @@
     });
     $('purchasePriceInput')?.addEventListener('input', () => {
       const item = selectedDecisionItem();
+      resetBuyConfirmation();
       if (item) {
         updateLiveBidMetrics(item);
       }
       persistState();
     });
+    $('qaConfirmPrice')?.addEventListener('change', updateBuyActionState);
     $('qaSort')?.addEventListener('change', persistState);
     $('qaMinUtility')?.addEventListener('input', persistState);
     $('qaMaxRisk')?.addEventListener('input', persistState);
@@ -1309,43 +1621,40 @@
         }
         return;
       }
-      if (event.key.toLowerCase() === 'e') {
-        event.preventDefault();
+      const command = hotkeyCommand(event);
+      if (!command) {
+        return;
+      }
+      event.preventDefault();
+      if (command === 'evaluate') {
         await evalCurrent();
         return;
       }
-      if (event.key.toLowerCase() === 'r') {
-        event.preventDefault();
+      if (command === 'refresh') {
         await recalculateAllLots(Number($('currentLotId')?.value || 0));
         return;
       }
-      if (event.key.toLowerCase() === 'p') {
-        event.preventDefault();
+      if (command === 'pass') {
         await applyAuctionAction('pass');
         return;
       }
-      if (event.key.toLowerCase() === 'w') {
-        event.preventDefault();
+      if (command === 'watch') {
         await applyAuctionAction('watch');
         return;
       }
-      if (event.key.toLowerCase() === 's') {
-        event.preventDefault();
-        await applyAuctionAction('bid', 'safe');
+      if (command === 'safe') {
+        setSuggestedBid('safe');
         return;
       }
-      if (event.key.toLowerCase() === 't') {
-        event.preventDefault();
-        await applyAuctionAction('bid', 'target');
+      if (command === 'target') {
+        setSuggestedBid('target');
         return;
       }
-      if (event.key.toLowerCase() === 'm') {
-        event.preventDefault();
-        await applyAuctionAction('bid', 'max');
+      if (command === 'max') {
+        setSuggestedBid('max');
         return;
       }
-      if (event.key.toLowerCase() === 'b') {
-        event.preventDefault();
+      if (command === 'buy') {
         await buyCurrentLot();
       }
     });

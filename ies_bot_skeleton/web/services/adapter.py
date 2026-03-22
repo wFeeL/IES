@@ -241,9 +241,7 @@ def session_to_state(
     )
     allpay_spent = max(0.0, float(getattr(session, "allpay_spent", 0.0) or 0.0))
     owned_lot_ids = [
-        f"LOT{int(lot.id)}"
-        for lot in session.lots
-        if str(lot.status or "") == "bought"
+        f"LOT{int(lot.id)}" for lot in session.lots if str(lot.status or "") == "bought"
     ]
 
     state = State(

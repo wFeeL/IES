@@ -113,9 +113,7 @@ def _ensure_parent_write_valid(
 
     used_type_ids = {int(type_id) for type_id in object_type_by_id.values()}
     types = (
-        db.session.query(ObjectType)
-        .filter(ObjectType.id.in_(used_type_ids))
-        .all()
+        db.session.query(ObjectType).filter(ObjectType.id.in_(used_type_ids)).all()
         if used_type_ids
         else []
     )
@@ -149,9 +147,7 @@ def _ensure_parent_write_valid(
         and parent_code not in MINI_CODES
         and parent_category != "infrastructure"
     ):
-        raise ValueError(
-            "Родителем может быть только подстанция или инфраструктурный объект."
-        )
+        raise ValueError("Родителем может быть только подстанция или инфраструктурный объект.")
 
     cursor = int(parent_instance_id)
     visited: set[int] = set()

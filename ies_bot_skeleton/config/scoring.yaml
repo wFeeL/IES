@@ -51,7 +51,7 @@
     "balanced_multiplier": 1.0,
     "aggressive_multiplier": 1.22,
     "volatility_lambda_bid": 0.15,
-    "auction_bid_model_version": "pwin_v1",
+    "auction_bid_model_version": "strategic_anchor_v4",
     "conservative_utility_method": "weighted_expected_minus_volatility",
     "scope_signal_global": 0.65,
     "scope_signal_local": -0.45,
