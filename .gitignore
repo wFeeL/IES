@@ -15,6 +15,7 @@ ies_web.db
 *.db-journal
 *.db-wal
 *.db-shm
+/logs/
 # macOS / Finder metadata
 ._*
 __MACOSX/
