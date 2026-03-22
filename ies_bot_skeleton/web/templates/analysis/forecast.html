@@ -28,6 +28,129 @@
     </div>
   </article>
 </section>
+{% set active_report = active_forecast_compatibility.compatibility_report or {} %}
+{% set active_rows = active_report.rows or [] %}
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Совместимость прогноза</p>
+      <h2 class="h2">Покрытие объектов и качество CSV</h2>
+    </div>
+  </div>
+  <div class="forecast-columns-grid mt-4">
+    <article class="card">
+      <p class="section-kicker">Статус</p>
+      <div class="mt-2">
+        {% if active_forecast_compatibility.is_compatible %}
+        <span class="status-badge status-fresh">Совместим</span>
+        {% else %}
+        <span class="status-badge status-stale">Требует исправления</span>
+        {% endif %}
+      </div>
+      <div class="mapping-list mt-2">
+        <div class="key-value"><span>Горизонт</span><strong>{{ active_report.horizon_actual or 0 }} / {{ active_report.horizon_expected or 0 }} тактов</strong></div>
+        <div class="key-value"><span>Причина</span><strong>{{ active_forecast_compatibility.incompatibility_reason or 'Все обязательные ряды доступны.' }}</strong></div>
+      </div>
+    </article>
+    <article class="card">
+      <p class="section-kicker">Покрытые типы объектов</p>
+      <div class="mt-2">
+        {% if active_report.covered_types %}
+        {{ active_report.covered_types|join(', ') }}
+        {% else %}
+        <span class="muted">Пока нет полностью покрытых типов.</span>
+        {% endif %}
+      </div>
+      <div class="mapping-list mt-2">
+        <div class="key-value"><span>Частично покрыты</span><strong>{{ active_report.partial_types|join(', ') if active_report.partial_types else '—' }}</strong></div>
+        <div class="key-value"><span>Не покрыты</span><strong>{{ active_report.missing_types|join(', ') if active_report.missing_types else '—' }}</strong></div>
+      </div>
+    </article>
+    <article class="card">
+      <p class="section-kicker">Лишние колонки CSV</p>
+      <div class="mt-2">
+        {% if active_report.unused_columns %}
+        {{ active_report.unused_columns|join(', ') }}
+        {% else %}
+        <span class="muted">Лишних колонок не найдено.</span>
+        {% endif %}
+      </div>
+      <div class="mapping-list mt-2">
+        <div class="key-value"><span>Рекомендация</span><strong>{{ compatibility_guidance.primary_message }}</strong></div>
+      </div>
+    </article>
+  </div>
+  <div class="page-grid mt-4">
+    <article class="card">
+      <p class="section-kicker">Нормализация колонок</p>
+      <div class="mapping-list mt-2">
+        {% for source_name, canonical_name in (active_report.normalization_map or {})|dictsort %}
+        <div class="key-value"><span><code>{{ source_name }}</code></span><strong><code>{{ canonical_name }}</code></strong></div>
+        {% else %}
+        <div class="key-value"><span>Пока пусто</span><strong>Нормализация не потребовалась.</strong></div>
+        {% endfor %}
+      </div>
+    </article>
+    <article class="card">
+      <p class="section-kicker">Что делать дальше</p>
+      <div class="mapping-list mt-2">
+        {% for action in compatibility_guidance.actions %}
+        <div class="key-value"><span>Шаг {{ loop.index }}</span><strong>{{ action }}</strong></div>
+        {% endfor %}
+      </div>
+    </article>
+  </div>
+  <div class="table-wrap mt-4">
+    <table class="table table-forecast-coverage">
+      <colgroup>
+        <col class="forecast-coverage-name-col" />
+        <col class="forecast-coverage-status-col" />
+        <col class="forecast-coverage-required-col" />
+        <col class="forecast-coverage-missing-col" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th class="col-text">Тип объекта</th>
+          <th>Статус</th>
+          <th class="col-text">Обязательные ряды</th>
+          <th class="col-text">Проблема</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in active_rows %}
+        <tr>
+          <td class="col-text">{{ row.object_type_name or row.object_type_code }}</td>
+          <td>
+            {% if row.status == 'covered' %}
+            <span class="status-badge status-fresh">Ок</span>
+            {% elif row.status == 'partial' %}
+            <span class="status-badge status-stale">Частично</span>
+            {% else %}
+            <span class="status-badge status-stale">Нет</span>
+            {% endif %}
+          </td>
+          <td class="col-text">
+            {{ (row.required_profiles or [])|join(', ') }}
+            {% if row.required_profiles and row.required_factors %}<br />{% endif %}
+            {{ (row.required_factors or [])|join(', ') }}
+          </td>
+          <td class="col-text">
+            {% if row.missing_profiles or row.missing_factors %}
+            Не хватает: {{ ((row.missing_profiles or []) + (row.missing_factors or []))|join(', ') }}
+            {% elif row.partial_profiles or row.partial_factors %}
+            Неполные: {{ ((row.partial_profiles or []) + (row.partial_factors or []))|join(', ') }}
+            {% else %}
+            Полное покрытие
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted">В активной сессии ещё нет типов объектов для проверки покрытия.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 <section class="card mt-4 weather-analysis-section">
   <p class="section-kicker">Анализ прогноза погоды</p>
   <h2 class="h2">Генерация, потребление и баланс</h2>
