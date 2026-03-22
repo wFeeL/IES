@@ -1091,12 +1091,32 @@ html[data-theme="dark"] .input {
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 16px;
   padding: 10px 12px;
+  overflow: hidden;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(248, 251, 254, 0.92));
 }
 
 .weather-svg text {
   font-family: inherit;
+}
+
+.weather-series-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 4px;
+}
+
+.weather-series-guide {
+  stroke-width: 1.4px;
+  opacity: 0.72;
+}
+
+.weather-series-dot {
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 2px;
 }
 
 .weather-chart-wide {
@@ -1214,6 +1234,16 @@ html[data-theme="dark"] .weather-fact-pill {
   background: rgba(22, 35, 54, 0.88);
 }
 
+html[data-theme="dark"] .forecast-tag,
+html[data-theme="dark"] .mapping-token {
+  background: rgba(22, 35, 54, 0.88);
+  border-color: rgba(123, 154, 196, 0.16);
+}
+
+html[data-theme="dark"] .weather-series-label {
+  stroke: rgba(16, 28, 45, 0.96);
+}
+
 html[data-theme="dark"] .weather-decision-buy {
   background: linear-gradient(180deg, rgba(15, 127, 95, 0.14), rgba(26, 42, 64, 0.94));
 }
@@ -1249,6 +1279,31 @@ html[data-theme="dark"] .weather-insight-card {
   height: 100%;
 }
 
+.forecast-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.forecast-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(51, 88, 165, 0.14);
+  background: rgba(240, 245, 252, 0.88);
+  color: var(--text);
+}
+
+.forecast-tag code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .mapping-list {
   display: grid;
   gap: 10px;
@@ -1257,9 +1312,10 @@ html[data-theme="dark"] .weather-insight-card {
 
 .mapping-list .key-value {
   display: grid;
-  grid-template-columns: minmax(100px, 0.68fr) minmax(0, 1fr);
+  grid-template-columns: minmax(92px, 0.52fr) minmax(0, 1fr);
   align-items: flex-start;
   justify-content: normal;
+  gap: 8px 14px;
 }
 
 .mapping-list .key-value span,
@@ -1271,8 +1327,34 @@ html[data-theme="dark"] .weather-insight-card {
 }
 
 .mapping-list code {
-  white-space: nowrap;
-  word-break: normal;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.mapping-block {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mapping-token {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(51, 88, 165, 0.14);
+  background: rgba(240, 245, 252, 0.88);
+  color: var(--text);
+}
+
+.mapping-inline {
+  display: inline-block;
+  max-width: 100%;
 }
 
 .table-forecast-meta th.col-text {
@@ -2544,5 +2626,12 @@ html[data-theme="dark"] .table th {
 
   .weather-chart-canvas-wrap {
     height: 240px;
+  }
+}
+
+@media (max-width: 900px) {
+  .mapping-list .key-value {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 }

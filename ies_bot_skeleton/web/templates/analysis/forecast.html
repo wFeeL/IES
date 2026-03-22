@@ -54,9 +54,11 @@
     </article>
     <article class="card">
       <p class="section-kicker">Покрытые типы объектов</p>
-      <div class="mt-2">
+      <div class="forecast-tag-list mt-2">
         {% if active_report.covered_types %}
-        {{ active_report.covered_types|join(', ') }}
+        {% for code in active_report.covered_types %}
+        <span class="forecast-tag"><code>{{ code }}</code></span>
+        {% endfor %}
         {% else %}
         <span class="muted">Пока нет полностью покрытых типов.</span>
         {% endif %}
@@ -68,9 +70,11 @@
     </article>
     <article class="card">
       <p class="section-kicker">Лишние колонки CSV</p>
-      <div class="mt-2">
+      <div class="forecast-tag-list mt-2">
         {% if active_report.unused_columns %}
-        {{ active_report.unused_columns|join(', ') }}
+        {% for code in active_report.unused_columns %}
+        <span class="forecast-tag"><code>{{ code }}</code></span>
+        {% endfor %}
         {% else %}
         <span class="muted">Лишних колонок не найдено.</span>
         {% endif %}
@@ -85,7 +89,20 @@
       <p class="section-kicker">Нормализация колонок</p>
       <div class="mapping-list mt-2">
         {% for source_name, canonical_name in (active_report.normalization_map or {})|dictsort %}
-        <div class="key-value"><span><code>{{ source_name }}</code></span><strong><code>{{ canonical_name }}</code></strong></div>
+        <div class="key-value">
+          <span><code>{{ source_name }}</code></span>
+          <strong>
+            {% if canonical_name is mapping %}
+            <span class="mapping-block">
+              {% for raw_name, normalized_name in canonical_name|dictsort %}
+              <span class="mapping-token"><code>{{ raw_name }}</code><span>&rarr;</span><code>{{ normalized_name }}</code></span>
+              {% endfor %}
+            </span>
+            {% else %}
+            <code class="mapping-inline">{{ canonical_name }}</code>
+            {% endif %}
+          </strong>
+        </div>
         {% else %}
         <div class="key-value"><span>Пока пусто</span><strong>Нормализация не потребовалась.</strong></div>
         {% endfor %}

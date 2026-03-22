@@ -112,6 +112,39 @@
     return clean.length ? clean.join(", ") : "—";
   }
 
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function lastDefinedPoint(series) {
+    const normalized = normalizeSeries(series);
+    for (let index = normalized.length - 1; index >= 0; index -= 1) {
+      if (normalized[index] !== null) {
+        return { index, value: normalized[index] };
+      }
+    }
+    return null;
+  }
+
+  function layoutDirectLabels(items, minY, maxY, gap = 18) {
+    if (!items.length) return [];
+    const ordered = items
+      .map((item) => ({ ...item }))
+      .sort((left, right) => left.y - right.y);
+
+    ordered.forEach((item, index) => {
+      const floor = index === 0 ? minY : ordered[index - 1].y + gap;
+      item.y = clamp(item.y, floor, maxY);
+    });
+
+    for (let index = ordered.length - 2; index >= 0; index -= 1) {
+      const ceiling = ordered[index + 1].y - gap;
+      ordered[index].y = clamp(ordered[index].y, minY, ceiling);
+    }
+
+    return ordered;
+  }
+
   function modeMeta(mode) {
     return MODE_META[mode] || MODE_META.partial;
   }
@@ -310,19 +343,52 @@
     const labels = buildLabels(length, config.ticks || []);
     const width = 760;
     const height = 300;
-    const padding = { top: 18, right: 20, bottom: 38, left: 58 };
+    const directLabelCandidates = datasets.filter(
+      (dataset) => dataset.directLabel !== false
+    );
+    const useDirectLabels =
+      config.directLabels === true ||
+      (config.directLabels !== false &&
+        directLabelCandidates.length > 0 &&
+        directLabelCandidates.length <= Number(config.maxDirectLabels || 3));
+    const padding = {
+      top: 18,
+      right: useDirectLabels ? 142 : 20,
+      bottom: 38,
+      left: 58,
+    };
     const extent = chartExtent(datasets, bands, Boolean(config.includeZero));
-    const chartWidth = width - padding.left - padding.right;
-    const chartHeight = height - padding.top - padding.bottom;
+    const plotWidth = width - padding.left - padding.right;
+    const plotHeight = height - padding.top - padding.bottom;
+    const plotRight = padding.left + plotWidth;
     const safeLength = Math.max(length - 1, 1);
 
     const project = (value, index) => {
-      const x = padding.left + (index / safeLength) * chartWidth;
+      const x = padding.left + (index / safeLength) * plotWidth;
       const y =
         padding.top +
-        ((extent.max - value) / Math.max(extent.max - extent.min, 1e-9)) * chartHeight;
+        ((extent.max - value) / Math.max(extent.max - extent.min, 1e-9)) * plotHeight;
       return { x, y };
     };
+
+    const zones = (config.zones || [])
+      .map((zone) => {
+        const from = Number(zone.from);
+        const to = Number(zone.to);
+        if (!Number.isFinite(from) || !Number.isFinite(to) || Math.abs(from - to) < 1e-9) {
+          return null;
+        }
+        const high = Math.max(from, to);
+        const low = Math.min(from, to);
+        const top = project(clamp(high, extent.min, extent.max), 0).y;
+        const bottom = project(clamp(low, extent.min, extent.max), 0).y;
+        return {
+          fillColor: zone.fillColor || "rgba(148,163,184,0.08)",
+          top,
+          height: Math.max(bottom - top, 1),
+        };
+      })
+      .filter(Boolean);
 
     const gridTicks = numericTicks(extent.min, extent.max, 4);
     const gridMarkup = gridTicks
@@ -332,7 +398,7 @@
           <line
             x1="${padding.left}"
             y1="${point.y.toFixed(2)}"
-            x2="${width - padding.right}"
+            x2="${plotRight}"
             y2="${point.y.toFixed(2)}"
             stroke="rgba(148,163,184,0.18)"
             stroke-width="1"
@@ -346,6 +412,20 @@
           >${escapeHtml(formatNum(tick, 1))}</text>
         `;
       })
+      .join("");
+
+    const zoneMarkup = zones
+      .map(
+        (zone) => `
+          <rect
+            x="${padding.left}"
+            y="${zone.top.toFixed(2)}"
+            width="${plotWidth}"
+            height="${zone.height.toFixed(2)}"
+            fill="${escapeHtml(zone.fillColor)}"
+          ></rect>
+        `
+      )
       .join("");
 
     const xLabelIndexes = Array.from(
@@ -422,10 +502,69 @@
       })
       .join("");
 
-    const legendItems = datasets.map((dataset) => ({
-      label: dataset.label,
-      color: dataset.color,
-    }));
+    const directLabelMarkup = useDirectLabels
+      ? (() => {
+          const labelX = plotRight + 10;
+          const labelsLayout = layoutDirectLabels(
+            directLabelCandidates
+              .map((dataset) => {
+                const point = lastDefinedPoint(dataset.data);
+                if (!point) return null;
+                const projected = project(point.value, point.index);
+                return {
+                  color: dataset.color,
+                  label:
+                    dataset.directLabelText ||
+                    `${dataset.shortLabel || dataset.label} ${formatNum(point.value, 1)}`,
+                  point,
+                  x: projected.x,
+                  y: projected.y,
+                };
+              })
+              .filter(Boolean),
+            padding.top + 10,
+            padding.top + plotHeight - 10
+          );
+
+          return labelsLayout
+            .map(
+              (item) => `
+                <line
+                  class="weather-series-guide"
+                  x1="${item.x.toFixed(2)}"
+                  y1="${item.point ? project(item.point.value, item.point.index).y.toFixed(2) : item.y.toFixed(2)}"
+                  x2="${(labelX - 6).toFixed(2)}"
+                  y2="${item.y.toFixed(2)}"
+                  stroke="${escapeHtml(item.color)}"
+                ></line>
+                <circle
+                  class="weather-series-dot"
+                  cx="${item.x.toFixed(2)}"
+                  cy="${project(item.point.value, item.point.index).y.toFixed(2)}"
+                  r="4.5"
+                  fill="${escapeHtml(item.color)}"
+                ></circle>
+                <text
+                  class="weather-series-label"
+                  x="${labelX.toFixed(2)}"
+                  y="${(item.y + 4).toFixed(2)}"
+                  fill="${escapeHtml(item.color)}"
+                >${escapeHtml(item.label)}</text>
+              `
+            )
+            .join("");
+        })()
+      : "";
+
+    const showLegend =
+      config.showLegend === true ||
+      (config.showLegend !== false && !useDirectLabels);
+    const legendItems = datasets
+      .filter((dataset) => dataset.hideLegend !== true)
+      .map((dataset) => ({
+        label: dataset.label,
+        color: dataset.color,
+      }));
 
     target.innerHTML = `
       <article class="card weather-chart-card ${config.wide ? "weather-chart-wide" : ""}">
@@ -439,18 +578,20 @@
             <rect
               x="${padding.left}"
               y="${padding.top}"
-              width="${chartWidth}"
-              height="${chartHeight}"
+              width="${plotWidth}"
+              height="${plotHeight}"
               rx="18"
               fill="rgba(255,255,255,0.68)"
             ></rect>
+            ${zoneMarkup}
             ${gridMarkup}
             ${bandMarkup}
             ${lineMarkup}
+            ${directLabelMarkup}
             ${xMarkup}
           </svg>
         </div>
-        ${buildLegend(legendItems)}
+        ${showLegend ? buildLegend(legendItems) : ""}
       </article>
     `;
   }
@@ -746,6 +887,15 @@
     const sunEast = normalizeSeries(series.sun_east || []);
     const sunWest = normalizeSeries(series.sun_west || []);
     const ticks = series.tick || [];
+    const balanceFloor = Math.min(
+      0,
+      ...finiteValues(balanceMin.length ? balanceMin : balance)
+    );
+    const balanceCeiling = Math.max(
+      0,
+      ...finiteValues(balanceMax.length ? balanceMax : balance)
+    );
+    const windCeiling = Math.max(7, ...finiteValues(windAvg), ...finiteValues(windGen));
 
     target.innerHTML = `
       <div class="weather-charts-grid">
@@ -794,6 +944,7 @@
           label: "Потребление",
           data: consumption,
           color: COLORS.consumption,
+          shortLabel: "Потребление",
           width: 2.8,
         },
       ],
@@ -808,6 +959,14 @@
         `дефицитных тактов ${formatNum(analysis?.kpis?.deficit_count, 0)}`,
         `профицитных тактов ${formatNum(analysis?.kpis?.surplus_count, 0)}`,
       ],
+      zones: [
+        balanceFloor < 0
+          ? { from: balanceFloor, to: 0, fillColor: "rgba(220,38,38,0.06)" }
+          : null,
+        balanceCeiling > 0
+          ? { from: 0, to: balanceCeiling, fillColor: "rgba(15,118,110,0.06)" }
+          : null,
+      ].filter(Boolean),
       ticks,
       length: maxLength(balance, balanceMin, balanceMax),
       wide: true,
@@ -819,6 +978,7 @@
           label: "Баланс",
           data: balance,
           color: COLORS.balance,
+          shortLabel: "Баланс",
           width: 2.8,
         },
         {
@@ -826,6 +986,8 @@
           data: new Array(Math.max(balance.length, balanceMin.length, balanceMax.length)).fill(0),
           color: COLORS.zero,
           width: 1.5,
+          directLabel: false,
+          hideLegend: true,
           dashed: true,
         },
       ],
@@ -845,6 +1007,10 @@
         `отключений ${formatNum(analysis?.kpis?.wind_off_count, 0)}`,
         `полная мощность ${formatNum(analysis?.kpis?.wind_full_power_count, 0)}`,
       ],
+      zones:
+        windCeiling > 7
+          ? [{ from: 7, to: windCeiling, fillColor: "rgba(245,158,11,0.10)" }]
+          : [],
       ticks,
       length: maxLength(windAvg, windGen),
       includeZero: true,
@@ -855,16 +1021,20 @@
           label: "Средний ветер",
           data: windAvg,
           color: COLORS.wind,
+          shortLabel: "Ветер",
         },
         {
           label: "Генерация ветра",
           data: windGen,
           color: COLORS.windGen,
+          shortLabel: "Ветроген.",
         },
         {
           label: "Порог отключения",
           data: new Array(Math.max(windAvg.length, windGen.length)).fill(7),
           color: COLORS.threshold,
+          directLabelText: "Порог 7",
+          shortLabel: "Порог",
           width: 1.8,
           dashed: true,
         },
@@ -941,8 +1111,18 @@
         chartMeta.solar_activity?.reason ||
         "Для этого графика нужны отдельные ряды east/west.",
       datasets: [
-        { label: "Sun east", data: sunEast, color: COLORS.illuminationEast },
-        { label: "Sun west", data: sunWest, color: COLORS.illuminationWest },
+        {
+          label: "Sun east",
+          data: sunEast,
+          color: COLORS.illuminationEast,
+          shortLabel: "East",
+        },
+        {
+          label: "Sun west",
+          data: sunWest,
+          color: COLORS.illuminationWest,
+          shortLabel: "West",
+        },
       ],
     });
 
@@ -961,9 +1141,25 @@
         chartMeta.generation_types?.reason ||
         "Недостаточно данных по типам генерации.",
       datasets: [
-        { label: "Solar", data: solarImproved, color: COLORS.solarImproved },
-        { label: "Wind", data: windGen, color: COLORS.windGen },
-        { label: "Total generation", data: generation, color: COLORS.generation, width: 3 },
+        {
+          label: "Solar",
+          data: solarImproved,
+          color: COLORS.solarImproved,
+          shortLabel: "Solar",
+        },
+        {
+          label: "Wind",
+          data: windGen,
+          color: COLORS.windGen,
+          shortLabel: "Wind",
+        },
+        {
+          label: "Total generation",
+          data: generation,
+          color: COLORS.generation,
+          shortLabel: "Total",
+          width: 3,
+        },
       ],
     });
   }
@@ -1021,8 +1217,13 @@
       includeZero: true,
       emptyText: "В загруженном прогнозе нет рядов для предварительного графика.",
       datasets: [
-        { label: "Wind", data: wind, color: COLORS.wind, width: 2.8 },
-        { label: "Illumination", data: illumination, color: COLORS.solarImproved },
+        { label: "Wind", data: wind, color: COLORS.wind, shortLabel: "Wind", width: 2.8 },
+        {
+          label: "Illumination",
+          data: illumination,
+          color: COLORS.solarImproved,
+          shortLabel: "Light",
+        },
       ],
     });
   }
