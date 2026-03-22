@@ -1,35 +1,22 @@
-{% extends "base.html" %}
+{% extends "../base.html" %}
 {% block title %}Энергосистема {{ session.id }} | IES{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
-
 <section class="card mt-4">
-  <div class="section-head">
-    <div>
-      <p class="section-kicker">Проверка структуры</p>
-      <h2 class="h2">Валидация сети</h2>
-    </div>
-  </div>
+  <p class="section-kicker">Проверка структуры</p>
+  <h2 class="h2">Валидация сети</h2>
   <ul class="stack gap-2 mt-3">
-    {% for issue in issues %}
-    <li class="issue issue-{{ issue.severity }}"><strong>{{ issue.code }}</strong>: {{ issue.message }}</li>
-    {% else %}
-    <li class="issue issue-ok">Проверка пройдена без предупреждений.</li>
-    {% endfor %}
+    {% for issue in issues %}<li class="issue issue-{{ issue.severity }}"><strong>{{ issue.code }}</strong>: {{ issue.message }}</li>{% else %}<li class="issue issue-ok">Проверка пройдена без предупреждений.</li>{% endfor %}
   </ul>
 </section>
-
 <section class="card mt-4">
   <div class="section-head">
-    <div>
-      <p class="section-kicker">Текущий состав</p>
-      <h2 class="h2">Объекты энергосистемы</h2>
-    </div>
+    <div><p class="section-kicker">Объекты энергосистемы</p><h2 class="h2">Текущий состав и рекомендации подключения</h2></div>
     <a class="btn btn-primary" href="{{ url_for('pages.object_create_page', session_id=session.id) }}">Добавить объект</a>
   </div>
   <div class="table-wrap mt-3">
     <table class="table">
-      <thead><tr><th>ID</th><th>Тип</th><th>Имя</th><th>Parent</th><th>Район</th><th>Источник</th><th>Интеграция</th><th>Параметры</th><th>Рекомендация подключения</th><th>Действия</th></tr></thead>
+      <thead><tr><th>ID</th><th>Тип</th><th>Имя</th><th>Район</th><th>Интеграция</th><th>Рекомендация</th><th>Действия</th></tr></thead>
       <tbody>
         {% for obj in object_rows %}
         {% set recommendation = (connection_recommendations or {}).get(obj.id) %}
@@ -38,75 +25,13 @@
           <td>{{ obj.id }}</td>
           <td>{{ obj.object_type.code if obj.object_type else 'n/a' }}</td>
           <td>{{ obj.custom_name or '—' }}</td>
-          <td>{{ obj.parent_instance_id or '-' }}</td>
           <td>{{ obj.district }}</td>
-          <td>{{ 'Стартовый пакет' if obj.is_from_start_pack else 'Сессия' }}</td>
-          <td>
-            {% if integration_state == 'pending_connection' %}
-            <span class="status-badge status-stale">Требует подключения</span>
-            {% else %}
-            <span class="status-badge status-fresh">Подключён</span>
-            {% endif %}
-          </td>
-          <td>
-            {% set merged = obj.merged_parameters() %}
-            {% if merged %}
-            <div class="stack gap-1">
-              {% for key, value in merged.items() %}
-              {% if loop.index <= 3 %}
-              <span class="muted"><code>{{ key }}</code>: {% if value is sameas true %}да{% elif value is sameas false %}нет{% elif value is number %}{{ fmt_num(value, 2) }}{% else %}{{ value }}{% endif %}</span>
-              {% endif %}
-              {% endfor %}
-              {% if merged|length > 3 %}<span class="muted">+ ещё {{ merged|length - 3 }}</span>{% endif %}
-            </div>
-            {% else %}
-            <span class="muted">—</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if recommendation %}
-            <div class="stack gap-1">
-              <strong>{{ recommendation.recommended_point }}</strong>
-              <span class="muted">{{ recommendation.message }}</span>
-              <span class="muted">
-                Текущая: {{ recommendation.current_point }} · Потери: {{ fmt_num(recommendation.recommended_loss_pct, 1) }}% ·
-                Лимит: {{ fmt_num(recommendation.recommended_capacity_mw, 2) }} МВт ·
-                Остаток: {{ fmt_num(recommendation.recommended_remaining_capacity_mw, 2) }} МВт
-              </span>
-              <span class="muted">
-                Score: {{ fmt_num(recommendation.current_score, 2) }} → {{ fmt_num(recommendation.recommended_score, 2) }} ·
-                Профиль: {{ recommendation.profile_key or '—' }} ·
-                Model: {{ recommendation.forecast_model_type or '—' }}
-              </span>
-              <span class="muted">Нагрузка кандидата: {{ fmt_num(recommendation.expected_power_mw, 2) }} МВт</span>
-              <span class="muted">Global slot headroom: {{ fmt_num(recommendation.global_slot_headroom, 2) }}</span>
-              <span class="muted">
-                Альтернативы:
-                {% if recommendation.feasible_alternatives %}
-                {% for alt in recommendation.feasible_alternatives %}
-                  {{ alt.point }} (остаток {{ fmt_num(alt.remaining_capacity_mw, 2) }} МВт, score {{ fmt_num(alt.score, 2) }}){% if not loop.last %}, {% endif %}
-                {% endfor %}
-                {% else %}
-                  нет
-                {% endif %}
-              </span>
-              {% if recommendation.rejected_points %}
-              <span class="muted">Точки, которые не проходят по лимитам: {{ recommendation.rejected_points|length }}</span>
-              {% endif %}
-            </div>
-            {% else %}
-            <span class="muted">Рекомендация недоступна.</span>
-            {% endif %}
-          </td>
-          <td>
-            <div class="actions">
-              <a class="btn btn-secondary" href="{{ url_for('pages.object_edit_page', object_id=obj.id) }}">Редактировать</a>
-              <a class="btn btn-danger" href="{{ url_for('pages.object_delete_confirm_page', object_id=obj.id) }}">Удалить</a>
-            </div>
-          </td>
+          <td>{% if integration_state == 'pending_connection' %}<span class="status-badge status-stale">Требует подключения</span>{% else %}<span class="status-badge status-fresh">Подключён</span>{% endif %}</td>
+          <td>{% if recommendation %}<strong>{{ recommendation.recommended_point }}</strong><div class="muted">{{ recommendation.message }}</div>{% else %}<span class="muted">Рекомендация недоступна.</span>{% endif %}</td>
+          <td><div class="actions"><a class="btn btn-secondary" href="{{ url_for('pages.object_edit_page', object_id=obj.id) }}">Редактировать</a><a class="btn btn-danger" href="{{ url_for('pages.object_delete_confirm_page', object_id=obj.id) }}">Удалить</a></div></td>
         </tr>
         {% else %}
-        <tr><td colspan="10" class="muted">Объекты ещё не добавлены. Начните со стартового пакета или создайте объект вручную.</td></tr>
+        <tr><td colspan="7" class="muted">Объекты ещё не добавлены.</td></tr>
         {% endfor %}
       </tbody>
     </table>

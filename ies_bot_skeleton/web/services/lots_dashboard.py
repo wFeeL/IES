@@ -22,7 +22,7 @@ def analytics_by_lot_for_session(session: GameSession) -> Dict[int, Dict[str, An
     lots = _session_lots(session)
     if not lots:
         return {}
-    from ...application.analysis import rank_session_lots
+    from ies_bot_skeleton.application.analysis import rank_session_lots
 
     ranking = rank_session_lots(session=session, lots=lots, persist=False)
     return {_lot_id(row.get("lot_id")): dict(row or {}) for row in ranking}
@@ -38,9 +38,7 @@ def lot_summary(lot: Lot) -> Dict[str, Any]:
         category = (item.object_type.category if item.object_type else "other") or "other"
         counts[category] = counts.get(category, 0) + qty
         object_name = item.object_type.name if item.object_type is not None else "Неизвестный тип"
-        object_code = (
-            item.object_type.code if item.object_type is not None else str(item.object_type_id)
-        )
+        object_code = item.object_type.code if item.object_type is not None else str(item.object_type_id)
         structure_items.append(
             {
                 "object_type_id": int(item.object_type_id),
@@ -50,11 +48,7 @@ def lot_summary(lot: Lot) -> Dict[str, Any]:
                 "label": f"{object_name} ×{qty}",
             }
         )
-    if (
-        counts.get("infrastructure", 0) > 0
-        and counts.get("generator", 0) > 0
-        and counts.get("consumer", 0) > 0
-    ):
+    if counts.get("infrastructure", 0) > 0 and counts.get("generator", 0) > 0 and counts.get("consumer", 0) > 0:
         composition = "mixed"
     elif counts.get("generator", 0) > 0 and counts.get("consumer", 0) > 0:
         composition = "mixed"
@@ -68,19 +62,10 @@ def lot_summary(lot: Lot) -> Dict[str, Any]:
         composition = "infrastructure"
     else:
         composition = "all"
-    compatibility = "Состав требует ручной сетевой проверки."
-    if composition == "mixed":
-        compatibility = "Смешанный лот: генерация и потребление в одном составе."
-    elif composition == "generator":
-        compatibility = "Преимущественно генераторный лот."
-    elif composition == "consumer":
-        compatibility = "Преимущественно потребительский лот."
-    elif composition == "infrastructure":
-        compatibility = "Инфраструктурный лот, влияние зависит от текущего портфеля."
     return {
         "items_total": items_total,
         "counts": counts,
-        "compatibility": compatibility,
+        "compatibility": "Состав требует ручной сетевой проверки.",
         "composition": composition,
         "composition_label": {
             "all": "Все",
@@ -90,13 +75,28 @@ def lot_summary(lot: Lot) -> Dict[str, Any]:
             "infrastructure": "Инфраструктурный",
             "storage": "Накопительный",
         }.get(composition, "Смешанный"),
-        "structure": (
-            ", ".join(item["label"] for item in structure_items)
-            if structure_items
-            else "Пустой лот"
-        ),
+        "structure": ", ".join(item["label"] for item in structure_items) if structure_items else "Пустой лот",
         "structure_items": structure_items,
     }
+
+
+def _primary_bid(row: Dict[str, Any]) -> float:
+    return float(
+        row.get("working_bid")
+        or row.get("recommended_bid_balanced")
+        or row.get("recommended_bid")
+        or row.get("target_bid")
+        or 0.0
+    )
+
+
+def _decision_priority(row: Dict[str, Any]) -> int:
+    status = str(row.get("decision_status") or "")
+    if status == "go":
+        return 3
+    if status == "cheap_only":
+        return 2
+    return 1
 
 
 def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Dict[str, Any]:
@@ -105,16 +105,13 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
     losses = dict(financial.get("losses_and_risks") or {})
     decision_summary = dict(evaluation.get("decision_summary") or {})
     recommended_bid_safe = float(
-        decision_summary.get("recommended_bid_safe", decision_summary.get("cautious_bid", 0.0))
-        or 0.0
+        decision_summary.get("recommended_bid_safe", decision_summary.get("cautious_bid", 0.0)) or 0.0
     )
     recommended_bid_balanced = float(
-        decision_summary.get("recommended_bid_balanced", decision_summary.get("target_bid", 0.0))
-        or 0.0
+        decision_summary.get("recommended_bid_balanced", decision_summary.get("target_bid", 0.0)) or 0.0
     )
     recommended_bid_aggressive = float(
-        decision_summary.get("recommended_bid_aggressive", decision_summary.get("target_bid", 0.0))
-        or 0.0
+        decision_summary.get("recommended_bid_aggressive", decision_summary.get("target_bid", 0.0)) or 0.0
     )
     working_bid = float(
         evaluation.get("working_bid")
@@ -123,9 +120,7 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         or 0.0
     )
     recommended_bid = float(
-        decision_summary.get("recommended_bid", working_bid)
-        or recommended_bid_balanced
-        or working_bid
+        decision_summary.get("recommended_bid", working_bid) or recommended_bid_balanced or working_bid
     )
     max_bid = float(
         decision_summary.get(
@@ -138,9 +133,7 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         or 0.0
     )
     system_check = dict(evaluation.get("system_check") or {})
-    zero_bid_reason = str(
-        decision_summary.get("zero_bid_reason") or evaluation.get("zero_bid_reason") or ""
-    )
+    zero_bid_reason = str(decision_summary.get("zero_bid_reason") or evaluation.get("zero_bid_reason") or "")
     cap_reason = str(
         decision_summary.get("cap_reason")
         or evaluation.get("cap_reason")
@@ -155,10 +148,26 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
     working_bid_reason = str(
         evaluation.get("working_bid_reason") or decision_summary.get("working_bid_reason") or ""
     )
+    profitable_at_working_bid = float(
+        decision_summary.get(
+            "net_profit_at_recommended_bid",
+            result.get("net_profit_at_recommended_bid", result.get("net_profit", 0.0)),
+        )
+        or 0.0
+    )
+
     if zero_bid_reason:
         decision_status = "pass"
         decision_status_label = "Пас"
         decision_reason = zero_bid_reason
+    elif profitable_at_working_bid <= 0.0:
+        decision_status = "cheap_only"
+        decision_status_label = "Только дёшево"
+        decision_reason = "На рабочей ставке прибыль уже почти исчезает."
+    elif str(system_check.get("status") or "") in {"blocked", "risky"} and working_bid > 0.0:
+        decision_status = "cheap_only"
+        decision_status_label = "Только дёшево"
+        decision_reason = working_bid_reason or system_check.get("message") or bid_constraints_summary or cap_reason
     elif recommended_bid <= max(0.0, max_bid * 0.35):
         decision_status = "cheap_only"
         decision_status_label = "Только дёшево"
@@ -167,6 +176,7 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         decision_status = "go"
         decision_status_label = "Брать"
         decision_reason = working_bid_reason or bid_constraints_summary or cap_reason
+
     recommended_points = [
         str(point).strip()
         for point in list(system_check.get("recommended_points") or [])
@@ -184,32 +194,16 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "summary": summary,
         "evaluation": evaluation,
         "price": float(
-            lot.purchase_price
-            if lot.status == "bought" and lot.purchase_price is not None
-            else lot.current_bid or 0.0
+            lot.purchase_price if lot.status == "bought" and lot.purchase_price is not None else lot.current_bid or 0.0
         ),
         "utility": float(evaluation.get("summary_score", 0.0) or 0.0),
         "net_profit": float(result.get("net_profit", 0.0) or 0.0),
         "gross_profit_before_bid": float(
-            decision_summary.get(
-                "gross_expected_profit_before_bid",
-                result.get("gross_profit_before_bid", 0.0),
-            )
-            or 0.0
+            decision_summary.get("gross_expected_profit_before_bid", result.get("gross_profit_before_bid", 0.0)) or 0.0
         ),
-        "net_profit_at_recommended_bid": float(
-            decision_summary.get(
-                "net_profit_at_recommended_bid",
-                result.get("net_profit_at_recommended_bid", 0.0),
-            )
-            or 0.0
-        ),
+        "net_profit_at_recommended_bid": profitable_at_working_bid,
         "net_profit_at_max_bid": float(
-            decision_summary.get(
-                "net_profit_at_max_bid",
-                result.get("net_profit_at_max_bid", 0.0),
-            )
-            or 0.0
+            decision_summary.get("net_profit_at_max_bid", result.get("net_profit_at_max_bid", 0.0)) or 0.0
         ),
         "remaining_budget_after_recommended_bid": float(
             decision_summary.get(
@@ -219,10 +213,7 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
             or 0.0
         ),
         "remaining_budget_after_max_bid": float(
-            decision_summary.get(
-                "remaining_budget_after_max_bid",
-                result.get("remaining_budget_after_max_bid", 0.0),
-            )
+            decision_summary.get("remaining_budget_after_max_bid", result.get("remaining_budget_after_max_bid", 0.0))
             or 0.0
         ),
         "risk": float(losses.get("risk_total", 0.0) or 0.0),
@@ -233,11 +224,7 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "recommended_bid": float(recommended_bid),
         "hard_ceiling_bid": float(decision_summary.get("hard_ceiling_bid", 0.0) or 0.0),
         "max_bid": float(max_bid),
-        "working_bid_source": str(
-            evaluation.get("working_bid_source")
-            or decision_summary.get("working_bid_source")
-            or "none"
-        ),
+        "working_bid_source": str(evaluation.get("working_bid_source") or decision_summary.get("working_bid_source") or "none"),
         "working_bid_reason": str(working_bid_reason),
         "working_bid_short_reason": working_bid_reason_short(working_bid_reason),
         "target_bid": float(decision_summary.get("target_bid", recommended_bid_balanced) or 0.0),
@@ -260,18 +247,16 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "decision_reason": str(decision_reason),
         "decision_reason_short": working_bid_reason_short(decision_reason),
         "decision_price_range": (
-            f"безопасная {recommended_bid_safe:.1f} · целевая {recommended_bid_balanced:.1f} · потолок {max_bid:.1f}"
+            f"безопасная {recommended_bid_safe:.1f} · рабочая {recommended_bid_balanced:.1f} · потолок {max_bid:.1f}"
             if recommended_bid_balanced > 0.0
-            else "безопасная 0 · целевая 0 · потолок 0"
+            else "безопасная 0 · рабочая 0 · потолок 0"
         ),
         "budget_preservation_note": str(decision_summary.get("budget_preservation_note") or ""),
         "max_bid_reason": str(decision_summary.get("max_bid_reason") or ""),
         "system_check": system_check,
         "connection_fit_status": str(system_check.get("status") or "neutral"),
         "recommended_points": recommended_points,
-        "connection_block_reasons_count": int(
-            system_check.get("connection_block_reasons_count", 0) or 0
-        ),
+        "connection_block_reasons_count": int(system_check.get("connection_block_reasons_count", 0) or 0),
         "status": lot.status,
         "is_stale": bool(evaluation.get("is_stale")),
         "stale_reason": stale_reason_raw,
@@ -328,25 +313,49 @@ def filter_lot_rows(rows: list[Dict[str, Any]], filters: Mapping[str, Any]) -> l
 
 
 def sort_lot_rows(rows: list[Dict[str, Any]], sort_key: str) -> list[Dict[str, Any]]:
-    sort_key = str(sort_key or "bid_desc")
+    sort_key = str(sort_key or "utility_desc")
     if sort_key == "profit_desc":
-        return sorted(rows, key=lambda row: row["net_profit"], reverse=True)
+        return sorted(
+            rows,
+            key=lambda row: (
+                _decision_priority(row),
+                float(row["net_profit_at_recommended_bid"] or row["net_profit"]),
+                row["net_profit"],
+                row["utility"],
+            ),
+            reverse=True,
+        )
     if sort_key == "risk_asc":
-        return sorted(rows, key=lambda row: row["risk"])
+        return sorted(
+            rows,
+            key=lambda row: (
+                0 if row.get("decision_status") == "go" else 1,
+                row["risk"],
+                -float(row["net_profit_at_recommended_bid"] or 0.0),
+            ),
+        )
     if sort_key == "bid_desc":
         return sorted(
             rows,
-            key=lambda row: float(
-                row.get("recommended_bid_balanced")
-                or row.get("recommended_bid")
-                or row.get("working_bid")
-                or row.get("target_bid")
-                or 0.0
+            key=lambda row: (
+                _decision_priority(row),
+                float(row.get("net_profit_at_recommended_bid") or 0.0),
+                float(row.get("utility") or 0.0),
+                _primary_bid(row),
             ),
             reverse=True,
         )
     if sort_key == "price_asc":
-        return sorted(rows, key=lambda row: row["price"])
+        return sorted(rows, key=lambda row: (row["price"], -float(row.get("utility") or 0.0)))
     if sort_key == "price_desc":
-        return sorted(rows, key=lambda row: row["price"], reverse=True)
-    return sorted(rows, key=lambda row: row["utility"], reverse=True)
+        return sorted(rows, key=lambda row: (row["price"], float(row.get("utility") or 0.0)), reverse=True)
+    return sorted(
+        rows,
+        key=lambda row: (
+            _decision_priority(row),
+            float(row["utility"]),
+            float(row.get("net_profit_at_recommended_bid") or row["net_profit"]),
+            _primary_bid(row),
+        ),
+        reverse=True,
+    )

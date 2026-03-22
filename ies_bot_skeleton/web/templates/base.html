@@ -7,239 +7,112 @@
     <script>
       (() => {
         const KEY = "ies-theme";
-        const LEGACY_KEYS = ["theme", "ies-ui-theme", "ies_theme"];
         const normalize = (value) => (value === "light" || value === "dark" ? value : null);
         try {
-          let theme = normalize(localStorage.getItem(KEY));
-          if (!theme) {
-            for (const legacyKey of LEGACY_KEYS) {
-              const legacy = normalize(localStorage.getItem(legacyKey));
-              if (!legacy) continue;
-              theme = legacy;
-              localStorage.setItem(KEY, legacy);
-              break;
-            }
-          }
-          document.documentElement.setAttribute("data-theme", theme || "light");
+          document.documentElement.setAttribute("data-theme", normalize(localStorage.getItem(KEY)) || "light");
         } catch (_) {
           document.documentElement.setAttribute("data-theme", "light");
         }
       })();
     </script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}" />
-    <script>
-      window.IES_CSRF_TOKEN = "{{ csrf_token() }}";
-    </script>
+    <script>window.IES_CSRF_TOKEN = "{{ csrf_token() }}";</script>
     <script src="{{ url_for('static', filename='js/api_client.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/dismissible_alert.js') }}"></script>
+    {% if enable_global_chart_libs %}
     <script defer src="{{ url_for('static', filename='vendor/chart.min.js') }}"></script>
     <script defer src="{{ url_for('static', filename='vendor/plotly.min.js') }}"></script>
+    {% endif %}
     {% block head_extra %}{% endblock %}
   </head>
   <body class="app-body">
-    {% set page_content %}
-    {% block content %}{% endblock %}
-    {% endset %}
-
+    {% set page_content %}{% block content %}{% endblock %}{% endset %}
     {% if current_user.is_authenticated %}
     {% set endpoint = request.endpoint or '' %}
     {% set analysis_active = endpoint in [
-      'pages.dashboard',
-      'pages.session_page',
-      'pages.session_delete_confirm_page',
-      'pages.forecast_page',
-      'pages.lots_page',
-      'pages.lots_edit',
-      'pages.lot_detail_page',
-      'pages.lot_edit_page',
-      'pages.lot_delete_confirm_page',
-      'pages.lot_buy_confirm_page',
-      'pages.quick_auction_page',
-      'pages.system_view',
-      'pages.object_create_page',
-      'pages.object_edit_page',
-      'pages.object_delete_confirm_page'
+      'pages.dashboard','pages.session_page','pages.session_delete_confirm_page','pages.forecast_page',
+      'pages.lots_page','pages.lots_edit','pages.lot_detail_page','pages.lot_edit_page',
+      'pages.lot_delete_confirm_page','pages.lot_buy_confirm_page','pages.quick_auction_page',
+      'pages.system_view','pages.object_create_page','pages.object_edit_page','pages.object_delete_confirm_page'
     ] %}
     <div class="dashboard-shell">
       <aside class="dashboard-sidebar">
         <a class="sidebar-brand" href="{{ url_for('pages.dashboard') }}">
-          <span class="sidebar-brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none">
-              <path d="M4 17h16"></path>
-              <path d="M7 17V9"></path>
-              <path d="M12 17V6"></path>
-              <path d="M17 17v-4"></path>
-              <path d="M12 3 9.5 8h3l-1.5 4 4-6h-3z"></path>
-            </svg>
-          </span>
           <span class="sidebar-brand-text">IES Кабинет</span>
         </a>
-        <p class="sidebar-subtitle">Единый кабинет аналитики и покупки лотов по прогнозу</p>
-
+        <p class="sidebar-subtitle">Прогноз, оценка лотов, энергосистема и админка в одном интерфейсе.</p>
         <nav class="sidebar-nav">
-          <a class="sidebar-link {{ 'is-active' if analysis_active else '' }}" href="{{ url_for('pages.dashboard') }}">
-            <span class="sidebar-link-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v11h-7zM4 13h7v8H4z"></path>
-              </svg>
-            </span>
-            <span>Сессии и аналитика</span>
-          </a>
-          <a class="sidebar-link {{ 'is-active' if endpoint == 'pages.catalog' else '' }}" href="{{ url_for('pages.catalog') }}">
-            <span class="sidebar-link-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M5 4h12a2 2 0 0 1 2 2v12H7a2 2 0 0 0-2 2V4zm0 0H4"></path>
-                <path d="M7 8h8M7 11h8M7 14h5"></path>
-              </svg>
-            </span>
-            <span>Справочник</span>
-          </a>
+          <a class="sidebar-link {{ 'is-active' if analysis_active else '' }}" href="{{ url_for('pages.dashboard') }}"><span>Сессии и аналитика</span></a>
+          <a class="sidebar-link {{ 'is-active' if endpoint == 'pages.catalog' else '' }}" href="{{ url_for('pages.catalog') }}"><span>Справочник</span></a>
           {% if current_user.role == 'admin' %}
-          <a class="sidebar-link {{ 'is-active' if endpoint.startswith('pages.settings_') else '' }}" href="{{ url_for('pages.settings_model_page') }}">
-            <span class="sidebar-link-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M12 3.5l2 .9 2.2-.3 1.2 1.9 2 .9v2.2l1.2 1.9-1.2 1.9V15l-2 .9-1.2 1.9-2.2-.3-2 .9-2-.9-2.2.3-1.2-1.9-2-.9v-2.2L2.6 13l1.2-1.9V8.9l2-.9 1.2-1.9 2.2.3 2-.9z"></path>
-                <circle cx="12" cy="12" r="3.2"></circle>
-              </svg>
-            </span>
-            <span>Администрирование</span>
-          </a>
+          <a class="sidebar-link {{ 'is-active' if endpoint.startswith('pages.settings_') else '' }}" href="{{ url_for('pages.settings_model_page') }}"><span>Администрирование</span></a>
           {% endif %}
         </nav>
       </aside>
-
       <div class="dashboard-main">
         <header class="dashboard-topbar">
           <div class="dashboard-heading">
             <p class="section-kicker">IES Аналитический кабинет</p>
             <h1 class="dashboard-page-title">{% block page_title %}Рабочая панель{% endblock %}</h1>
           </div>
-
-          <label class="top-search">
-            <span class="top-search-icon">⌕</span>
-            <input class="input top-search-input" type="search" placeholder="Поиск по сессиям, лотам и объектам..." />
-          </label>
-
+          {% if ui_enable_global_search %}
+          <label class="top-search"><input class="input top-search-input" type="search" placeholder="Поиск..." /></label>
+          {% else %}
+          <div class="muted">Глобальный поиск скрыт до полноценной реализации.</div>
+          {% endif %}
           <div class="dashboard-top-actions">
             <button type="button" class="btn btn-secondary" id="themeToggle">Тема</button>
-            <span class="pill locale-pill">🇷🇺 Рус</span>
-            <button class="btn btn-ghost icon-btn" type="button" aria-label="Уведомления">
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6 16v-4a6 6 0 1 1 12 0v4"></path>
-                <path d="M4 16h16"></path>
-                <path d="M10 19a2 2 0 0 0 4 0"></path>
-              </svg>
-            </button>
-            <span class="user-chip">
-              <span class="user-chip-avatar" aria-hidden="true">
-                {% if current_user.role == 'admin' %}
-                <svg viewBox="0 0 24 24" fill="none">
-                  <path d="M12 3.8 18 6v5.2c0 4.4-2.8 7.1-6 9-3.2-1.9-6-4.6-6-9V6z"></path>
-                  <path d="M9.5 11.5a2.5 2.5 0 1 1 5 0"></path>
-                  <path d="M8.5 15.5a4.1 4.1 0 0 1 7 0"></path>
-                </svg>
-                {% else %}
-                <svg viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="8" r="3"></circle>
-                  <path d="M6.5 18a5.5 5.5 0 0 1 11 0"></path>
-                </svg>
-                {% endif %}
-              </span>
-              <span class="user-chip-text">
-                <strong>{{ current_user.username }}</strong>
-                <small>{{ current_user.role }}</small>
-              </span>
-            </span>
+            <span class="user-chip"><span class="user-chip-text"><strong>{{ current_user.username }}</strong><small>{{ current_user.role }}</small></span></span>
             <form method="post" action="{{ url_for('pages.logout') }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
               <button class="btn btn-ghost btn-danger-outline" type="submit">Выйти</button>
             </form>
           </div>
         </header>
-
         <main class="dashboard-body">
           {% if back_url or breadcrumbs %}
           <section class="page-nav">
-            {% if back_url %}
-            <a class="btn btn-secondary" href="{{ back_url }}">Назад</a>
-            {% endif %}
+            {% if back_url %}<a class="btn btn-secondary" href="{{ back_url }}">Назад</a>{% endif %}
             {% if breadcrumbs %}
             <ol class="breadcrumbs">
               {% for crumb in breadcrumbs %}
               <li class="breadcrumb-item {{ 'is-current' if crumb.is_current else '' }}">
-                {% if crumb.url %}
-                <a href="{{ crumb.url }}">{{ crumb.label }}</a>
-                {% else %}
-                <span>{{ crumb.label }}</span>
-                {% endif %}
+                {% if crumb.url %}<a href="{{ crumb.url }}">{{ crumb.label }}</a>{% else %}<span>{{ crumb.label }}</span>{% endif %}
               </li>
               {% endfor %}
             </ol>
             {% endif %}
           </section>
           {% endif %}
-
           {% if stale_warning and stale_warning.has_stale %}
-          <section class="flash-stack">
-            <div class="flash flash-warning">
-              Обнаружены устаревшие оценки ({{ stale_warning.stale_count }}). Причина: {{ stale_reason_label(stale_warning.last_reason) or 'изменились исходные данные расчёта' }}.
-            </div>
-          </section>
+          <section class="flash-stack"><div class="flash flash-warning">Обнаружены устаревшие оценки ({{ stale_warning.stale_count }}).</div></section>
           {% endif %}
-
           {% if network_readiness and network_readiness.action_required %}
           {% set dismiss_id = 'network-readiness-' ~ (session.id if session is defined and session else 'global') %}
           <section class="flash-stack" data-dismissible-alert data-alert-id="{{ dismiss_id }}">
             <div class="flash flash-warning">
-              <div class="actions" style="justify-content: space-between; width: 100%;">
-                <div>
-                  <strong>Нужно подключить новые объекты в энергосистеме.</strong>
-                  <div class="mt-2">{{ network_readiness.message }}</div>
-                  <div class="mt-2 muted">
-                    Неподключённых объектов: {{ network_readiness.unconnected_purchased_objects_count or 0 }} ·
-                    затронуто купленных лотов: {{ network_readiness.unconnected_lots_count or 0 }}.
-                  </div>
-                  {% if session is defined and session %}
-                  <div class="mt-2"><a class="btn btn-secondary" href="{{ url_for('pages.system_view', session_id=session.id) }}">Перейти в энергосистему</a></div>
-                  {% endif %}
-                </div>
-                <button type="button" class="btn btn-ghost" data-dismiss-alert aria-label="Скрыть предупреждение">Скрыть</button>
-              </div>
+              <div><strong>После покупки нужно завершить интеграцию объектов.</strong></div>
+              <div class="mt-2">{{ network_readiness.message }}</div>
+              {% if session is defined and session %}
+              <div class="mt-2"><a class="btn btn-secondary" href="{{ url_for('pages.system_view', session_id=session.id) }}">Перейти в энергосистему</a></div>
+              {% endif %}
             </div>
           </section>
           {% endif %}
-
           {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
           <section class="flash-stack">
-            {% for category, message in messages %}
-            <div class="flash flash-{{ category }}">{{ message }}</div>
-            {% endfor %}
+            {% for category, message in messages %}<div class="flash flash-{{ category }}">{{ message }}</div>{% endfor %}
           </section>
           {% endif %}
           {% endwith %}
-
           {{ page_content | safe }}
         </main>
       </div>
     </div>
     {% else %}
-    <div class="auth-shell">
-      <main class="container app-main">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-        <section class="flash-stack">
-          {% for category, message in messages %}
-          <div class="flash flash-{{ category }}">{{ message }}</div>
-          {% endfor %}
-        </section>
-        {% endif %}
-        {% endwith %}
-
-        {{ page_content | safe }}
-      </main>
-    </div>
+    <div class="auth-shell"><main class="container app-main">{{ page_content | safe }}</main></div>
     {% endif %}
   </body>
 </html>

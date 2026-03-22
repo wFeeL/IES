@@ -171,7 +171,7 @@ def settings_model_page():
         fallback_endpoint="pages.dashboard",
     )
     return render_template(
-        "admin/settings_model.html",
+        "admin/../templates/admin/settings_model.html",
         rulesets=rulesets,
         templates=templates,
         copy_form=copy_form,
@@ -222,7 +222,7 @@ def settings_ruleset_new_page():
         cancel_url=url_for("pages.settings_model_page"),
     )
     return render_template(
-        "admin/settings_ruleset_edit.html",
+        "admin/../templates/admin/settings_ruleset_edit.html",
         form=form,
         mode="new",
         ruleset_sections=ruleset_sections(),
@@ -287,7 +287,7 @@ def settings_ruleset_edit_page(ruleset_id: int):
         cancel_url=url_for("pages.settings_model_page"),
     )
     return render_template(
-        "admin/settings_ruleset_edit.html",
+        "admin/../templates/admin/settings_ruleset_edit.html",
         form=form,
         mode="edit",
         ruleset=row,
@@ -368,7 +368,7 @@ def settings_start_packs_page():
         fallback_endpoint="pages.dashboard",
     )
     return render_template(
-        "admin/settings_start_packs.html",
+        "admin/../templates/admin/settings_start_packs.html",
         templates=templates,
         admin_links=admin_links(),
         **ctx,
@@ -413,7 +413,7 @@ def settings_start_pack_new_page():
         cancel_url=url_for("pages.settings_start_packs_page"),
     )
     return render_template(
-        "admin/settings_start_pack_edit.html",
+        "admin/../templates/admin/settings_start_pack_edit.html",
         form=form,
         mode="new",
         object_types=object_types,
@@ -481,7 +481,7 @@ def settings_start_pack_edit_page(template_id: int):
         cancel_url=url_for("pages.settings_start_packs_page"),
     )
     return render_template(
-        "admin/settings_start_pack_edit.html",
+        "admin/../templates/admin/settings_start_pack_edit.html",
         form=form,
         mode="edit",
         object_types=object_types,
@@ -523,7 +523,7 @@ def settings_object_types_page():
         fallback_endpoint="pages.dashboard",
     )
     return render_template(
-        "admin/settings_object_types.html",
+        "admin/../templates/admin/settings_object_types.html",
         object_types=rows,
         admin_links=admin_links(),
         **ctx,
@@ -577,7 +577,7 @@ def settings_object_type_new_page():
         cancel_url=url_for("pages.settings_object_types_page"),
     )
     return render_template(
-        "admin/settings_object_type_edit.html",
+        "admin/../templates/admin/settings_object_type_edit.html",
         form=form,
         mode="new",
         **_object_type_editor_state(form),
@@ -652,7 +652,7 @@ def settings_object_type_edit_page(object_type_id: int):
         cancel_url=url_for("pages.settings_object_types_page"),
     )
     return render_template(
-        "admin/settings_object_type_edit.html",
+        "admin/../templates/admin/settings_object_type_edit.html",
         form=form,
         mode="edit",
         object_type=row,

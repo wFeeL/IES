@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
+import uuid
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Optional
 
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
 from flask_wtf.csrf import CSRFError, generate_csrf
-from sqlalchemy import inspect
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -41,28 +44,70 @@ def _bootstrap_local_sqlite(app: Flask) -> None:
     database_uri = str(app.config.get("SQLALCHEMY_DATABASE_URI") or "")
     if app.config.get("TESTING") or not _is_local_sqlite_uri(database_uri):
         return
-
-    required_tables = {"users", "rulesets", "object_types", "start_pack_templates"}
     with app.app_context():
         try:
-            existing_tables = set(inspect(db.engine).get_table_names())
-        except SQLAlchemyError:
-            app.logger.warning("Could not inspect database schema during startup bootstrap.")
+            db.create_all()
+            from .services.seed import ensure_seed_data
+            ensure_seed_data()
             db.session.remove()
-            return
+        except SQLAlchemyError:
+            app.logger.exception("Database bootstrap failed.")
+            db.session.remove()
 
-        if required_tables.issubset(existing_tables):
-            return
 
-        app.logger.warning(
-            "Database is missing core tables (%s). Bootstrapping local SQLite schema.",
-            ", ".join(sorted(required_tables - existing_tables)),
-        )
-        db.create_all()
-        from .services.seed import ensure_seed_data
+class RequestContextFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = getattr(g, "request_id", "-")
+        record.user_id = getattr(getattr(g, "current_user", None), "id", "-")
+        try:
+            record.path = request.path
+        except RuntimeError:
+            record.path = "-"
+        return True
 
-        ensure_seed_data()
-        db.session.remove()
+
+def _configure_logging(app: Flask) -> None:
+    level_name = str(app.config.get("LOG_LEVEL", "INFO") or "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    formatter = logging.Formatter(str(app.config.get("LOG_FORMAT")))
+    request_filter = RequestContextFilter()
+
+    app.logger.handlers.clear()
+    app.logger.setLevel(level)
+    app.logger.propagate = False
+
+    handlers = []
+    if app.config.get("LOG_TO_STDOUT", True):
+        stream_handler = logging.StreamHandler()
+        stream_handler.setLevel(level)
+        stream_handler.setFormatter(formatter)
+        stream_handler.addFilter(request_filter)
+        handlers.append(stream_handler)
+
+    log_dir = Path(app.config.get("LOG_DIR") or Path.cwd() / "logs")
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        app_file = log_dir / str(app.config.get("APP_LOG_FILE", "ies_web.log"))
+        err_file = log_dir / str(app.config.get("ERROR_LOG_FILE", "ies_web.error.log"))
+
+        file_handler = RotatingFileHandler(app_file, maxBytes=1_500_000, backupCount=4, encoding="utf-8")
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+        file_handler.addFilter(request_filter)
+        handlers.append(file_handler)
+
+        error_handler = RotatingFileHandler(err_file, maxBytes=1_500_000, backupCount=4, encoding="utf-8")
+        error_handler.setLevel(logging.ERROR)
+        error_handler.setFormatter(formatter)
+        error_handler.addFilter(request_filter)
+        handlers.append(error_handler)
+    except OSError:
+        pass
+
+    for handler in handlers:
+        app.logger.addHandler(handler)
+
+    logging.getLogger("werkzeug").setLevel(max(level, logging.INFO))
 
 
 def create_app(config_name: Optional[str] = None) -> Flask:
@@ -73,23 +118,41 @@ def create_app(config_name: Optional[str] = None) -> Flask:
     app.config.from_object(cfg)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 
+    _configure_logging(app)
+
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
     csrf.init_app(app)
+
+    @app.before_request
+    def _prepare_request_context():
+        g.request_id = str(uuid.uuid4())[:8]
+        g.current_user = None
 
     @login_manager.user_loader
     def load_user(user_id: str):
         if not user_id:
             return None
         try:
-            return db.session.get(User, int(user_id))
+            user = db.session.get(User, int(user_id))
+            g.current_user = user
+            return user
         except SQLAlchemyError:
-            app.logger.warning(
-                "Failed to load user %s from database; resetting session lookup.", user_id
-            )
+            app.logger.warning("Failed to load user %s from database; resetting session lookup.", user_id)
             db.session.remove()
             return None
+
+    @app.before_request
+    def _access_log():
+        if app.config.get("ACCESS_LOG_ENABLED", True):
+            app.logger.info("request_started method=%s", request.method)
+
+    @app.after_request
+    def _response_log(response):
+        if app.config.get("ACCESS_LOG_ENABLED", True):
+            app.logger.info("request_finished status=%s", response.status_code)
+        return response
 
     @app.context_processor
     def inject_globals():
@@ -113,10 +176,13 @@ def create_app(config_name: Optional[str] = None) -> Flask:
             "back_url": safe_back_url(req=request),
             "cancel_url": None,
             "stale_warning": None,
+            "ui_enable_global_search": bool(app.config.get("UI_ENABLE_GLOBAL_SEARCH", False)),
+            "enable_global_chart_libs": bool(app.config.get("ENABLE_GLOBAL_CHART_LIBS", False)),
         }
 
     @app.errorhandler(CSRFError)
     def handle_csrf_error(exc: CSRFError):
+        app.logger.warning("csrf_failed")
         if request.path.startswith("/api/"):
             return (
                 jsonify(
@@ -124,10 +190,7 @@ def create_app(config_name: Optional[str] = None) -> Flask:
                         "ok": False,
                         "error": {
                             "code": "csrf_failed",
-                            "message": (
-                                "Сессия или CSRF-токен устарели. "
-                                "Обновите страницу и повторите действие."
-                            ),
+                            "message": "Сессия или CSRF-токен устарели. Обновите страницу и повторите действие.",
                             "details": {},
                         },
                     }
@@ -137,7 +200,6 @@ def create_app(config_name: Optional[str] = None) -> Flask:
         return exc.description, getattr(exc, "code", 400) or 400
 
     register_blueprints(app)
-
     _bootstrap_local_sqlite(app)
     init_cli(app)
     return app
