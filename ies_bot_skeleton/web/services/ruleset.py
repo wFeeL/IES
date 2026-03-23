@@ -86,9 +86,9 @@ def build_default_ruleset_config() -> Dict[str, Any]:
     evaluation_cfg.setdefault("reserve_margin_abs", 5.0)
     evaluation_cfg.setdefault("reserve_margin_share", 0.10)
     evaluation_cfg.setdefault("storage_operating_cost_per_mwh_throughput", 0.0)
-    evaluation_cfg.setdefault("enable_strategy_profiles", False)
+    evaluation_cfg.setdefault("enable_strategy_profiles", True)
     evaluation_cfg.setdefault("ignore_connection_sectors", False)
-    evaluation_cfg.setdefault("analysis_mode", "unified")
+    evaluation_cfg.setdefault("analysis_mode", "strategy_profiles")
     merged["evaluation"] = evaluation_cfg
     auction_cfg = dict(merged.get("auction", {}) or {})
     auction_cfg.setdefault("pwin_default", 0.35)

@@ -23,6 +23,24 @@ class ValidationIssue:
         return {"code": self.code, "message": self.message, "severity": self.severity}
 
 
+@dataclass
+class ValidationSummary:
+    issues: List[ValidationIssue]
+    critical_errors: List[ValidationIssue]
+    warnings: List[ValidationIssue]
+    optimization_hints: List[ValidationIssue]
+    topology_candidates: List[Dict[str, Any]]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "issues": [issue.to_dict() for issue in self.issues],
+            "critical_errors": [issue.to_dict() for issue in self.critical_errors],
+            "warnings": [issue.to_dict() for issue in self.warnings],
+            "optimization_hints": [issue.to_dict() for issue in self.optimization_hints],
+            "topology_candidates": list(self.topology_candidates),
+        }
+
+
 def _norm(value: Any) -> str:
     return "".join(ch.lower() for ch in str(value or "").strip() if ch.isalnum() or ch == "_")
 
@@ -82,12 +100,46 @@ def _energy_object(row: ObjectInstance) -> EnergyObject:
 
 
 def validate_session_network(objects: List[ObjectInstance]) -> List[ValidationIssue]:
+    return network_validation_summary(objects).issues
+
+
+def network_validation_summary(objects: List[ObjectInstance]) -> ValidationSummary:
     if not objects:
-        return [ValidationIssue("EMPTY_SYSTEM", "В сессии нет объектов.", "warning")]
+        empty = [ValidationIssue("EMPTY_SYSTEM", "В сессии нет объектов.", "warning")]
+        return ValidationSummary(
+            issues=empty,
+            critical_errors=[],
+            warnings=empty,
+            optimization_hints=[],
+            topology_candidates=[],
+        )
     report = validate_network([_energy_object(row) for row in objects if row.is_active])
-    if not report.issues:
-        return [ValidationIssue("NETWORK_OK", "Проверка пройдена без предупреждений.", "hint")]
-    return [
+    issues = [
         ValidationIssue(code=issue.code, message=issue.message, severity=issue.severity)
         for issue in report.issues
     ]
+    if not issues:
+        issues = [ValidationIssue("NETWORK_OK", "Проверка пройдена без предупреждений.", "hint")]
+    critical_errors = [issue for issue in issues if issue.severity == "critical"]
+    warnings = [issue for issue in issues if issue.severity == "warning"]
+    optimization_hints = [issue for issue in issues if issue.severity == "hint"]
+    topology_candidates: List[Dict[str, Any]] = []
+    for index, candidate in enumerate(list(report.topology_candidates or []), start=1):
+        topology_candidates.append(
+            {
+                "candidate_id": str(candidate.get("candidate_id") or f"candidate-{index}"),
+                "strategy": str(candidate.get("strategy") or "balanced"),
+                "edge_list": list(candidate.get("edge_list") or []),
+                "district_map": dict(candidate.get("district_map") or {}),
+                "validation_block": dict(candidate.get("validation_block") or {}),
+                "expected_losses": float(candidate.get("expected_losses", 0.0) or 0.0),
+                "mandatory_fixes": list(candidate.get("mandatory_fixes") or []),
+            }
+        )
+    return ValidationSummary(
+        issues=issues,
+        critical_errors=critical_errors,
+        warnings=warnings,
+        optimization_hints=optimization_hints,
+        topology_candidates=topology_candidates,
+    )

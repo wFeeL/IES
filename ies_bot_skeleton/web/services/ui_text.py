@@ -11,13 +11,13 @@ SESSION_TERMS = {
 
 STRATEGY_LABELS: Dict[str, str] = {
     "unified": "Единый анализ",
-    "generation": "Единый анализ",
-    "consumer": "Единый анализ",
-    "balanced": "Единый анализ",
-    "storage": "Единый анализ",
-    "eco": "Единый анализ",
-    "risk_averse": "Единый анализ",
-    "aggressive": "Единый анализ",
+    "generation": "Фокус на генерации",
+    "consumer": "Фокус на потребителях",
+    "balanced": "Сбалансированная стратегия",
+    "storage": "Фокус на накопителях",
+    "eco": "Эко-стратегия",
+    "risk_averse": "Осторожная стратегия",
+    "aggressive": "Агрессивная стратегия",
 }
 
 CATEGORY_LABELS: Dict[str, str] = {

@@ -176,7 +176,7 @@ class GameSession(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(255), nullable=False)
     ruleset_id = db.Column(db.Integer, db.ForeignKey("rulesets.id"), nullable=False)
-    selected_strategy = db.Column(db.String(64), nullable=False, default="unified")
+    selected_strategy = db.Column(db.String(64), nullable=False, default="balanced")
     selected_forecast_id = db.Column(
         db.Integer,
         db.ForeignKey(
@@ -234,7 +234,7 @@ class GameSession(db.Model):
             "title": self.title,
             "ruleset_id": self.ruleset_id,
             "selected_strategy": self.selected_strategy,
-            "analysis_mode": "unified",
+            "analysis_mode": "strategy_profiles",
             "selected_forecast_id": self.selected_forecast_id,
             "start_budget": float(budget["start_budget"]),
             "budget_total": float(budget["budget_total"]),

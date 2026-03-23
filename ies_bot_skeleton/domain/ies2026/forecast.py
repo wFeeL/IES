@@ -54,11 +54,10 @@ def dataset_from_pack(
     config: Dict[str, Any],
 ) -> ForecastDataset:
     data = dict(pack or {})
-    ticks = _collect_ticks(data)
     market_cfg = dict(config.get("market") or {})
-    if not ticks:
-        horizon = int((config.get("time") or {}).get("horizon_ticks", 48) or 48)
-        ticks = list(range(horizon))
+    horizon = int((config.get("time") or {}).get("horizon_ticks", 48) or 48)
+    discovered_ticks = _collect_ticks(data)
+    ticks = list(range(horizon))
 
     wind_bucket = dict(data.get("wind") or {})
     load_bucket = dict(data.get("load") or {})
@@ -117,8 +116,15 @@ def dataset_from_pack(
         ticks=rows,
         wind_channels=wind_channels,
         assumptions={
+            "horizon_ticks": horizon,
             "wind_channel_mode": "per_turbine_supported",
             "load_keys": list(LOAD_ALIASES.keys()),
+            "canonical_series": {
+                "solar": ["illumination"],
+                "wind": wind_channels,
+                "load": list(LOAD_ALIASES.keys()),
+                "discovered_ticks": discovered_ticks,
+            },
         },
     )
 

@@ -86,12 +86,31 @@ def _ensure_buy_forecast_compatible(session: GameSession) -> None:
     raise ForecastCompatibilityError(report)
 
 
+def _lot_has_main_substation(lot: Lot) -> bool:
+    for item in lot.items:
+        code = str(getattr(getattr(item, "object_type", None), "code", "") or "")
+        if code == "main_substation":
+            return True
+    return False
+
+
+def _session_has_main_substation(session: GameSession) -> bool:
+    for obj in session.objects:
+        if not obj.is_active or obj.object_type is None:
+            continue
+        if str(obj.object_type.code or "") == "main_substation":
+            return True
+    return False
+
+
 def buy_lot(session: GameSession, lot: Lot, purchase_price: float) -> Dict[str, Any]:
     if int(lot.session_id) != int(session.id):
         raise ValueError("Лот не принадлежит этой сессии")
     if lot.status != "available":
         raise ValueError("Купить можно только доступный лот")
     _ensure_buy_forecast_compatible(session)
+    if _lot_has_main_substation(lot) and _session_has_main_substation(session):
+        raise ValueError("Нельзя купить более одной главной подстанции.")
 
     price = float(purchase_price or 0.0)
     if price <= 0.0:
@@ -238,7 +257,7 @@ def portfolio_summary(
     )
 
     return {
-        "analysis_mode": "unified",
+        "analysis_mode": "strategy_profiles",
         **budget,
         "bought_lots_count": len(rows),
         "owned_objects_count": sum(

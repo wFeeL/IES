@@ -14,9 +14,9 @@
     <a class="btn btn-primary" href="{{ url_for('pages.object_create_page', session_id=session.id) }}">Добавить объект</a>
   </div>
 
-  {% set critical_issues = issues|selectattr('severity', 'equalto', 'critical')|list %}
-  {% set warning_issues = issues|selectattr('severity', 'equalto', 'warning')|list %}
-  {% set hint_issues = issues|selectattr('severity', 'equalto', 'hint')|list %}
+  {% set critical_issues = network_summary.critical_errors %}
+  {% set warning_issues = network_summary.warnings %}
+  {% set hint_issues = network_summary.optimization_hints %}
 
   <div class="page-grid mt-3">
     <div class="issue issue-error">
@@ -51,6 +51,52 @@
     </div>
   </div>
 </section>
+
+{% if network_summary.topology_candidates %}
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Topology Candidates</p>
+      <h2 class="h2">Короткий список допустимых схем</h2>
+      <p class="muted">Планировщик показывает несколько feasible candidate-схем, чтобы было видно не только ошибки, но и запасные варианты подключения.</p>
+    </div>
+  </div>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead><tr><th>Кандидат</th><th>Стратегия</th><th>Потери</th><th>Статус</th><th>Обязательные исправления</th></tr></thead>
+      <tbody>
+        {% for candidate in network_summary.topology_candidates[:5] %}
+        {% set validation_block = candidate.validation_block or {} %}
+        <tr>
+          <td>
+            <strong>{{ candidate.candidate_id }}</strong>
+            {% if candidate.edge_list %}
+            <div class="table-secondary">{{ candidate.edge_list|join(', ') }}</div>
+            {% endif %}
+          </td>
+          <td>{{ candidate.strategy }}</td>
+          <td>{{ fmt_num(candidate.expected_losses, 2) }}</td>
+          <td>
+            {% if validation_block.blocking %}
+            <span class="status-badge status-stale">Есть blocking errors</span>
+            {% else %}
+            <span class="status-badge status-fresh">Feasible</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if candidate.mandatory_fixes %}
+            {{ candidate.mandatory_fixes|join('; ') }}
+            {% else %}
+            <span class="muted">Нет обязательных исправлений.</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
 
 <section class="card mt-4">
   <p class="section-kicker">Объекты энергосистемы</p>

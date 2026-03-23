@@ -9,6 +9,7 @@ from ..web.services.test_game_preset import (
     bootstrap_test_game_session,
     preferred_default_ruleset,
 )
+from ..web.services.strategy_catalog import normalize_strategy_code
 
 
 def load_session_or_none(session_id: int) -> GameSession | None:
@@ -46,7 +47,7 @@ def create_session_record(payload: Dict[str, Any]) -> GameSession:
     row = GameSession(
         title=title,
         ruleset_id=int(ruleset_id),
-        selected_strategy="unified",
+        selected_strategy=normalize_strategy_code(payload.get("selected_strategy")),
         selected_forecast_id=None,
         budget_total=budget_value,
         allpay_spent=float(payload.get("allpay_spent", 0.0) or 0.0),

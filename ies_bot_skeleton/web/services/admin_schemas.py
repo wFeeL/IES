@@ -479,11 +479,11 @@ def ruleset_form_values(
         ),
         "eco_eco_point_value_rub": _get_nested(config, "eco", "eco_point_value_rub", default=2.0),
         "storage_capacity_mw_tick": _get_nested(
-            config, "storage", "capacity_mw_tick", default=20.0
+            config, "storage", "capacity_mw_tick", default=120.0
         ),
-        "storage_charge_rate_mw": _get_nested(config, "storage", "charge_rate_mw", default=5.0),
+        "storage_charge_rate_mw": _get_nested(config, "storage", "charge_rate_mw", default=15.0),
         "storage_discharge_rate_mw": _get_nested(
-            config, "storage", "discharge_rate_mw", default=5.0
+            config, "storage", "discharge_rate_mw", default=20.0
         ),
         "storage_leak_fraction_per_tick": _get_nested(
             config, "storage", "leak_fraction_per_tick", default=0.05
@@ -492,10 +492,10 @@ def ruleset_form_values(
         "tps_eta_nominal": _get_nested(config, "tps", "eta_nominal", default=1.0),
         "tps_fuel_price": _get_nested(config, "tps", "fuel_price", default=0.5),
         "tps_eco_tax_fuel": _get_nested(config, "tps", "eco_tax_fuel", default=0.0),
-        "auction_allpay_limit": _get_nested(config, "auction", "allpay_limit", default=200.0),
+        "auction_allpay_limit": _get_nested(config, "auction", "allpay_limit", default=5000.0),
         "auction_starting_budget": _get_nested(config, "auction", "starting_budget", default=200.0),
         "auction_tie_break_threshold": _get_nested(
-            config, "auction", "tie_break_threshold", default=2.0
+            config, "auction", "tie_break_threshold", default=0.5
         ),
         "auction_pwin_default": _get_nested(config, "auction", "pwin_default", default=0.35),
         "auction_pwin_min": _get_nested(config, "auction", "pwin_min", default=0.08),
@@ -659,9 +659,9 @@ def ruleset_payload_from_request(
         "eco_point_value_rub": num("eco_eco_point_value_rub", 2.0),
     }
     config["storage"] = {
-        "capacity_mw_tick": num("storage_capacity_mw_tick", 20.0),
-        "charge_rate_mw": num("storage_charge_rate_mw", 5.0),
-        "discharge_rate_mw": num("storage_discharge_rate_mw", 5.0),
+        "capacity_mw_tick": num("storage_capacity_mw_tick", 120.0),
+        "charge_rate_mw": num("storage_charge_rate_mw", 15.0),
+        "discharge_rate_mw": num("storage_discharge_rate_mw", 20.0),
         "leak_fraction_per_tick": num("storage_leak_fraction_per_tick", 0.05),
     }
     config["tps"] = {
@@ -673,9 +673,9 @@ def ruleset_payload_from_request(
     auction = deepcopy(dict(config.get("auction", {}) or {}))
     auction.update(
         {
-            "allpay_limit": num("auction_allpay_limit", 200.0),
+            "allpay_limit": num("auction_allpay_limit", 5000.0),
             "starting_budget": num("auction_starting_budget", 200.0),
-            "tie_break_threshold": num("auction_tie_break_threshold", 2.0),
+            "tie_break_threshold": num("auction_tie_break_threshold", 0.5),
             "pwin_default": num("auction_pwin_default", 0.35),
             "pwin_min": num("auction_pwin_min", 0.08),
             "pwin_max": num("auction_pwin_max", 0.88),

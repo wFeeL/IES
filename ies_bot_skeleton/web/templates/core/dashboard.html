@@ -1,4 +1,10 @@
 {% extends "base.html" %}
+{% block head_extra %}
+<script>
+  window.IES_SESSION_STRATEGIES = {{ strategy_catalog|tojson }};
+</script>
+<script defer src="{{ url_for('static', filename='js/analysis/session_form.js') }}"></script>
+{% endblock %}
 {% block title %}Сессии | IES{% endblock %}
 {% block page_title %}Сессии{% endblock %}
 {% block content %}
@@ -7,15 +13,21 @@
     <article class="card">
       <p class="section-kicker">Новая сессия</p>
       <h1 class="h1">{{ session_terms.create_title }}</h1>
-      <p class="muted">Создайте рабочую сессию. По умолчанию подставляется тестовый ruleset, стартовый пакет и встроенный прогноз — этого хватает для быстрой проверки логики и интерфейса.</p>
+      <p class="muted">Создайте рабочую сессию. По умолчанию подставляется тестовый ruleset, стартовый пакет и встроенный прогноз — этого хватает для быстрой проверки логики, стратегии и post-auction planning.</p>
       <form method="post" class="stack gap-3 mt-4">
         {{ form.hidden_tag() }}
         <label class="label">{{ form.title.label }} {{ form.title(class_='input') }}</label>
         <label class="label">{{ form.ruleset_id.label }} {{ form.ruleset_id(class_='input') }}</label>
-        {{ form.selected_strategy(id='sessionAnalysisMode') }}
+        <label class="label">{{ form.selected_strategy.label }} {{ form.selected_strategy(class_='input', id='sessionStrategySelect') }}</label>
         <label class="label">{{ form.budget_total.label }} {{ form.budget_total(class_='input') }}</label>
         <button class="btn btn-primary btn-block" type="submit">Создать сессию</button>
       </form>
+    </article>
+    <article class="card">
+      <p class="section-kicker">Как читается оценка</p>
+      <h2 class="h2" id="strategySummaryLabel">{{ selected_strategy_meta.label }}</h2>
+      <p class="muted mt-2" id="strategySummaryText">{{ selected_strategy_meta.summary }}</p>
+      <div class="table-secondary mt-2" id="strategySummaryHint">{{ selected_strategy_meta.when_to_use }}</div>
     </article>
     <article class="card">
       <p class="section-kicker">Импорт данных</p>

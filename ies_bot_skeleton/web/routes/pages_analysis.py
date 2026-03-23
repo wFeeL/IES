@@ -47,7 +47,7 @@ from ..services.lots_dashboard import (
     lot_summary,
     sort_lot_rows,
 )
-from ..services.network import validate_session_network
+from ..services.network import network_validation_summary
 from ..services.object_instance_editor import parameter_rows, parameters_from_form
 from ..services.stale import mark_stale_for_session
 from ..services.strategy import build_strategy_snapshot
@@ -469,7 +469,7 @@ def system_view(session_id: int):
     if session is None:
         return _missing_session_redirect()
     object_rows = list_session_objects(session.id)
-    issues = validate_session_network(list(object_rows))
+    network_summary = network_validation_summary(list(object_rows))
     connection_recommendations = recommendations_for_session_objects(session)
     ctx = nav(
         breadcrumb_items=[
@@ -483,7 +483,8 @@ def system_view(session_id: int):
     return render_template(
         "analysis/system.html",
         session=session,
-        issues=issues,
+        network_summary=network_summary,
+        issues=network_summary.issues,
         object_rows=object_rows,
         connection_recommendations=connection_recommendations,
         show_analysis_context=False,

@@ -1,0 +1,84 @@
+game:
+  ruleset: ies_2026
+  horizon_ticks: 48
+  selected_forecast:
+    forecast_id: null
+    forecast_name: ""
+    source: selected_forecast
+  assumptions_versions:
+    engine: ies2026_domain_v2
+    market_model: aggregate_exchange_with_gp_fallback
+    network_model: tree_validator_with_candidate_shortlist
+
+auction_result:
+  won_lots: []
+  dropped_lots: []
+  available_second_round_opportunities: []
+  all_pay_spend_used: 0.0
+  remaining_strategic_budget: 0.0
+
+inventory:
+  main_substation: []
+  mini_substations: []
+  generators: []
+  storages: []
+  consumers: []
+
+topology_candidates:
+  - candidate_id: candidate-1
+    strategy: balanced
+    edge_list: []
+    district_map: {}
+    validation_block:
+      blocking: false
+      warnings: []
+      hints: []
+    expected_losses: 0.0
+    mandatory_fixes: []
+
+installation_priority:
+  - object_id: 0
+    code: solar
+    name: Example solar
+    priority_key: global_solar
+    priority_rank: 1
+    placement_notes: ""
+    blocked_by_higher_priority: false
+
+object_models:
+  solar: []
+  wind: []
+  consumer: []
+  storage: []
+
+market_plan:
+  declared_sale_per_tick: []
+  anti_dumping_cap_per_tick: []
+  reserve_policy: reserve_floor_plus_price_aware_dispatch
+  balancing_reserve: 0.0
+  pricing_policy:
+    exchange_band: "2-20"
+    gp_low_price_factor: 0.55
+
+tick_model:
+  - tick: 0
+    gross_generation: 0.0
+    gross_demand: 0.0
+    losses: 0.0
+    useful_energy: 0.0
+    declared_sale: 0.0
+    realized_sale: 0.0
+    gp_sale: 0.0
+    purchase_from_gp: 0.0
+    balancing_penalty: 0.0
+    fixed_tariffs: 0.0
+    service_tariffs: 0.0
+    tick_profit: 0.0
+
+final_decision:
+  selected_topology: null
+  selected_market_policy: aggregate_exchange_with_gp_fallback
+  selected_storage_policy: reserve_floor_plus_price_aware_dispatch
+  critical_checks: []
+  top_risks: []
+  first_fixes: []

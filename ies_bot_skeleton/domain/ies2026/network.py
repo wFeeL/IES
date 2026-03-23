@@ -179,6 +179,7 @@ def _eligible_parents(
     terminal_index: int,
     objects_by_id: Dict[str, EnergyObject],
     available_ports: Dict[str, int],
+    mode: str,
 ) -> List[Tuple[str, int]]:
     infra = [obj for obj in objects_by_id.values() if obj.is_active and _is_infrastructure(obj)]
     depths = _infra_depths({obj.object_id: obj for obj in infra})
@@ -190,18 +191,70 @@ def _eligible_parents(
         district = _district_for_child(parent, child)
         if _category_conflict(district_stats.get(district, {}), child.category):
             continue
-        # Hospitals and factories are allowed to reuse the same substation, but only if ports remain.
         depth = int(depths.get(parent.object_id, 0))
-        score = depth * 10 + terminal_index
+        point_penalty = 0
+        if terminal_index > 0:
+            point_penalty = 2
+        spare_ports = int(available_ports.get(parent.object_id, 0))
+        if mode == "loss_aware":
+            score = depth * 8 + point_penalty * 3 - min(spare_ports, 3)
+        elif mode == "resilience":
+            score = depth * 12 + point_penalty - min(spare_ports, 4) * 2
+        else:
+            score = depth * 10 + point_penalty - min(spare_ports, 2)
         out.append((parent.object_id, score))
     out.sort(key=lambda item: item[1])
     return out
 
 
-def plan_network(
+def _candidate_summary(
+    *,
+    candidate_id: str,
+    strategy: str,
+    objects: Iterable[EnergyObject],
+    report: NetworkValidationReport,
+) -> Dict[str, object]:
+    active = [obj for obj in objects if obj.is_active]
+    edges: List[Dict[str, str]] = []
+    for obj in active:
+        if obj.parent_id:
+            edges.append({"from": str(obj.parent_id), "to": obj.object_id, "type": "infra"})
+        for terminal in list(obj.terminals or []):
+            if terminal.parent_id:
+                edges.append(
+                    {
+                        "from": str(terminal.parent_id),
+                        "to": obj.object_id,
+                        "type": "terminal",
+                        "point": str(terminal.connection_point or "A"),
+                        "key": str(terminal.key),
+                    }
+                )
+    mandatory_fixes = [issue.message for issue in report.issues if issue.severity == "critical"]
+    warnings = [issue.message for issue in report.issues if issue.severity == "warning"]
+    avg_loss = 0.0
+    losses = list(report.loss_fraction_by_object.values())
+    if losses:
+        avg_loss = sum(float(value) for value in losses) / len(losses)
+    return {
+        "candidate_id": candidate_id,
+        "strategy": strategy,
+        "edge_list": edges,
+        "district_map": {obj.object_id: str(obj.district or "default") for obj in active},
+        "validation_block": {
+            "blocking_errors": mandatory_fixes,
+            "warnings": warnings,
+        },
+        "expected_losses": round(avg_loss, 4),
+        "mandatory_fixes": mandatory_fixes,
+    }
+
+
+def _plan_network_once(
     *,
     existing_objects: Iterable[EnergyObject],
     candidate_objects: Iterable[EnergyObject],
+    mode: str,
 ) -> Tuple[List[EnergyObject], NetworkValidationReport]:
     objects = ensure_terminals([*existing_objects, *candidate_objects])
     by_id = {obj.object_id: obj for obj in objects}
@@ -226,6 +279,7 @@ def plan_network(
                 terminal_index=0,
                 objects_by_id=by_id,
                 available_ports=available_ports,
+                mode=mode,
             )
             if choices:
                 parent_id = choices[0][0]
@@ -242,6 +296,7 @@ def plan_network(
                 terminal_index=idx,
                 objects_by_id=by_id,
                 available_ports=available_ports,
+                mode=mode,
             )
             if not choices:
                 continue
@@ -262,6 +317,80 @@ def plan_network(
     return objects, report
 
 
+def plan_network_candidates(
+    *,
+    existing_objects: Iterable[EnergyObject],
+    candidate_objects: Iterable[EnergyObject],
+) -> List[Tuple[List[EnergyObject], NetworkValidationReport]]:
+    candidates: List[Tuple[List[EnergyObject], NetworkValidationReport]] = []
+    fingerprints: set[Tuple[Tuple[str, str, str], ...]] = set()
+    for mode in ("balanced", "loss_aware", "resilience"):
+        objects, report = _plan_network_once(
+            existing_objects=existing_objects,
+            candidate_objects=candidate_objects,
+            mode=mode,
+        )
+        fingerprint = tuple(
+            sorted(
+                (
+                    obj.object_id,
+                    str(obj.parent_id or ""),
+                    "|".join(
+                        f"{terminal.key}:{terminal.parent_id or ''}:{terminal.connection_point}"
+                        for terminal in list(obj.terminals or [])
+                    ),
+                )
+                for obj in objects
+            )
+        )
+        if fingerprint in fingerprints:
+            continue
+        fingerprints.add(fingerprint)
+        report.topology_candidates.append(
+            _candidate_summary(
+                candidate_id=f"net-{len(candidates) + 1}",
+                strategy=mode,
+                objects=objects,
+                report=report,
+            )
+        )
+        candidates.append((objects, report))
+    return candidates
+
+
+def plan_network(
+    *,
+    existing_objects: Iterable[EnergyObject],
+    candidate_objects: Iterable[EnergyObject],
+) -> Tuple[List[EnergyObject], NetworkValidationReport]:
+    candidates = plan_network_candidates(
+        existing_objects=existing_objects,
+        candidate_objects=candidate_objects,
+    )
+    if not candidates:
+        return ensure_terminals([*existing_objects, *candidate_objects]), NetworkValidationReport()
+    ordered = sorted(
+        candidates,
+        key=lambda item: (
+            1 if item[1].blocking else 0,
+            len([issue for issue in item[1].issues if issue.severity == "warning"]),
+            sum(float(value) for value in item[1].loss_fraction_by_object.values()),
+        ),
+    )
+    selected_objects, selected_report = ordered[0]
+    selected_report.topology_candidates = [
+        _candidate_summary(
+            candidate_id=f"net-{index}",
+            strategy=str(summary.get("strategy") or "balanced"),
+            objects=objects,
+            report=report,
+        )
+        for index, (objects, report) in enumerate(candidates, start=1)
+        for summary in [((report.topology_candidates or [{}])[0] if report.topology_candidates else {})]
+    ]
+    return selected_objects, selected_report
+
+
 def validate_network(objects: Iterable[EnergyObject]) -> NetworkValidationReport:
     prepared = ensure_terminals(objects)
     report = NetworkValidationReport()
@@ -273,7 +402,6 @@ def validate_network(objects: Iterable[EnergyObject]) -> NetworkValidationReport
         report.issues.append(
             TopologyIssue("NO_MAIN_SUBSTATION", "В системе отсутствует главная подстанция.", "critical")
         )
-        return report
     if len(mains) > 1:
         report.issues.append(
             TopologyIssue(
@@ -282,6 +410,8 @@ def validate_network(objects: Iterable[EnergyObject]) -> NetworkValidationReport
                 "critical",
             )
         )
+    if not mains:
+        return report
 
     root_id = mains[0].object_id
     children: Dict[str, List[str]] = defaultdict(list)
@@ -320,8 +450,10 @@ def validate_network(objects: Iterable[EnergyObject]) -> NetworkValidationReport
             _mark(child_id)
 
     _mark(root_id)
+    unreachable_infra = 0
     for obj in infra:
         if obj.object_id not in reachable:
+            unreachable_infra += 1
             report.issues.append(
                 TopologyIssue(
                     "NO_PATH_TO_MAIN",
@@ -330,6 +462,14 @@ def validate_network(objects: Iterable[EnergyObject]) -> NetworkValidationReport
                     obj.object_id,
                 )
             )
+    if unreachable_infra:
+        report.issues.append(
+            TopologyIssue(
+                "ISLAND_DETECTED",
+                "Обнаружен остров: часть сети не связана с главной подстанцией.",
+                "critical",
+            )
+        )
 
     usage = _used_ports(active)
     for obj in infra:
@@ -343,6 +483,13 @@ def validate_network(objects: Iterable[EnergyObject]) -> NetworkValidationReport
                     obj.object_id,
                 )
             )
+        if _norm(obj.code) in MINI_CODES and obj.object_id != root_id and not obj.parent_id:
+            code = "MINI_SUBSTATION_NOT_INSTALLED"
+            message = f"Миниподстанция «{obj.name}» куплена, но не установлена в дереве сети."
+            if obj.source_lot_id:
+                report.issues.append(TopologyIssue(code, message, "critical", obj.object_id))
+            else:
+                report.issues.append(TopologyIssue(code, message, "warning", obj.object_id))
 
     district_stats = _district_side_stats(active)
     for district, stats in sorted(district_stats.items()):
@@ -440,6 +587,56 @@ def validate_network(objects: Iterable[EnergyObject]) -> NetworkValidationReport
                     obj.object_id,
                 )
             )
+
+        loss_fraction = loss_fraction_for_object(obj=obj, objects=active, config={"network": {}})
+        report.loss_fraction_by_object[obj.object_id] = loss_fraction
+        if loss_fraction >= 0.18:
+            report.issues.append(
+                TopologyIssue(
+                    "HIGH_NETWORK_LOSSES",
+                    f"Для объекта «{obj.name}» ожидаются повышенные потери сети.",
+                    "warning",
+                    obj.object_id,
+                )
+            )
+        terminal_points = {str(terminal.connection_point or "A").upper() for terminal in valid_connected}
+        if terminal_points & {"C", "D"}:
+            report.issues.append(
+                TopologyIssue(
+                    "SUBOPTIMAL_CONNECTION_POINT",
+                    f"Объект «{obj.name}» подключён через неудачную точку, потери будут выше.",
+                    "warning",
+                    obj.object_id,
+                )
+            )
+        max_depth = 0
+        for terminal in valid_connected:
+            depth = 0
+            cursor = by_id.get(str(terminal.parent_id))
+            while cursor is not None and cursor.parent_id:
+                depth += 1
+                cursor = by_id.get(str(cursor.parent_id))
+            max_depth = max(max_depth, depth)
+        if max_depth >= 2:
+            report.issues.append(
+                TopologyIssue(
+                    "NETWORK_DEPTH_HIGH",
+                    f"Объект «{obj.name}» подключён через глубокую ветвь сети.",
+                    "warning",
+                    obj.object_id,
+                )
+            )
+        if _norm(obj.code) == "hospital":
+            parent_ids = {str(terminal.parent_id or "") for terminal in valid_connected}
+            if len(parent_ids) == 1:
+                report.issues.append(
+                    TopologyIssue(
+                        "LOW_RESILIENCE",
+                        "Больница использует два ввода, но оба заведены через один узел. Отказоустойчивость низкая.",
+                        "warning",
+                        obj.object_id,
+                    )
+                )
 
     return report
 

@@ -7,6 +7,7 @@ ObjectCategory = Literal["consumer", "generator", "storage", "infrastructure"]
 IssueSeverity = Literal["critical", "warning", "hint"]
 AuctionDirection = Literal["descending_consumer_tariff", "ascending_service_tariff"]
 RiskBand = Literal["low", "medium", "high"]
+LotProfile = Literal["consumer", "generator", "storage", "infrastructure", "mixed"]
 
 
 @dataclass(slots=True)
@@ -58,12 +59,16 @@ class ForecastDataset:
 class MarketBid:
     tick: int
     declared_mw: float
+    anti_dumping_cap_mw: float
+    useful_energy_mw: float
     actual_high_price_sale_mw: float
     low_price_sale_mw: float
     shortfall_mw: float
     high_price: float
     low_price: float
     balancing_penalty_price: float
+    gp_purchase_mw: float = 0.0
+    exchange_price_band: str = "2-20"
 
 
 @dataclass(slots=True)
@@ -71,13 +76,18 @@ class StorageValueBreakdown:
     arbitrage: float = 0.0
     balancing: float = 0.0
     reserve: float = 0.0
+    anti_dumping_support: float = 0.0
 
 
 @dataclass(slots=True)
 class SimulationTotals:
     consumer_revenue: float = 0.0
+    fixed_tariff_revenue: float = 0.0
     market_revenue: float = 0.0
+    exchange_sale_revenue: float = 0.0
+    guaranteed_sale_revenue: float = 0.0
     market_purchase_cost: float = 0.0
+    gp_purchase_cost: float = 0.0
     service_cost: float = 0.0
     loss_cost: float = 0.0
     balancing_penalty: float = 0.0
@@ -86,6 +96,7 @@ class SimulationTotals:
     reserve_credit: float = 0.0
     total_generation_mw: float = 0.0
     useful_generation_mw: float = 0.0
+    useful_energy_export_mw: float = 0.0
     served_load_mw: float = 0.0
     gross_load_mw: float = 0.0
     loss_mw: float = 0.0
@@ -108,6 +119,7 @@ class NetworkValidationReport:
     usable_fraction_by_object: Dict[str, float] = field(default_factory=dict)
     available_ports_by_node: Dict[str, int] = field(default_factory=dict)
     loss_fraction_by_object: Dict[str, float] = field(default_factory=dict)
+    topology_candidates: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def blocking(self) -> bool:
@@ -119,6 +131,7 @@ class SimulationResult:
     totals: SimulationTotals
     topology: NetworkValidationReport
     market_bids: List[MarketBid] = field(default_factory=list)
+    tick_rows: List[Dict[str, Any]] = field(default_factory=list)
     deficit_ticks: List[int] = field(default_factory=list)
     surplus_ticks: List[int] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
@@ -137,6 +150,7 @@ class LotEvaluation:
     lot_id: int
     lot_name: str
     auction_direction: AuctionDirection
+    lot_profile: LotProfile
     expected_delta_profit: float
     break_even_tariff: float
     recommended_bid_or_tariff: float
@@ -150,6 +164,7 @@ class LotEvaluation:
     explanation: str
     direct_delta_profit: float = 0.0
     enabler_value: float = 0.0
+    bundle_synergy_value: float = 0.0
     maintenance_tariff_total: float = 0.0
     topology: NetworkValidationReport = field(default_factory=NetworkValidationReport)
     storage_value: StorageValueBreakdown = field(default_factory=StorageValueBreakdown)
@@ -157,3 +172,19 @@ class LotEvaluation:
     mounting_requirements: List[str] = field(default_factory=list)
     conflicts: List[str] = field(default_factory=list)
     assumptions: List[str] = field(default_factory=list)
+    minimum_acceptable_tariff: Optional[float] = None
+    recommended_walkdown_tariff: Optional[float] = None
+    aggressive_floor: Optional[float] = None
+    hard_floor: Optional[float] = None
+    maximum_acceptable_service_tariff: Optional[float] = None
+    recommended_bid_ceiling: Optional[float] = None
+    soft_ceiling: Optional[float] = None
+    hard_ceiling: Optional[float] = None
+    recommended_opening_bid: float = 0.0
+    recommended_counter_bid: float = 0.0
+    hard_limit: float = 0.0
+    allpay_trigger_policy: str = ""
+    drop_candidate_score: float = 0.0
+    portfolio_substitute_group: str = ""
+    plan_b_if_lost: str = ""
+    plan_c_if_overbid: str = ""

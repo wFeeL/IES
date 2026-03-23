@@ -46,6 +46,7 @@ from ..services.session_io import (
     export_session_payload,
     import_session_payload,
 )
+from ..services.post_auction_plan import build_post_auction_plan, render_post_auction_plan_yaml
 from ..services.stale import mark_stale_for_session
 from ..services.strategy import build_strategy_snapshot
 from ..services.test_game_preset import TEST_GAME_UPLOAD_FORECAST_DEFAULT_NAME
@@ -147,6 +148,7 @@ def _session_recalculation_payload(
         if not allow_partial:
             raise
         portfolio = portfolio_summary(session)
+        auction_budget = auction_budget_view(session)
         return {
             "items": [],
             "strategy": None,
@@ -161,6 +163,8 @@ def _session_recalculation_payload(
                 "reserved_budget": float(portfolio.get("reserved_budget", 0.0)),
                 "purchase_spent": float(portfolio["purchase_spent"]),
                 "allpay_spent": float(portfolio["allpay_spent"]),
+                "allpay_limit": float(auction_budget.get("allpay_limit", 0.0) or 0.0),
+                "allpay_remaining": float(auction_budget.get("allpay_remaining", 0.0) or 0.0),
                 "spent_total": float(portfolio["spent_total"]),
                 "remaining_budget": float(portfolio["remaining_budget"]),
                 "bought_lots_count": int(portfolio["bought_lots_count"]),
@@ -203,6 +207,7 @@ def _session_recalculation_payload(
         reverse=True,
     )
     portfolio = portfolio_summary(session)
+    auction_budget = auction_budget_view(session)
     return {
         "items": rows,
         "strategy": strategy_snapshot,
@@ -215,6 +220,8 @@ def _session_recalculation_payload(
             "reserved_budget": float(portfolio.get("reserved_budget", 0.0)),
             "purchase_spent": float(portfolio["purchase_spent"]),
             "allpay_spent": float(portfolio["allpay_spent"]),
+            "allpay_limit": float(auction_budget.get("allpay_limit", 0.0) or 0.0),
+            "allpay_remaining": float(auction_budget.get("allpay_remaining", 0.0) or 0.0),
             "spent_total": float(portfolio["spent_total"]),
             "remaining_budget": float(portfolio["remaining_budget"]),
             "bought_lots_count": int(portfolio["bought_lots_count"]),
@@ -309,6 +316,27 @@ def import_session():
 def export_session(session_id: int):
     row = get_session_or_404(session_id)
     return jsonify({"ok": True, "item": export_session_payload(row)})
+
+
+@api_bp.get("/sessions/<int:session_id>/post-auction-plan")
+@login_required
+def export_post_auction_plan(session_id: int):
+    row = get_session_or_404(session_id)
+    return jsonify({"ok": True, "item": build_post_auction_plan(row)})
+
+
+@api_bp.get("/sessions/<int:session_id>/post-auction-plan.yaml")
+@login_required
+def export_post_auction_plan_yaml_endpoint(session_id: int):
+    row = get_session_or_404(session_id)
+    payload = render_post_auction_plan_yaml(row)
+    return Response(
+        payload,
+        mimetype="application/yaml",
+        headers={
+            "Content-Disposition": f'attachment; filename="post_auction_plan_session_{session_id}.yaml"'
+        },
+    )
 
 
 @api_bp.get("/sessions/<int:session_id>/evaluations.csv")
@@ -1007,6 +1035,8 @@ def auction_apply_action(session_id: int):
             if payload.get("bid_amount") not in (None, "")
             else None
         ),
+        auction_mode=str(payload.get("auction_mode", "ordinary_tariff_auction") or "ordinary_tariff_auction"),
+        allpay_triggered=bool(payload.get("allpay_triggered", False)),
     )
     db.session.commit()
     refresh = _session_recalculation_payload(

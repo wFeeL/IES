@@ -3,6 +3,9 @@
 {% block content %}
 {% include "components/session_hero.html" %}
 {% include "components/analysis_context.html" %}
+{% set base_case = evaluation.base_case if evaluation.base_case is defined else (evaluation.scenario_breakdown.base if evaluation.scenario_breakdown is defined else {}) %}
+{% set best_case = evaluation.best_case if evaluation.best_case is defined else (evaluation.scenario_breakdown.best if evaluation.scenario_breakdown is defined else {}) %}
+{% set worst_case = evaluation.worst_case if evaluation.worst_case is defined else (evaluation.scenario_breakdown.worst if evaluation.scenario_breakdown is defined else {}) %}
 {% if forecast_blocked %}
 <section class="card mt-4">
   <div class="risk-block">
@@ -41,8 +44,8 @@
           <tr><th>Recommended tariff</th><td>{{ fmt_num(evaluation.recommended_bid_or_tariff or evaluation.recommended_bid, 2) }}</td></tr>
           <tr><th>Break-even tariff</th><td>{{ fmt_num(evaluation.break_even_tariff or evaluation.max_bid or evaluation.decision_summary.max_bid, 2) }}</td></tr>
           <tr><th>Expected delta-profit</th><td>{{ fmt_num(evaluation.expected_delta_profit or evaluation.financial_breakdown.result.net_profit, 2) }}</td></tr>
-          <tr><th>Base case</th><td>{{ fmt_num(evaluation.base_case.delta_profit or evaluation.scenario_breakdown.base.delta_profit, 2) }}</td></tr>
-          <tr><th>Best / worst case</th><td>{{ fmt_num(evaluation.best_case.delta_profit or evaluation.scenario_breakdown.best.delta_profit, 2) }} / {{ fmt_num(evaluation.worst_case.delta_profit or evaluation.scenario_breakdown.worst.delta_profit, 2) }}</td></tr>
+          <tr><th>Base case</th><td>{{ fmt_num(base_case.delta_profit, 2) }}</td></tr>
+          <tr><th>Best / worst case</th><td>{{ fmt_num(best_case.delta_profit, 2) }} / {{ fmt_num(worst_case.delta_profit, 2) }}</td></tr>
           <tr><th>Остаток бюджета после recommended</th><td>{{ fmt_num(evaluation.decision_summary.remaining_budget_after_recommended_bid or evaluation.financial_breakdown.result.remaining_budget_after_recommended_bid, 1) }}</td></tr>
           <tr><th>Системная проверка</th><td>{{ evaluation.system_check.message }}</td></tr>
         </tbody>

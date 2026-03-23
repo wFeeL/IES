@@ -19,10 +19,10 @@ TEST_GAME_START_PACK_DESCRIPTION = (
     "Главная подстанция, мини-подстанция нагрузки и базовый дом по правилам ИЭС 2026."
 )
 
-TEST_GAME_DEFAULT_SESSION_TITLE = "Тестовая игра 2026"
-TEST_GAME_BUNDLED_FORECAST_NAME = "Прогноз тестовой игры 2026"
+TEST_GAME_DEFAULT_SESSION_TITLE = "Тестовая игра"
+TEST_GAME_BUNDLED_FORECAST_NAME = "Прогноз игры"
 TEST_GAME_FORECAST_SOURCE_LABEL = "Встроенный прогноз ИЭС 2026"
-TEST_GAME_UPLOAD_FORECAST_DEFAULT_NAME = "Прогноз 2026"
+TEST_GAME_UPLOAD_FORECAST_DEFAULT_NAME = "Прогноз игры"
 
 TEST_GAME_OBJECT_CODES = (
     "main_substation",
@@ -62,20 +62,69 @@ LOT_KIND_TO_OBJECT_CODE: Dict[str, str] = {
     "factory": "factory",
     "hospital": "hospital",
 }
-LOT_PATTERNS: Sequence[Dict[str, Any]] = (
-    {"title": "Жилой север", "items": (("house_a", 2), ("mini_substation", 1))},
-    {"title": "Жилой юг", "items": (("house_b", 2),)},
-    {"title": "Офисный кластер", "items": (("office", 2), ("mini_substation", 1))},
-    {"title": "Промышленный узел", "items": (("factory", 1), ("mini_substation", 1))},
-    {"title": "Критическая нагрузка", "items": (("hospital", 1), ("mini_substation", 1))},
-    {"title": "Солнечный контур", "items": (("solar", 2),)},
-    {"title": "Ветровой контур", "items": (("wind", 2),)},
-    {"title": "Сетевой буфер", "items": (("storage", 1), ("mini_substation", 1))},
-    {"title": "Гибкий микс", "items": (("solar", 1), ("storage", 1), ("mini_substation", 1))},
-    {"title": "Потребительский резерв", "items": (("house_a", 1), ("office", 1), ("storage", 1))},
-    {"title": "Пиковый ветер", "items": (("wind", 1), ("storage", 1))},
-    {"title": "Солнечная больница", "items": (("hospital", 1), ("solar", 1), ("mini_substation", 1))},
+LOT_BLUEPRINTS: Sequence[Dict[str, Any]] = (
+    {"lot_id": "G01", "title": "Жилой север", "items": [{"code": "mini_substation", "qty": (1, 1), "district": "load_north"}, {"code": "house_a", "qty": (1, 2), "district": "load_north"}, {"code": "house_b", "qty": (0, 1), "district": "load_north"}]},
+    {"lot_id": "G02", "title": "Жилой юг", "items": [{"code": "mini_substation", "qty": (1, 1), "district": "load_south"}, {"code": "house_b", "qty": (1, 2), "district": "load_south"}, {"code": "house_a", "qty": (0, 1), "district": "load_south"}]},
+    {"lot_id": "G03", "title": "Офисный квартал", "items": [{"code": "mini_substation", "qty": (1, 1), "district": "office_central"}, {"code": "office", "qty": (1, 2), "district": "office_central"}, {"code": "storage", "qty": (0, 1), "district": "office_central"}]},
+    {"lot_id": "G04", "title": "Промышленная линия", "items": [{"code": "mini_substation", "qty": (1, 1), "district": "industrial_east"}, {"code": "factory", "qty": (1, 1), "district": "industrial_east"}, {"code": "storage", "qty": (0, 1), "district": "industrial_east"}]},
+    {"lot_id": "G05", "title": "Медицинский кластер", "items": [{"code": "mini_substation", "qty": (1, 1), "district": "critical_med"}, {"code": "hospital", "qty": (1, 1), "district": "critical_med"}, {"code": "storage", "qty": (0, 1), "district": "critical_med"}]},
+    {"lot_id": "G06", "title": "Солнечный пояс", "items": [{"code": "mini_substation", "qty": (0, 1), "district": "gen_solar_north"}, {"code": "solar", "qty": (1, 2), "district": "gen_solar_north"}]},
+    {"lot_id": "G07", "title": "Солнечный парк", "items": [{"code": "solar", "qty": (1, 2), "district": "gen_solar_west"}, {"code": "storage", "qty": (0, 1), "district": "gen_solar_west"}]},
+    {"lot_id": "G08", "title": "Ветровой запад", "items": [{"code": "mini_substation", "qty": (0, 1), "district": "gen_wind_west"}, {"code": "wind", "qty": (1, 2), "district": "gen_wind_west", "wind_channels": ("wind_west",)}]},
+    {"lot_id": "G09", "title": "Ветровой север", "items": [{"code": "wind", "qty": (1, 2), "district": "gen_wind_north", "wind_channels": ("wind_main", "wind_west")}, {"code": "storage", "qty": (0, 1), "district": "gen_wind_north"}]},
+    {"lot_id": "G10", "title": "Буфер дефицита", "items": [{"code": "storage", "qty": (1, 2), "district": "buffer_north"}, {"code": "mini_substation", "qty": (0, 1), "district": "buffer_north"}]},
+    {"lot_id": "G11", "title": "Резерв антидемпинга", "items": [{"code": "storage", "qty": (1, 2), "district": "buffer_market"}, {"code": "wind", "qty": (0, 1), "district": "gen_buffer_market", "wind_channels": ("wind_main",)}]},
+    {"lot_id": "G12", "title": "Нагрузочный резерв", "items": [{"code": "mini_substation", "qty": (1, 1), "district": "load_reserve"}, {"code": "house_a", "qty": (1, 1), "district": "load_reserve"}, {"code": "office", "qty": (1, 1), "district": "load_reserve"}]},
+    {"lot_id": "G13", "title": "Индустриальный дублёр", "items": [{"code": "mini_substation", "qty": (1, 1), "district": "industrial_backup"}, {"code": "factory", "qty": (1, 1), "district": "industrial_backup"}, {"code": "office", "qty": (0, 1), "district": "industrial_backup"}]},
+    {"lot_id": "G14", "title": "Критическая поддержка", "items": [{"code": "mini_substation", "qty": (1, 1), "district": "critical_support"}, {"code": "hospital", "qty": (1, 1), "district": "critical_support"}, {"code": "solar", "qty": (0, 1), "district": "gen_critical_support"}]},
+    {"lot_id": "G15", "title": "ВИЭ с буфером", "items": [{"code": "solar", "qty": (1, 1), "district": "gen_mix_east"}, {"code": "wind", "qty": (1, 1), "district": "gen_mix_east", "wind_channels": ("wind_main", "wind_west")}, {"code": "storage", "qty": (1, 1), "district": "gen_mix_east"}]},
+    {"lot_id": "G16", "title": "Городской контур", "items": [{"code": "mini_substation", "qty": (1, 1), "district": "urban_loop"}, {"code": "house_a", "qty": (1, 2), "district": "urban_loop"}, {"code": "office", "qty": (1, 1), "district": "urban_loop"}]},
+    {"lot_id": "G17", "title": "Смена нагрузки", "items": [{"code": "house_b", "qty": (1, 2), "district": "load_shift"}, {"code": "storage", "qty": (1, 1), "district": "load_shift"}, {"code": "mini_substation", "qty": (0, 1), "district": "load_shift"}]},
+    {"lot_id": "G18", "title": "Генерация на экспорт", "items": [{"code": "solar", "qty": (1, 2), "district": "export_gen"}, {"code": "wind", "qty": (0, 1), "district": "export_gen", "wind_channels": ("wind_main", "wind_west")}]},
+    {"lot_id": "G19", "title": "Ветер и накопитель", "items": [{"code": "wind", "qty": (1, 1), "district": "wind_storage", "wind_channels": ("wind_west",)}, {"code": "storage", "qty": (1, 1), "district": "wind_storage"}, {"code": "mini_substation", "qty": (0, 1), "district": "wind_storage"}]},
+    {"lot_id": "G20", "title": "Потребительский пакет", "items": [{"code": "house_a", "qty": (1, 1), "district": "consumer_pack"}, {"code": "house_b", "qty": (1, 1), "district": "consumer_pack"}, {"code": "office", "qty": (1, 1), "district": "consumer_pack"}, {"code": "mini_substation", "qty": (1, 1), "district": "consumer_pack"}]},
+    {"lot_id": "L01", "title": "Локальная ветка нагрузки", "items": [{"code": "mini_substation", "qty": (1, 1), "district": "local_load_1"}, {"code": "house_a", "qty": (1, 1), "district": "local_load_1"}]},
+    {"lot_id": "L02", "title": "Локальная солнечная точка", "items": [{"code": "solar", "qty": (1, 1), "district": "local_gen_1"}, {"code": "mini_substation", "qty": (0, 1), "district": "local_gen_1"}]},
+    {"lot_id": "L03", "title": "Локальный ветер", "items": [{"code": "wind", "qty": (1, 1), "district": "local_gen_2", "wind_channels": ("wind_west",)}, {"code": "storage", "qty": (0, 1), "district": "local_gen_2"}]},
+    {"lot_id": "L04", "title": "Локальный буфер", "items": [{"code": "storage", "qty": (1, 1), "district": "local_buffer"}, {"code": "mini_substation", "qty": (0, 1), "district": "local_buffer"}]},
+    {"lot_id": "L05", "title": "Локальная критическая точка", "items": [{"code": "mini_substation", "qty": (1, 1), "district": "local_critical"}, {"code": "hospital", "qty": (1, 1), "district": "local_critical"}]},
 )
+
+BASE_TARIFF_BY_CODE: Dict[str, float] = {
+    "house_a": 6.2,
+    "house_b": 6.8,
+    "office": 7.5,
+    "factory": 8.2,
+    "hospital": 9.8,
+    "solar": 6.5,
+    "wind": 7.1,
+    "storage": 5.4,
+    "mini_substation": 4.3,
+    "main_substation": 0.0,
+}
+
+
+def _lot_item_payload(
+    *,
+    rng: random.Random,
+    code: str,
+    quantity: int,
+    district: str,
+    wind_channels: Sequence[str] | None = None,
+) -> Dict[str, Any]:
+    overrides: Dict[str, Any] = {"district": district}
+    if code == "wind":
+        channels = list(wind_channels or ("wind_main", "wind_west"))
+        overrides["wind_channel"] = channels[rng.randrange(len(channels))]
+    if code == "factory":
+        overrides["secondary_connection_point"] = "B"
+    if code == "hospital":
+        overrides["secondary_connection_point"] = "B"
+    return {
+        "object_type_code": code,
+        "quantity": max(1, quantity),
+        "overrides": overrides,
+    }
 
 
 def is_test_game_ruleset(ruleset: Ruleset | None) -> bool:
@@ -165,41 +214,39 @@ def load_lot_payloads_from_dir(path: Path) -> List[Dict[str, Any]]:
 def load_test_game_lot_payloads() -> List[Dict[str, Any]]:
     rng = random.Random(TEST_GAME_GENERATED_LOTS_SEED)
     payloads: List[Dict[str, Any]] = []
-    for index, spec in enumerate(LOT_PATTERNS, start=1):
+    for spec in LOT_BLUEPRINTS:
         items = []
         total_bid = 0.0
-        for item_index, (code, quantity) in enumerate(spec["items"], start=1):
-            current_bid = {
-                "house_a": 6.0,
-                "house_b": 6.5,
-                "office": 7.3,
-                "factory": 8.5,
-                "hospital": 10.0,
-                "solar": 6.4,
-                "wind": 7.0,
-                "storage": 5.2,
-                "mini_substation": 4.6,
-                "main_substation": 0.0,
-            }.get(code, 5.0)
-            total_bid += current_bid * quantity
-            overrides: Dict[str, Any] = {}
-            if code == "wind":
-                overrides["wind_channel"] = "wind_main" if item_index % 2 else "wind_west"
-            if code in {"factory", "hospital"}:
-                overrides["secondary_connection_point"] = "B"
+        for item_spec in spec["items"]:
+            min_qty, max_qty = tuple(item_spec.get("qty", (1, 1)))
+            quantity = rng.randint(int(min_qty), int(max_qty))
+            if quantity <= 0:
+                continue
+            code = str(item_spec["code"])
+            total_bid += BASE_TARIFF_BY_CODE.get(code, 5.0) * quantity
             items.append(
-                {
-                    "object_type_code": code,
-                    "quantity": quantity,
-                    "overrides": overrides,
-                }
+                _lot_item_payload(
+                    rng=rng,
+                    code=code,
+                    quantity=quantity,
+                    district=str(item_spec.get("district") or "default"),
+                    wind_channels=item_spec.get("wind_channels"),
+                )
             )
+        if not items:
+            continue
+        note_scope = "global" if str(spec["lot_id"]).startswith("G") else "local"
         payloads.append(
             {
-                "title": spec["title"],
-                "note": "Набор для демонстрации правил ИЭС 2026.",
+                "lot_id": str(spec["lot_id"]),
+                "title": f"{spec['lot_id']} · {spec['title']}",
+                "note": (
+                    "Детерминированно-случайный лот тестовой игры ИЭС 2026. "
+                    f"Scope={note_scope}, bundle valuation и topology planning обязательны."
+                ),
+                "scope": note_scope,
                 "items": items,
-                "suggested_bid": round(total_bid * rng.uniform(0.95, 1.08), 2),
+                "suggested_bid": round(total_bid * rng.uniform(0.94, 1.08), 2),
             }
         )
     return payloads
@@ -232,7 +279,7 @@ def add_lot_payloads_to_session(
         lot = Lot(
             session_id=session.id,
             name=lot_name,
-            scope="normal",
+            scope=str(payload.get("scope") or "normal"),
             status="available",
             base_bid=bid_value,
             current_bid=bid_value,

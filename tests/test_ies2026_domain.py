@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from ies_bot_skeleton.domain.ies2026 import EnergyObject, evaluate_candidate_bundle, validate_network
+import pytest
+
+from ies_bot_skeleton.domain.ies2026 import (
+    EnergyObject,
+    anti_dumping_cap_mw,
+    evaluate_candidate_bundle,
+    simulate_system,
+    validate_network,
+)
 from ies_bot_skeleton.web.services.ruleset import build_default_ruleset_config
 
 
@@ -97,6 +105,7 @@ def _consumer(
         category="consumer",
         district=district,
         parameters={
+            "tariff_rub_per_tick": tariff,
             "tariff_rub_per_mw_tick": tariff,
             "expected_consumption_mw": demand,
             "elasticity": 0.1,
@@ -113,7 +122,7 @@ def _solar(
     district: str,
     parent_id: str,
     contract: float,
-    generation: float = 22.0,
+    generation: float = 20.0,
     connection_point: str = "A",
 ) -> EnergyObject:
     return EnergyObject(
@@ -201,7 +210,7 @@ def test_consumer_lot_has_positive_delta_profit_and_break_even_tariff():
                 "house_a",
                 district="load_north",
                 parent_id="load-mini",
-                tariff=12.5,
+                tariff=45.0,
                 demand=4.0,
             )
         ],
@@ -214,6 +223,8 @@ def test_consumer_lot_has_positive_delta_profit_and_break_even_tariff():
     assert evaluation.break_even_tariff > 0.0
     assert evaluation.recommended_bid_or_tariff >= evaluation.break_even_tariff
     assert evaluation.topology.blocking is False
+    assert evaluation.minimum_acceptable_tariff == evaluation.break_even_tariff
+    assert evaluation.recommended_walkdown_tariff >= evaluation.minimum_acceptable_tariff
 
 
 def test_generator_lot_uses_weather_and_market_based_value():
@@ -227,7 +238,7 @@ def test_generator_lot_uses_weather_and_market_based_value():
                 district="gen_west",
                 parent_id="gen-mini",
                 contract=3.5,
-                generation=24.0,
+                generation=20.0,
             )
         ],
         forecast_pack=_forecast_pack(sell_price=8.4),
@@ -238,6 +249,8 @@ def test_generator_lot_uses_weather_and_market_based_value():
     assert evaluation.expected_delta_profit > 0.0
     assert evaluation.recommended_bid_or_tariff < evaluation.break_even_tariff
     assert evaluation.market_risk in {"low", "medium", "high"}
+    assert evaluation.maximum_acceptable_service_tariff == evaluation.break_even_tariff
+    assert evaluation.recommended_bid_ceiling <= evaluation.maximum_acceptable_service_tariff
 
 
 def test_storage_value_breakdown_is_non_zero_when_prices_vary():
@@ -267,6 +280,7 @@ def test_storage_value_breakdown_is_non_zero_when_prices_vary():
             category="consumer",
             district="load_north",
             parameters={
+                "tariff_rub_per_tick": 12.0,
                 "tariff_rub_per_mw_tick": 12.0,
                 "expected_consumption_mw": 4.0,
                 "elasticity": 0.05,
@@ -288,6 +302,7 @@ def test_storage_value_breakdown_is_non_zero_when_prices_vary():
         evaluation.storage_value.arbitrage
         + evaluation.storage_value.balancing
         + evaluation.storage_value.reserve
+        + evaluation.storage_value.anti_dumping_support
     )
     assert total_storage_value > 0.0
     assert evaluation.expected_delta_profit > 0.0
@@ -306,6 +321,7 @@ def test_network_validator_requires_two_inputs_for_hospital():
                 category="consumer",
                 district="load_north",
                 parameters={
+                    "tariff_rub_per_tick": 12.0,
                     "tariff_rub_per_mw_tick": 12.0,
                     "expected_consumption_mw": 5.0,
                     "connection_point": "A",
@@ -331,7 +347,7 @@ def test_losses_can_turn_consumer_from_profitable_to_unprofitable():
                 "house_a",
                 district="load_north",
                 parent_id="load-mini",
-                tariff=10.5,
+                tariff=39.0,
                 demand=4.0,
                 connection_point="A",
             )
@@ -349,7 +365,7 @@ def test_losses_can_turn_consumer_from_profitable_to_unprofitable():
                 "house_a",
                 district="load_north",
                 parent_id="load-mini",
-                tariff=10.5,
+                tariff=39.0,
                 demand=4.0,
                 connection_point="D",
             )
@@ -378,6 +394,7 @@ def test_infrastructure_can_have_positive_enabler_value():
                 category="consumer",
                 district="load_north",
                 parameters={
+                    "tariff_rub_per_tick": 11.0,
                     "tariff_rub_per_mw_tick": 11.0,
                     "expected_consumption_mw": 4.2,
                     "connection_point": "A",
@@ -417,6 +434,7 @@ def test_factory_single_input_is_warning_not_blocking_error():
                 category="consumer",
                 district="load_north",
                 parameters={
+                    "tariff_rub_per_tick": 11.0,
                     "tariff_rub_per_mw_tick": 11.0,
                     "expected_consumption_mw": 10.0,
                     "connection_point": "A",
@@ -428,3 +446,137 @@ def test_factory_single_input_is_warning_not_blocking_error():
 
     assert any(issue.code == "FACTORY_SINGLE_INPUT" for issue in report.issues)
     assert not any(issue.code == "FACTORY_NOT_CONNECTED" for issue in report.issues)
+
+
+def test_consumer_fixed_tariff_revenue_is_per_tick_not_per_delivered_mw():
+    config = build_default_ruleset_config()
+    forecast = _forecast_pack(buy_price=8.1)
+    base = [_main(), _mini("load-mini", district="load_north")]
+    low_demand = simulate_system(
+        objects=base + [
+            _consumer(
+                "house-low",
+                "house_a",
+                district="load_north",
+                parent_id="load-mini",
+                tariff=9.0,
+                demand=1.2,
+            )
+        ],
+        forecast_pack=forecast,
+        ruleset_config=config,
+    )
+    high_demand = simulate_system(
+        objects=base + [
+            _consumer(
+                "factory-high",
+                "factory",
+                district="load_north",
+                parent_id="load-mini",
+                tariff=9.0,
+                demand=9.5,
+            )
+        ],
+        forecast_pack=forecast,
+        ruleset_config=config,
+    )
+
+    assert low_demand.totals.fixed_tariff_revenue == high_demand.totals.fixed_tariff_revenue
+    assert high_demand.totals.gp_purchase_cost > low_demand.totals.gp_purchase_cost
+
+
+def test_anti_dumping_formula_uses_previous_useful_energy():
+    config = build_default_ruleset_config()
+
+    assert anti_dumping_cap_mw(0.0, config) == 10.0
+    assert anti_dumping_cap_mw(25.0, config) == 40.0
+    assert anti_dumping_cap_mw(60.0, config) == 82.0
+
+
+def test_useful_energy_is_lower_than_gross_generation_when_losses_apply():
+    config = build_default_ruleset_config()
+    result = simulate_system(
+        objects=[
+            _main(),
+            _mini("gen-mini", district="gen_west"),
+            _solar(
+                "solar-far",
+                district="gen_west",
+                parent_id="gen-mini",
+                contract=1.0,
+                generation=20.0,
+                connection_point="D",
+            ),
+        ],
+        forecast_pack=_forecast_pack(sell_price=10.5),
+        ruleset_config=config,
+    )
+
+    assert result.totals.total_generation_mw > result.totals.useful_generation_mw
+    assert result.totals.loss_cost > 0.0
+
+
+def test_no_main_substation_is_blocking_error():
+    report = validate_network([_mini("orphan-mini", district="load_north", parent_id=None)])
+
+    assert report.blocking is True
+    assert any(issue.code == "NO_MAIN_SUBSTATION" for issue in report.issues)
+
+
+def test_mini_substation_purchased_but_not_installed_is_blocking_error():
+    report = validate_network(
+        [
+            _main(),
+            EnergyObject(
+                object_id="mini-lot",
+                object_type_id=2,
+                code="mini_substation",
+                name="mini-lot",
+                category="infrastructure",
+                district="load_north",
+                parameters={"ports": 4},
+                source_lot_id=77,
+                parent_id=None,
+            ),
+        ]
+    )
+
+    assert report.blocking is True
+    assert any(issue.code == "MINI_SUBSTATION_NOT_INSTALLED" for issue in report.issues)
+
+
+def test_bundle_value_is_not_equal_to_sum_of_standalone_values_when_infra_enables_layout():
+    config = build_default_ruleset_config()
+    base = [_main(ports=2)]
+    mini = _mini("bundle-mini", district="gen_east", parent_id="main", ports=4)
+    solar = _solar("bundle-solar", district="gen_east", parent_id="bundle-mini", contract=1.2, generation=20.0)
+
+    mini_only = evaluate_candidate_bundle(
+        lot_id=10,
+        lot_name="Mini only",
+        base_objects=base,
+        candidate_objects=[mini],
+        forecast_pack=_forecast_pack(sell_price=9.9),
+        ruleset_config=config,
+    )
+    solar_only = evaluate_candidate_bundle(
+        lot_id=11,
+        lot_name="Solar only",
+        base_objects=base,
+        candidate_objects=[solar],
+        forecast_pack=_forecast_pack(sell_price=9.9),
+        ruleset_config=config,
+    )
+    bundle = evaluate_candidate_bundle(
+        lot_id=12,
+        lot_name="Mini + Solar",
+        base_objects=base,
+        candidate_objects=[mini, solar],
+        forecast_pack=_forecast_pack(sell_price=9.9),
+        ruleset_config=config,
+    )
+
+    assert bundle.bundle_synergy_value != 0.0
+    assert bundle.expected_delta_profit != pytest.approx(
+        mini_only.expected_delta_profit + solar_only.expected_delta_profit
+    )

@@ -20,6 +20,7 @@ from ..models import (
     StartPackTemplate,
 )
 from .purchased_objects import refresh_integration_state
+from .strategy_catalog import normalize_strategy_code
 
 
 def export_session_payload(session: GameSession) -> Dict[str, Any]:
@@ -164,7 +165,7 @@ def import_session_payload(payload: Dict[str, Any]) -> GameSession:
     out_session = GameSession(
         title=title,
         ruleset_id=ruleset.id,
-        selected_strategy="unified",
+        selected_strategy=normalize_strategy_code(session_payload.get("selected_strategy")),
         selected_forecast_id=None,
         budget_total=float(
             session_payload.get("start_budget", session_payload.get("budget_total", 9999.0))

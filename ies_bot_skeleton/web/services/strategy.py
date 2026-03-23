@@ -20,6 +20,7 @@ from .evaluation import (
     evaluate_lot_bundle,
     prepare_fast_scoring_context,
 )
+from .strategy_catalog import normalize_strategy_code, strategy_meta
 
 
 @dataclass(frozen=True)
@@ -69,14 +70,15 @@ def _remaining_budget(session: GameSession) -> float:
     return session_remaining_budget(session)
 
 
-def _portfolio_context(session: GameSession) -> Dict[str, Any]:
+def _portfolio_context(session: GameSession, strategy: str) -> Dict[str, Any]:
     budget = budget_snapshot(session)
     bought = 0
     for lot in _session_lots(session):
         if str(lot.status or "") == "bought":
             bought += 1
     return {
-        "analysis_mode": "unified",
+        "analysis_mode": "strategy_profile",
+        "selected_strategy": strategy,
         "bought_lots_count": int(bought),
         **budget,
     }
@@ -100,7 +102,7 @@ def _combo_operational_price(combo: ComboEvaluation) -> float:
 
 
 def _objective_key(item: ComboEvaluation) -> Tuple[float, float]:
-    return float(item.risk_adjusted_net_profit), float(item.utility_score)
+    return float(item.utility_score), float(item.risk_adjusted_net_profit)
 
 
 def _presentation_key(item: ComboEvaluation) -> Tuple[float, float, float]:
@@ -114,6 +116,7 @@ def _presentation_key(item: ComboEvaluation) -> Tuple[float, float, float]:
 def _snapshot_fingerprint(
     *,
     session: GameSession,
+    strategy: str,
     forecast: Optional[Forecast],
     top_n: int,
     beam_width: int,
@@ -145,6 +148,7 @@ def _snapshot_fingerprint(
     ]
     payload = {
         "session_id": int(session.id),
+        "strategy": str(strategy),
         "ruleset_id": int(session.ruleset_id),
         "forecast_id": int(forecast.id) if forecast is not None else None,
         "budget_total": float(session.budget_total or 0.0),
@@ -852,7 +856,7 @@ def build_strategy_snapshot(
     force: bool = False,
     cache_ttl_seconds: float = 120.0,
 ) -> Dict[str, Any]:
-    selected_strategy = "unified"
+    selected_strategy = normalize_strategy_code(strategy or getattr(session, "selected_strategy", None))
     _COMBO_FAST_CONTEXT_CACHE.clear()
     analysis_ctx = resolve_analysis_context(
         session, forecast_id=forecast.id if forecast is not None else None
@@ -883,6 +887,7 @@ def build_strategy_snapshot(
 
     fingerprint = _snapshot_fingerprint(
         session=session,
+        strategy=selected_strategy,
         forecast=forecast,
         top_n=int(top_n),
         beam_width=int(effective_beam_width),
@@ -911,9 +916,10 @@ def build_strategy_snapshot(
         )
         return {
             "session_id": int(session.id),
-            "strategy": "unified",
-            "analysis_mode": "unified",
-            "objective": "risk_adjusted_net_profit",
+            "strategy": selected_strategy,
+            "analysis_mode": "strategy_profile",
+            "strategy_meta": strategy_meta(selected_strategy),
+            "objective": f"strategy_profile:{selected_strategy}",
             "snapshot_kind": "what_if_advisory",
             "analysis_depth": analysis_depth,
             "is_advisory": True,
@@ -924,7 +930,7 @@ def build_strategy_snapshot(
             ),
             "forecast_context": dict(analysis_ctx["forecast_context"]),
             "forecast_compatibility": compatibility,
-            "portfolio_context": _portfolio_context(session),
+            "portfolio_context": _portfolio_context(session, selected_strategy),
             "budget": {"remaining_budget": float(remaining_budget)},
             "best_singles": [],
             "best_pairs": [],
@@ -1071,9 +1077,10 @@ def build_strategy_snapshot(
 
     out = {
         "session_id": int(session.id),
-        "strategy": "unified",
-        "analysis_mode": "unified",
-        "objective": "risk_adjusted_net_profit",
+        "strategy": selected_strategy,
+        "analysis_mode": "strategy_profile",
+        "strategy_meta": strategy_meta(selected_strategy),
+        "objective": f"strategy_profile:{selected_strategy}",
         "snapshot_kind": "what_if_advisory",
         "analysis_depth": analysis_depth,
         "is_advisory": True,
@@ -1085,7 +1092,7 @@ def build_strategy_snapshot(
         "fast_ranking_source": "lots_analytics",
         "forecast_context": dict(analysis_ctx["forecast_context"]),
         "forecast_compatibility": compatibility,
-        "portfolio_context": _portfolio_context(session),
+        "portfolio_context": _portfolio_context(session, selected_strategy),
         "budget": {"remaining_budget": float(remaining_budget)},
         "best_singles": list(full_budget["best_singles"]),
         "best_pairs": list(full_budget["best_pairs"]),

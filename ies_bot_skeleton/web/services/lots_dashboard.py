@@ -124,6 +124,22 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
     recommended_bid = float(
         decision_summary.get("recommended_bid", working_bid) or recommended_bid_balanced or working_bid
     )
+    floor_or_ceiling_type = str(decision_summary.get("floor_or_ceiling_type") or "")
+    recommended_opening_bid = float(
+        decision_summary.get("recommended_opening_bid", decision_summary.get("recommended_bid", 0.0))
+        or 0.0
+    )
+    recommended_counter_bid = float(
+        decision_summary.get("recommended_counter_bid", decision_summary.get("recommended_bid", 0.0))
+        or 0.0
+    )
+    hard_limit = float(
+        decision_summary.get(
+            "hard_limit",
+            decision_summary.get("hard_floor", decision_summary.get("hard_ceiling", 0.0)),
+        )
+        or 0.0
+    )
     max_bid = float(
         decision_summary.get(
             "max_bid",
@@ -245,12 +261,45 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         ),
         "risk": float(losses.get("risk_total", 0.0) or 0.0),
         "expected_delta_profit": float(evaluation.get("expected_delta_profit", result.get("net_profit", 0.0)) or 0.0),
+        "direct_delta_profit": float(evaluation.get("direct_delta_profit", 0.0) or 0.0),
+        "enabler_value": float(evaluation.get("enabler_value", 0.0) or 0.0),
+        "bundle_synergy_value": float(evaluation.get("bundle_synergy_value", 0.0) or 0.0),
         "break_even_tariff": float(
             evaluation.get("break_even_tariff", decision_summary.get("break_even_tariff", 0.0)) or 0.0
         ),
+        "lot_profile": str(evaluation.get("lot_profile") or decision_summary.get("lot_profile") or summary["composition"]),
+        "floor_or_ceiling_type": floor_or_ceiling_type,
+        "minimum_acceptable_tariff": float(decision_summary.get("minimum_acceptable_tariff", 0.0) or 0.0),
+        "recommended_walkdown_tariff": float(
+            decision_summary.get("recommended_walkdown_tariff", 0.0) or 0.0
+        ),
+        "aggressive_floor": float(decision_summary.get("aggressive_floor", 0.0) or 0.0),
+        "hard_floor": float(decision_summary.get("hard_floor", 0.0) or 0.0),
+        "maximum_acceptable_service_tariff": float(
+            decision_summary.get("maximum_acceptable_service_tariff", 0.0) or 0.0
+        ),
+        "recommended_bid_ceiling": float(decision_summary.get("recommended_bid_ceiling", 0.0) or 0.0),
+        "soft_ceiling": float(decision_summary.get("soft_ceiling", 0.0) or 0.0),
+        "hard_ceiling": float(decision_summary.get("hard_ceiling", 0.0) or 0.0),
         "recommended_bid_or_tariff": float(
             evaluation.get("recommended_bid_or_tariff", recommended_bid_balanced) or 0.0
         ),
+        "recommended_opening_bid": recommended_opening_bid,
+        "recommended_counter_bid": recommended_counter_bid,
+        "hard_limit": hard_limit,
+        "allpay_trigger_policy": str(decision_summary.get("allpay_trigger_policy") or ""),
+        "if_allpay_triggered_max_cash_offer": float(
+            decision_summary.get("if_allpay_triggered_max_cash_offer", 0.0) or 0.0
+        ),
+        "cumulative_allpay_budget_remaining": float(
+            decision_summary.get("cumulative_allpay_budget_remaining", 0.0) or 0.0
+        ),
+        "drop_candidate_score": float(evaluation.get("drop_candidate_score", 0.0) or 0.0),
+        "portfolio_substitute_group": str(evaluation.get("portfolio_substitute_group") or ""),
+        "plan_b_if_lost": str(evaluation.get("plan_b_if_lost") or ""),
+        "plan_c_if_overbid": str(evaluation.get("plan_c_if_overbid") or ""),
+        "strategy_score": float(evaluation.get("strategy_score", evaluation.get("summary_score", 0.0)) or 0.0),
+        "strategy_reason": str(evaluation.get("strategy_reason") or ""),
         "working_bid": float(working_bid),
         "recommended_bid_safe": float(recommended_bid_safe),
         "recommended_bid_balanced": float(recommended_bid_balanced),
@@ -314,6 +363,7 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
             (storage_value.get("arbitrage", 0.0) or 0.0)
             + (storage_value.get("balancing", 0.0) or 0.0)
             + (storage_value.get("reserve", 0.0) or 0.0)
+            + (storage_value.get("anti_dumping_support", 0.0) or 0.0)
         ),
         "synergy_score": float(synergy.get("score", 0.0) or 0.0),
         "mounting_requirements": list(evaluation.get("mounting_requirements") or []),

@@ -7,19 +7,21 @@ from .forecast_service import (
     bundled_forecast_summary_for_session,
     summarize_forecast_for_session,
 )
+from .strategy_catalog import normalize_strategy_code
 from .test_game_preset import TEST_GAME_BUNDLED_FORECAST_NAME, TEST_GAME_FORECAST_SOURCE_LABEL
 
 
 def session_analysis_settings(session: GameSession) -> Dict[str, Any]:
     start_budget = float(session.budget_total or 0.0)
     return {
+        "selected_strategy": normalize_strategy_code(getattr(session, "selected_strategy", None)),
         "selected_forecast_id": (
             int(session.selected_forecast_id) if session.selected_forecast_id else None
         ),
         "start_budget": start_budget,
         "budget_total": start_budget,
         "allpay_spent": float(getattr(session, "allpay_spent", 0.0) or 0.0),
-        "analysis_mode": "unified",
+        "analysis_mode": "strategy_profiles",
     }
 
 
@@ -53,6 +55,9 @@ def update_session_analysis_settings(
 
     if "allpay_spent" in payload:
         session.allpay_spent = max(0.0, float(payload.get("allpay_spent", 0.0) or 0.0))
+
+    if "selected_strategy" in payload:
+        session.selected_strategy = normalize_strategy_code(payload.get("selected_strategy"))
 
     return session_analysis_settings(session)
 

@@ -9,6 +9,7 @@ from ..extensions import db
 from ..models import EvaluationResult, Forecast, GameSession, Lot, LotItem, ObjectInstance
 from .analysis_context import resolve_analysis_context
 from .forecast_service import build_forecast_pack, load_bundled_forecast_pack, session_forecast_compatibility
+from .strategy_catalog import normalize_strategy_code
 
 BUDGET_PRESERVATION_NOTE = (
     "Неиспользованный остаток бюджета сохраняется для следующих аукционов."
@@ -185,6 +186,7 @@ def _system_check(evaluation) -> Dict[str, Any]:
         "critical_blocking_errors": critical,
         "warnings": warnings,
         "optimization_hints": hints,
+        "topology_candidates": list(evaluation.topology.topology_candidates or []),
         "recommended_connections": {
             object_id: [
                 {
@@ -220,6 +222,60 @@ def _risk_total(evaluation) -> float:
 def _risk_adjusted_profit(evaluation) -> float:
     spread = abs(float(evaluation.best_case.delta_profit) - float(evaluation.worst_case.delta_profit))
     return round(float(evaluation.expected_delta_profit) - spread * 0.18, 4)
+
+
+def _strategy_score(
+    *,
+    strategy: str,
+    evaluation,
+    candidate_objects: Sequence[EnergyObject],
+    system_check: Dict[str, Any],
+    risk_adjusted: float,
+) -> Dict[str, Any]:
+    normalized = normalize_strategy_code(strategy)
+    category_counts = _role_breakdown(candidate_objects)
+    renewable_count = sum(
+        1
+        for obj in candidate_objects
+        if _canonical_code(obj.code) in {"solar", "wind"}
+    )
+    storage_total = float(
+        evaluation.storage_value.arbitrage
+        + evaluation.storage_value.balancing
+        + evaluation.storage_value.reserve
+        + evaluation.storage_value.anti_dumping_support
+    )
+    totals = evaluation.base_case.totals
+    topology_penalty = 8.0 if str(system_check.get("status") or "") == "blocked" else 0.0
+    score = float(risk_adjusted)
+    why = "Базовый 2026 risk-adjusted delta-profit."
+    if normalized == "generation":
+        score += category_counts.get("generator", 0.0) * 4.0 + float(totals.exchange_sale_revenue) * 0.12
+        why = "Профиль смещён в пользу генерации и биржевой выручки."
+    elif normalized == "consumer":
+        score += category_counts.get("consumer", 0.0) * 4.0 + float(totals.fixed_tariff_revenue) * 0.24
+        score -= float(totals.gp_purchase_cost) * 0.06
+        why = "Профиль смещён в пользу фиксированных тарифов потребителей."
+    elif normalized == "storage":
+        score += storage_total * 0.45 + category_counts.get("storage", 0.0) * 6.0
+        why = "Профиль усиливает ценность накопителей и антидемпинговой гибкости."
+    elif normalized == "eco":
+        score += renewable_count * 5.0 + float(totals.exchange_sale_revenue) * 0.08
+        score -= float(totals.gp_purchase_cost) * 0.05
+        why = "Профиль предпочитает ВИЭ и снижение зависимости от внешней закупки."
+    elif normalized == "risk_averse":
+        score += float(evaluation.worst_case.delta_profit) * 0.25
+        score -= _risk_total(evaluation) * 0.22 + topology_penalty
+        why = "Профиль penalizes topology/market risk и усиливает worst-case."
+    elif normalized == "aggressive":
+        score += float(evaluation.best_case.delta_profit) * 0.28
+        score -= _risk_total(evaluation) * 0.05
+        why = "Профиль смещён к best-case и допускает более высокий риск."
+    return {
+        "strategy": normalized,
+        "score": round(float(score), 4),
+        "reason": why,
+    }
 
 
 def _scenario_payload(label: str, report) -> Dict[str, Any]:
@@ -270,20 +326,29 @@ def _profit_at_recommended(evaluation, horizon: int) -> float:
     current = float(evaluation.maintenance_tariff_total or 0.0)
     recommended = float(evaluation.recommended_bid_or_tariff or 0.0)
     delta = abs(current - recommended) * float(horizon)
-    if evaluation.auction_direction == "descending_consumer_tariff":
-        return round(float(evaluation.expected_delta_profit) - delta, 4)
-    return round(float(evaluation.expected_delta_profit) + delta, 4)
+    return round(float(evaluation.expected_delta_profit) - delta, 4)
 
 
 def _bid_levels(evaluation, horizon: int) -> Dict[str, float]:
     if evaluation.auction_direction == "descending_consumer_tariff":
-        safe = max(float(evaluation.recommended_bid_or_tariff), float(evaluation.break_even_tariff))
-        aggressive = float(evaluation.break_even_tariff)
-        balanced = float(evaluation.recommended_bid_or_tariff)
+        safe = float(evaluation.recommended_opening_bid or evaluation.maintenance_tariff_total or 0.0)
+        balanced = float(
+            evaluation.recommended_walkdown_tariff
+            or evaluation.recommended_bid_or_tariff
+            or evaluation.break_even_tariff
+        )
+        aggressive = float(evaluation.aggressive_floor or evaluation.break_even_tariff or 0.0)
     else:
-        balanced = float(evaluation.recommended_bid_or_tariff)
-        safe = max(0.0, balanced * 0.88)
-        aggressive = min(float(evaluation.break_even_tariff), balanced * 1.08)
+        balanced = float(
+            evaluation.recommended_bid_ceiling
+            or evaluation.recommended_bid_or_tariff
+            or evaluation.break_even_tariff
+        )
+        safe = float(evaluation.soft_ceiling or max(0.0, balanced * 0.88))
+        aggressive = min(
+            float(evaluation.hard_ceiling or evaluation.break_even_tariff or 0.0),
+            max(float(evaluation.recommended_counter_bid or 0.0), balanced * 1.04),
+        )
     return {
         "safe": round(safe, 4),
         "balanced": round(balanced, 4),
@@ -295,6 +360,7 @@ def _bid_levels(evaluation, horizon: int) -> Dict[str, float]:
 def _payload_from_evaluation(
     *,
     session: GameSession,
+    strategy: str,
     lot_name: str,
     evaluation,
     forecast_context: Dict[str, Any],
@@ -303,11 +369,15 @@ def _payload_from_evaluation(
 ) -> Dict[str, Any]:
     budget = budget_snapshot(session)
     horizon = int((session.ruleset.config_json or {}).get("time", {}).get("horizon_ticks", 48) or 48)
+    auction_cfg = dict((session.ruleset.config_json or {}).get("auction", {}) or {})
+    market_cfg = dict((session.ruleset.config_json or {}).get("market", {}) or {})
     bids = _bid_levels(evaluation, horizon)
     risk_total = _risk_total(evaluation)
     system_check = _system_check(evaluation)
     risk_adjusted = _risk_adjusted_profit(evaluation)
     working_reason = evaluation.explanation
+    allpay_limit = float(auction_cfg.get("allpay_limit", 5000.0) or 5000.0)
+    allpay_remaining = max(0.0, allpay_limit - float(budget.get("allpay_spent", 0.0) or 0.0))
     bid_constraints = []
     if evaluation.topology_risk != "low":
         bid_constraints.append("topology risk")
@@ -324,6 +394,9 @@ def _payload_from_evaluation(
     financial_breakdown = {
         "income": {
             "consumer_revenue": round(float(evaluation.base_case.totals.consumer_revenue), 4),
+            "fixed_tariff_revenue": round(float(evaluation.base_case.totals.fixed_tariff_revenue), 4),
+            "exchange_sale_revenue": round(float(evaluation.base_case.totals.exchange_sale_revenue), 4),
+            "guaranteed_sale_revenue": round(float(evaluation.base_case.totals.guaranteed_sale_revenue), 4),
             "market_revenue": round(float(evaluation.base_case.totals.market_revenue), 4),
             "total": round(
                 float(
@@ -336,6 +409,7 @@ def _payload_from_evaluation(
         "expenses": {
             "service_cost": round(float(evaluation.base_case.totals.service_cost), 4),
             "market_purchase": round(float(evaluation.base_case.totals.market_purchase_cost), 4),
+            "gp_purchase": round(float(evaluation.base_case.totals.gp_purchase_cost), 4),
             "total": round(
                 float(
                     evaluation.base_case.totals.service_cost
@@ -365,20 +439,43 @@ def _payload_from_evaluation(
             "threshold_bid": round(float(evaluation.break_even_tariff), 4),
         },
         "ui_rows": [
-            {"key": "consumer_revenue", "label": "Доход от потребителей", "value": round(float(evaluation.base_case.totals.consumer_revenue), 4), "group": "income", "emphasis": False},
-            {"key": "market_revenue", "label": "Доход/расход рынка", "value": round(float(evaluation.base_case.totals.market_revenue - evaluation.base_case.totals.market_purchase_cost), 4), "group": "income", "emphasis": False},
+            {"key": "fixed_tariff_revenue", "label": "Доход от фиксированных тарифов", "value": round(float(evaluation.base_case.totals.fixed_tariff_revenue), 4), "group": "income", "emphasis": False},
+            {"key": "exchange_revenue", "label": "Биржевая выручка", "value": round(float(evaluation.base_case.totals.exchange_sale_revenue), 4), "group": "income", "emphasis": False},
+            {"key": "gp_sale_revenue", "label": "Выручка от непроданного остатка", "value": round(float(evaluation.base_case.totals.guaranteed_sale_revenue), 4), "group": "income", "emphasis": False},
             {"key": "service_cost", "label": "Расходы на обслуживание", "value": round(float(evaluation.base_case.totals.service_cost), 4), "group": "expense", "emphasis": False},
+            {"key": "gp_purchase", "label": "Покупка энергии у ГП", "value": round(float(evaluation.base_case.totals.gp_purchase_cost), 4), "group": "expense", "emphasis": False},
             {"key": "losses", "label": "Потери сети", "value": round(float(evaluation.base_case.totals.loss_cost), 4), "group": "risk", "emphasis": False},
             {"key": "balancing", "label": "Небаланс", "value": round(float(evaluation.base_case.totals.balancing_penalty), 4), "group": "risk", "emphasis": False},
-            {"key": "storage", "label": "Вклад накопителей", "value": round(float(evaluation.storage_value.arbitrage + evaluation.storage_value.balancing + evaluation.storage_value.reserve), 4), "group": "income", "emphasis": False},
+            {"key": "storage", "label": "Вклад накопителей", "value": round(float(evaluation.storage_value.arbitrage + evaluation.storage_value.balancing + evaluation.storage_value.reserve + evaluation.storage_value.anti_dumping_support), 4), "group": "income", "emphasis": False},
             {"key": "delta_profit", "label": "Итоговый delta-profit", "value": round(float(evaluation.expected_delta_profit), 4), "group": "result", "emphasis": True},
         ],
     }
 
     decision_summary = {
+        "lot_profile": str(evaluation.lot_profile),
         "auction_direction": str(evaluation.auction_direction),
+        "floor_or_ceiling_type": (
+            "floor" if evaluation.auction_direction == "descending_consumer_tariff" else "ceiling"
+        ),
         "break_even_tariff": round(float(evaluation.break_even_tariff), 4),
         "recommended_bid_or_tariff": round(float(evaluation.recommended_bid_or_tariff), 4),
+        "minimum_acceptable_tariff": round(float(evaluation.minimum_acceptable_tariff or 0.0), 4),
+        "recommended_walkdown_tariff": round(float(evaluation.recommended_walkdown_tariff or 0.0), 4),
+        "aggressive_floor": round(float(evaluation.aggressive_floor or 0.0), 4),
+        "hard_floor": round(float(evaluation.hard_floor or 0.0), 4),
+        "maximum_acceptable_service_tariff": round(float(evaluation.maximum_acceptable_service_tariff or 0.0), 4),
+        "recommended_bid_ceiling": round(float(evaluation.recommended_bid_ceiling or 0.0), 4),
+        "soft_ceiling": round(float(evaluation.soft_ceiling or 0.0), 4),
+        "hard_ceiling": round(float(evaluation.hard_ceiling or 0.0), 4),
+        "recommended_opening_bid": round(float(evaluation.recommended_opening_bid or 0.0), 4),
+        "recommended_counter_bid": round(float(evaluation.recommended_counter_bid or 0.0), 4),
+        "hard_limit": round(float(evaluation.hard_limit or 0.0), 4),
+        "allpay_trigger_policy": str(evaluation.allpay_trigger_policy or ""),
+        "if_allpay_triggered_max_cash_offer": round(
+            min(allpay_remaining, max(0.0, float(evaluation.expected_delta_profit))),
+            4,
+        ),
+        "cumulative_allpay_budget_remaining": round(float(allpay_remaining), 4),
         "recommended_bid_safe": bids["safe"],
         "recommended_bid_balanced": bids["balanced"],
         "recommended_bid_aggressive": bids["aggressive"],
@@ -395,6 +492,9 @@ def _payload_from_evaluation(
         "gross_expected_profit_before_bid": round(float(evaluation.expected_delta_profit), 4),
         "expected_net_profit": round(float(evaluation.expected_delta_profit), 4),
         "risk_adjusted_net_profit": round(risk_adjusted, 4),
+        "direct_delta_profit": round(float(evaluation.direct_delta_profit), 4),
+        "enabler_value": round(float(evaluation.enabler_value), 4),
+        "bundle_synergy_value": round(float(evaluation.bundle_synergy_value), 4),
         "model_working_bid": bids["balanced"],
         "portfolio_synergy": round(float(evaluation.enabler_value), 4),
         "system_fit_score": round(float(system_check["system_fit_score"]), 4),
@@ -421,8 +521,20 @@ def _payload_from_evaluation(
         "budget_preservation_note": BUDGET_PRESERVATION_NOTE,
     }
 
+    strategy_profile = _strategy_score(
+        strategy=strategy,
+        evaluation=evaluation,
+        candidate_objects=candidate_objects,
+        system_check=system_check,
+        risk_adjusted=risk_adjusted,
+    )
+
     payload = {
-        "summary_score": round(risk_adjusted, 4),
+        "summary_score": round(float(strategy_profile["score"]), 4),
+        "base_summary_score": round(risk_adjusted, 4),
+        "strategy": str(strategy_profile["strategy"]),
+        "strategy_score": round(float(strategy_profile["score"]), 4),
+        "strategy_reason": str(strategy_profile["reason"]),
         "forecast_context": {
             "source": forecast_context.get("source"),
             "source_label": forecast_context.get("source_label"),
@@ -453,6 +565,27 @@ def _payload_from_evaluation(
         "recommended_bid_reason": working_reason,
         "max_bid_reason": f"Break-even тариф {evaluation.break_even_tariff:.2f}.",
         "break_even_tariff": round(float(evaluation.break_even_tariff), 4),
+        "lot_profile": str(evaluation.lot_profile),
+        "direct_delta_profit": round(float(evaluation.direct_delta_profit), 4),
+        "enabler_value": round(float(evaluation.enabler_value), 4),
+        "bundle_synergy_value": round(float(evaluation.bundle_synergy_value), 4),
+        "minimum_acceptable_tariff": round(float(evaluation.minimum_acceptable_tariff or 0.0), 4),
+        "recommended_walkdown_tariff": round(float(evaluation.recommended_walkdown_tariff or 0.0), 4),
+        "aggressive_floor": round(float(evaluation.aggressive_floor or 0.0), 4),
+        "hard_floor": round(float(evaluation.hard_floor or 0.0), 4),
+        "maximum_acceptable_service_tariff": round(float(evaluation.maximum_acceptable_service_tariff or 0.0), 4),
+        "recommended_bid_ceiling": round(float(evaluation.recommended_bid_ceiling or 0.0), 4),
+        "soft_ceiling": round(float(evaluation.soft_ceiling or 0.0), 4),
+        "hard_ceiling": round(float(evaluation.hard_ceiling or 0.0), 4),
+        "recommended_opening_bid": round(float(evaluation.recommended_opening_bid or 0.0), 4),
+        "recommended_counter_bid": round(float(evaluation.recommended_counter_bid or 0.0), 4),
+        "hard_limit": round(float(evaluation.hard_limit or 0.0), 4),
+        "allpay_trigger_policy": str(evaluation.allpay_trigger_policy or ""),
+        "if_allpay_triggered_max_cash_offer": round(
+            min(allpay_remaining, max(0.0, float(evaluation.expected_delta_profit))),
+            4,
+        ),
+        "cumulative_allpay_budget_remaining": round(float(allpay_remaining), 4),
         "recommended_bid_or_tariff": round(float(evaluation.recommended_bid_or_tariff), 4),
         "expected_delta_profit": round(float(evaluation.expected_delta_profit), 4),
         "best_case": {
@@ -477,11 +610,18 @@ def _payload_from_evaluation(
         "recommended_bid_safe": bids["safe"],
         "recommended_bid_balanced": bids["balanced"],
         "recommended_bid_aggressive": bids["aggressive"],
+        "safe_bid": bids["safe"],
+        "target_bid": bids["balanced"],
+        "hard_cap": round(float(evaluation.break_even_tariff), 4),
         "hard_ceiling_bid": round(float(evaluation.break_even_tariff), 4),
+        "budget_adjusted_bid": min(bids["balanced"], float(budget.get("remaining_budget", 0.0))),
         "budget_preservation_note": BUDGET_PRESERVATION_NOTE,
         "is_stale": False,
         "stale_reason": "",
-        "score_definition": "Summary score = risk-adjusted expected delta-profit по правилам ИЭС 2026.",
+        "score_definition": (
+            f"Summary score = strategy-adjusted expected delta-profit по правилам ИЭС 2026. "
+            f"База: risk-adjusted delta-profit; overlay: {strategy_profile['reason']}"
+        ),
         "system_check": system_check,
         "metrics": {
             "forecast_compatibility": compatibility,
@@ -494,21 +634,28 @@ def _payload_from_evaluation(
             },
             "role_breakdown": role_breakdown,
             "synergy": {
-                "score": round(float(evaluation.enabler_value), 4),
+                "score": round(float(evaluation.enabler_value + evaluation.bundle_synergy_value), 4),
                 "standalone_expected_net_profit": round(float(evaluation.direct_delta_profit), 4),
                 "marginal_expected_net_profit": round(float(evaluation.expected_delta_profit), 4),
+                "bundle_synergy_value": round(float(evaluation.bundle_synergy_value), 4),
             },
             "system_check": system_check,
             "storage_value": {
                 "arbitrage": round(float(evaluation.storage_value.arbitrage), 4),
                 "balancing": round(float(evaluation.storage_value.balancing), 4),
                 "reserve": round(float(evaluation.storage_value.reserve), 4),
+                "anti_dumping_support": round(float(evaluation.storage_value.anti_dumping_support), 4),
             },
             "market": {
-                "sale_ramp_limit_mw": float((session.ruleset.config_json or {}).get("market", {}).get("sale_ramp_limit_mw", 8.0)),
-                "bid_cap_mw": float((session.ruleset.config_json or {}).get("market", {}).get("bid_cap_mw", 120.0)),
-                "anti_dumping_model": "explicit_market_bid",
+                "anti_dumping_scaler": float(market_cfg.get("anti_dumping_scaler", 1.2) or 1.2),
+                "anti_dumping_buffer_mw": float(market_cfg.get("anti_dumping_buffer_mw", 10.0) or 10.0),
+                "max_exchange_bids": int(market_cfg.get("max_exchange_bids", 100) or 100),
+                "exchange_price_min": float(market_cfg.get("exchange_price_min", 2.0) or 2.0),
+                "exchange_price_max": float(market_cfg.get("exchange_price_max", 20.0) or 20.0),
+                "anti_dumping_formula": "1.2 * useful_energy_(t-1) + 10",
+                "market_model": str(market_cfg.get("market_model", "aggregate_exchange_with_gp_fallback")),
             },
+            "strategy": strategy_profile,
             "bids": {
                 "recommended_bid_safe": bids["safe"],
                 "recommended_bid_balanced": bids["balanced"],
@@ -531,6 +678,7 @@ def _payload_from_evaluation(
                         evaluation.loss_risk,
                     ),
                     "portfolio_synergy": round(float(evaluation.enabler_value), 4),
+                    "bundle_synergy_value": round(float(evaluation.bundle_synergy_value), 4),
                     "system_fit_score": round(float(system_check["system_fit_score"]), 4),
                     "anchor_value": round(float(evaluation.expected_delta_profit), 4),
                     "cautious_bid": bids["safe"],
@@ -613,10 +761,11 @@ def evaluate_lot_bundle(
     available_lots: Sequence[Lot] | None = None,
     fast_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    del strategy, portfolio_lots, reserved_spend
+    del portfolio_lots, reserved_spend
     ordered_lots = sorted(list(lots), key=lambda row: int(row.id))
     if not ordered_lots:
         raise ValueError("Для bundle evaluation нужен хотя бы один лот")
+    selected_strategy = normalize_strategy_code(strategy or getattr(session, "selected_strategy", None))
     context = fast_context or prepare_fast_scoring_context(
         session=session,
         forecast=forecast,
@@ -647,6 +796,7 @@ def evaluate_lot_bundle(
     )
     return _payload_from_evaluation(
         session=session,
+        strategy=selected_strategy,
         lot_name=" + ".join(lot.name for lot in ordered_lots),
         evaluation=evaluation,
         forecast_context=forecast_context,
@@ -707,6 +857,7 @@ def rank_lots(
             _save_evaluation(session=session, lot=lot, payload=payload)
     out.sort(
         key=lambda row: (
+            float(row.get("strategy_score", row.get("summary_score", 0.0)) or 0.0),
             float(((row.get("metrics") or {}).get("portfolio_delta") or {}).get("risk_adjusted_net_profit", 0.0)),
             float(row.get("expected_delta_profit", row.get("summary_score", 0.0))),
         ),

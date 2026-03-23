@@ -3,7 +3,7 @@ from __future__ import annotations
 from ies_bot_skeleton.web.extensions import db
 from ies_bot_skeleton.web.models import GameSession, Lot, LotItem, ObjectType
 
-from tests.web_helpers import create_session, login
+from tests.web_helpers import create_session, login, ruleset_id_by_code
 
 
 def test_session_pages_render_2026_navigation(client, app):
@@ -51,3 +51,175 @@ def test_lot_detail_marks_topology_risk_as_non_recommendable(client, app):
     html = client.get(f"/lots/item/{lot_id}").get_data(as_text=True)
     assert "Topology risk блокирует рекомендацию." in html
     assert "В системе отсутствует главная подстанция." in html
+
+
+def test_strategy_selection_and_post_auction_plan_export_work(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Strategy and plan")
+
+    strategy_switch = client.post(
+        f"/sessions/{session_id}/strategy-selection",
+        data={"selected_strategy": "storage"},
+        follow_redirects=False,
+    )
+    assert strategy_switch.status_code in (302, 303)
+
+    session_payload = client.get(f"/api/sessions/{session_id}").get_json()["item"]
+    assert session_payload["selected_strategy"] == "storage"
+
+    json_plan = client.get(f"/api/sessions/{session_id}/post-auction-plan")
+    assert json_plan.status_code == 200
+    plan_item = json_plan.get_json()["item"]
+    assert "topology_candidates" in plan_item
+    assert "market_plan" in plan_item
+    assert "installation_priority" in plan_item
+
+    yaml_plan = client.get(f"/api/sessions/{session_id}/post-auction-plan.yaml")
+    assert yaml_plan.status_code == 200
+    yaml_text = yaml_plan.get_data(as_text=True)
+    assert "market_plan:" in yaml_text
+    assert "installation_priority:" in yaml_text
+    assert "tick_model:" in yaml_text
+
+
+def test_special_case_allpay_only_applies_when_explicitly_triggered(client):
+    login(client, "admin", "admin123")
+    ruleset_id = ruleset_id_by_code(client, "ies_2026")
+    created = client.post(
+        "/api/sessions",
+        json={
+            "title": "Special all-pay",
+            "ruleset_id": ruleset_id,
+            "selected_strategy": "balanced",
+            "budget_total": 5200.0,
+        },
+    )
+    assert created.status_code == 200
+    session_id = int(created.get_json()["item"]["id"])
+
+    type_rows = client.get("/api/object-types").get_json()["items"]
+    wind_id = next(int(row["id"]) for row in type_rows if row["code"] == "wind")
+
+    ordinary = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Ordinary wind",
+            "scope": "global",
+            "base_bid": 30.0,
+            "current_bid": 30.0,
+            "items": [{"object_type_id": wind_id, "quantity": 1}],
+        },
+    )
+    assert ordinary.status_code == 200
+    ordinary_lot_id = int(ordinary.get_json()["item"]["id"])
+
+    ordinary_bid = client.post(
+        f"/api/sessions/{session_id}/auction/actions",
+        json={
+            "lot_id": ordinary_lot_id,
+            "action": "bid",
+            "bid_amount": 95.0,
+            "auction_mode": "ordinary_tariff_auction",
+            "allpay_triggered": False,
+        },
+    )
+    assert ordinary_bid.status_code == 200
+    ordinary_event = ordinary_bid.get_json()["item"]["event"]
+    ordinary_lost = client.post(
+        f"/api/sessions/{session_id}/auction/outcomes",
+        json={
+            "lot_id": ordinary_lot_id,
+            "event_id": int(ordinary_event["id"]),
+            "outcome": "lost",
+        },
+    )
+    assert ordinary_lost.status_code == 200
+
+    after_ordinary = client.get(f"/api/sessions/{session_id}").get_json()["item"]
+    assert float(after_ordinary["allpay_spent"]) == 0.0
+
+    tie_break = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Tie-break wind",
+            "scope": "global",
+            "base_bid": 30.0,
+            "current_bid": 30.0,
+            "items": [{"object_type_id": wind_id, "quantity": 1}],
+        },
+    )
+    assert tie_break.status_code == 200
+    tie_break_lot_id = int(tie_break.get_json()["item"]["id"])
+
+    special_bid = client.post(
+        f"/api/sessions/{session_id}/auction/actions",
+        json={
+            "lot_id": tie_break_lot_id,
+            "action": "bid",
+            "bid_amount": 125.0,
+            "auction_mode": "tie_break_all_pay",
+            "allpay_triggered": True,
+        },
+    )
+    assert special_bid.status_code == 200
+    special_event = special_bid.get_json()["item"]["event"]
+    special_lost = client.post(
+        f"/api/sessions/{session_id}/auction/outcomes",
+        json={
+            "lot_id": tie_break_lot_id,
+            "event_id": int(special_event["id"]),
+            "outcome": "lost",
+        },
+    )
+    assert special_lost.status_code == 200
+
+    after_special = client.get(f"/api/sessions/{session_id}").get_json()["item"]
+    assert float(after_special["allpay_spent"]) == 125.0
+
+
+def test_special_case_allpay_respects_budget_cap(client):
+    login(client, "admin", "admin123")
+    ruleset_id = ruleset_id_by_code(client, "ies_2026")
+    created = client.post(
+        "/api/sessions",
+        json={
+            "title": "All-pay cap",
+            "ruleset_id": ruleset_id,
+            "selected_strategy": "balanced",
+            "budget_total": 7000.0,
+        },
+    )
+    assert created.status_code == 200
+    session_id = int(created.get_json()["item"]["id"])
+
+    type_rows = client.get("/api/object-types").get_json()["items"]
+    wind_id = next(int(row["id"]) for row in type_rows if row["code"] == "wind")
+    lot_resp = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Fixed package",
+            "scope": "global",
+            "base_bid": 30.0,
+            "current_bid": 30.0,
+            "items": [{"object_type_id": wind_id, "quantity": 1}],
+        },
+    )
+    assert lot_resp.status_code == 200
+    lot_id = int(lot_resp.get_json()["item"]["id"])
+
+    bid_resp = client.post(
+        f"/api/sessions/{session_id}/auction/actions",
+        json={
+            "lot_id": lot_id,
+            "action": "bid",
+            "bid_amount": 5100.0,
+            "auction_mode": "fixed_tariff_package_all_pay",
+            "allpay_triggered": True,
+        },
+    )
+    assert bid_resp.status_code == 400
+    error = bid_resp.get_json()["error"]
+    assert error["code"] in {"validation_error", "bad_request"}

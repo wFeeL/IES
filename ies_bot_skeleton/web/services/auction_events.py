@@ -26,6 +26,42 @@ def _allpay_enabled(session: GameSession) -> bool:
     return mode not in {"off", "disabled", "none", "false", "0"}
 
 
+def _allpay_mode(session: GameSession) -> str:
+    rules_cfg = dict(getattr(getattr(session, "ruleset", None), "config_json", {}) or {})
+    auction_cfg = dict(rules_cfg.get("auction") or {})
+    return _norm(auction_cfg.get("allpay_mode", "special_only"))
+
+
+def _allpay_limit(session: GameSession) -> float:
+    rules_cfg = dict(getattr(getattr(session, "ruleset", None), "config_json", {}) or {})
+    auction_cfg = dict(rules_cfg.get("auction") or {})
+    return max(0.0, float(auction_cfg.get("allpay_limit", 5000.0) or 5000.0))
+
+
+def _allpay_remaining(session: GameSession) -> float:
+    return max(0.0, _allpay_limit(session) - float(session.allpay_spent or 0.0))
+
+
+def _special_allpay_mode(auction_mode: Any) -> bool:
+    mode = _norm(auction_mode)
+    return mode in {"fixed_tariff_package_all_pay", "tie_break_all_pay"}
+
+
+def _event_allpay_allowed(*, session: GameSession, event: AuctionEvent, lot: Lot) -> bool:
+    del lot
+    mode = _allpay_mode(session)
+    if mode in {"off", "disabled", "none", "false", "0"}:
+        return False
+    details = dict(event.details_json or {})
+    event_mode = details.get("auction_mode")
+    allpay_triggered = bool(details.get("allpay_triggered"))
+    if mode == "bid_outcome":
+        return True
+    if mode == "special_only":
+        return allpay_triggered and _special_allpay_mode(event_mode)
+    return False
+
+
 def auction_budget_view(session: GameSession, *, reserved_spend: float = 0.0) -> Dict[str, float]:
     snap = budget_snapshot(session, reserved_spend=reserved_spend)
     return {
@@ -34,6 +70,8 @@ def auction_budget_view(session: GameSession, *, reserved_spend: float = 0.0) ->
         "reserved_budget": float(snap.get("reserved_budget", 0.0) or 0.0),
         "purchase_spent": float(snap.get("purchase_spent", 0.0) or 0.0),
         "allpay_spent": float(snap.get("allpay_spent", 0.0) or 0.0),
+        "allpay_limit": float(_allpay_limit(session)),
+        "allpay_remaining": float(_allpay_remaining(session)),
         "spent_total": float(snap.get("spent_total", 0.0) or 0.0),
         "remaining_budget": float(snap.get("remaining_budget", 0.0) or 0.0),
     }
@@ -99,6 +137,8 @@ def apply_auction_action(
     action: str,
     bid_level: str | None = None,
     bid_amount: float | None = None,
+    auction_mode: str | None = None,
+    allpay_triggered: bool | None = None,
 ) -> Dict[str, Any]:
     if int(lot.session_id) != int(session.id):
         raise ValueError("Лот не принадлежит сессии")
@@ -155,6 +195,8 @@ def apply_auction_action(
         cash_available = float(auction_budget_view(session).get("cash_available", 0.0) or 0.0)
         if amount > cash_available + 1e-9:
             raise ValueError("Ставка превышает доступную ликвидность")
+        if bool(allpay_triggered) and _special_allpay_mode(auction_mode) and amount > _allpay_remaining(session) + 1e-9:
+            raise ValueError("Ставка превышает остаток специального All-Pay бюджета")
 
         event = AuctionEvent(
             session_id=int(session.id),
@@ -164,7 +206,13 @@ def apply_auction_action(
             amount=float(amount),
             outcome="pending",
             budget_effect=0.0,
-            details_json={"allpay_enabled": _allpay_enabled(session)},
+            details_json={
+                "allpay_enabled": _allpay_enabled(session),
+                "allpay_mode": _allpay_mode(session),
+                "auction_mode": str(auction_mode or "ordinary_tariff_auction"),
+                "allpay_triggered": bool(allpay_triggered),
+                "allpay_budget_remaining": float(_allpay_remaining(session)),
+            },
             resolved_at=None,
         )
         db.session.add(event)
@@ -209,7 +257,10 @@ def resolve_bid_outcome(
     event.resolved_at = _utcnow()
 
     if outcome_norm == "lost":
-        if _allpay_enabled(session):
+        allpay_applied = _event_allpay_allowed(session=session, event=event, lot=lot)
+        if allpay_applied and amount > _allpay_remaining(session) + 1e-9:
+            raise ValueError("Недостаточно All-Pay бюджета для фиксации проигранной ставки")
+        if allpay_applied:
             session.allpay_spent = max(0.0, float(session.allpay_spent or 0.0) + amount)
             event.budget_effect = float(-amount)
         else:
@@ -217,7 +268,8 @@ def resolve_bid_outcome(
         event.outcome = "lost"
         event.details_json = {
             **dict(event.details_json or {}),
-            "allpay_applied": bool(_allpay_enabled(session)),
+            "allpay_applied": bool(allpay_applied),
+            "allpay_budget_remaining_after": float(_allpay_remaining(session) if allpay_applied else _allpay_remaining(session)),
         }
         if str(lot.status or "") == "available":
             lot.status = "rejected"

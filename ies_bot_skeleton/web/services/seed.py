@@ -64,6 +64,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "residential_a",
         "description": "Бытовой потребитель с умеренной эластичностью по тарифу.",
         "default_parameters_json": {
+            "tariff_rub_per_tick": 6.2,
             "tariff_rub_per_mw_tick": 6.2,
             "expected_consumption_mw": 3.6,
             "elasticity": 0.18,
@@ -71,6 +72,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "connection_point": "A",
         },
         "editable_fields_json": [
+            "tariff_rub_per_tick",
             "tariff_rub_per_mw_tick",
             "expected_consumption_mw",
             "elasticity",
@@ -90,6 +92,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "residential_b",
         "description": "Потребитель с более высокой базовой нагрузкой и слабее выраженной эластичностью.",
         "default_parameters_json": {
+            "tariff_rub_per_tick": 6.8,
             "tariff_rub_per_mw_tick": 6.8,
             "expected_consumption_mw": 4.4,
             "elasticity": 0.16,
@@ -97,6 +100,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "connection_point": "A",
         },
         "editable_fields_json": [
+            "tariff_rub_per_tick",
             "tariff_rub_per_mw_tick",
             "expected_consumption_mw",
             "elasticity",
@@ -116,6 +120,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "office",
         "description": "Коммерческий потребитель с дневным профилем нагрузки.",
         "default_parameters_json": {
+            "tariff_rub_per_tick": 7.5,
             "tariff_rub_per_mw_tick": 7.5,
             "expected_consumption_mw": 5.8,
             "elasticity": 0.12,
@@ -123,6 +128,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "connection_point": "A",
         },
         "editable_fields_json": [
+            "tariff_rub_per_tick",
             "tariff_rub_per_mw_tick",
             "expected_consumption_mw",
             "elasticity",
@@ -142,6 +148,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "industrial",
         "description": "Промышленный потребитель с одной или двумя точками подключения.",
         "default_parameters_json": {
+            "tariff_rub_per_tick": 8.2,
             "tariff_rub_per_mw_tick": 8.2,
             "expected_consumption_mw": 13.0,
             "elasticity": 0.08,
@@ -150,6 +157,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "secondary_connection_point": "B",
         },
         "editable_fields_json": [
+            "tariff_rub_per_tick",
             "tariff_rub_per_mw_tick",
             "expected_consumption_mw",
             "elasticity",
@@ -171,6 +179,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "subtype": "critical",
         "description": "Критически важный потребитель с обязательным подключением двумя вводами.",
         "default_parameters_json": {
+            "tariff_rub_per_tick": 9.8,
             "tariff_rub_per_mw_tick": 9.8,
             "expected_consumption_mw": 10.5,
             "elasticity": 0.03,
@@ -179,6 +188,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
             "secondary_connection_point": "B",
         },
         "editable_fields_json": [
+            "tariff_rub_per_tick",
             "tariff_rub_per_mw_tick",
             "expected_consumption_mw",
             "elasticity",
@@ -200,7 +210,7 @@ OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
         "description": "Солнечная электростанция с почти линейной зависимостью от освещённости.",
         "default_parameters_json": {
             "contract_rub_per_tick": 6.5,
-            "generation_mw": 22.0,
+            "generation_mw": 20.0,
             "efficiency": 0.94,
             "forecast_sensitivity": 1.0,
             "connection_point": "A",

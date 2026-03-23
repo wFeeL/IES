@@ -770,7 +770,7 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     assert "recommended_points" in row
 
 
-def test_allpay_flow_bid_lost_updates_budget_breakdown(client):
+def test_ordinary_lost_bid_does_not_consume_allpay_budget(client):
     login(client, "admin", "admin123")
     ruleset_id = ruleset_id_by_code(client, "ies_2026")
     created = client.post(
@@ -802,7 +802,13 @@ def test_allpay_flow_bid_lost_updates_budget_breakdown(client):
 
     bid_resp = client.post(
         f"/api/sessions/{session_id}/auction/actions",
-        json={"lot_id": lot_id, "action": "bid", "bid_level": "target"},
+        json={
+            "lot_id": lot_id,
+            "action": "bid",
+            "bid_level": "target",
+            "auction_mode": "ordinary_tariff_auction",
+            "allpay_triggered": False,
+        },
     )
     assert bid_resp.status_code == 200
     bid_payload = bid_resp.get_json()["item"]
@@ -820,25 +826,125 @@ def test_allpay_flow_bid_lost_updates_budget_breakdown(client):
     lost_payload = lost_resp.get_json()
     assert lost_payload["item"]["event"]["outcome"] == "lost"
     meta = dict(lost_payload["refresh"]["meta"])
-    assert float(meta["allpay_spent"]) == pytest.approx(bid_amount)
+    assert float(meta["allpay_spent"]) == pytest.approx(0.0)
     assert float(meta["purchase_spent"]) == pytest.approx(0.0)
-    assert float(meta["cash_available"]) == pytest.approx(float(meta["budget_total"]) - bid_amount)
+    assert float(meta["cash_available"]) == pytest.approx(float(meta["budget_total"]))
 
     lot_after = client.get(f"/api/lots/{lot_id}").get_json()["item"]
     assert lot_after["status"] == "rejected"
 
     session_after = client.get(f"/api/sessions/{session_id}").get_json()["item"]
-    assert float(session_after["allpay_spent"]) == pytest.approx(bid_amount)
+    assert float(session_after["allpay_spent"]) == pytest.approx(0.0)
     assert float(session_after["purchase_spent"]) == pytest.approx(0.0)
-    assert float(session_after["cash_available"]) == pytest.approx(
-        float(session_after["budget_total"]) - bid_amount
-    )
+    assert float(session_after["cash_available"]) == pytest.approx(float(session_after["budget_total"]))
 
     history = client.get(f"/api/sessions/{session_id}/auction/events").get_json()
     assert history["ok"] is True
     assert any(
         str(row["action"]) == "bid" and str(row["outcome"]) == "lost" for row in history["items"]
     )
+
+
+def test_special_case_allpay_lost_bid_updates_budget_breakdown(client):
+    login(client, "admin", "admin123")
+    ruleset_id = ruleset_id_by_code(client, "ies_2026")
+    created = client.post(
+        "/api/sessions",
+        json={
+            "title": "Special all-pay lost",
+            "ruleset_id": ruleset_id,
+            "selected_strategy": "balanced",
+            "budget_total": 5200.0,
+        },
+    )
+    assert created.status_code == 200
+    session_id = int(created.get_json()["item"]["id"])
+    wind_id = _type_id_by_code(client, "wind")
+
+    lot_resp = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Tie-break lot",
+            "scope": "global",
+            "base_bid": 30.0,
+            "current_bid": 30.0,
+            "items": [{"object_type_id": wind_id, "quantity": 1}],
+        },
+    )
+    assert lot_resp.status_code == 200
+    lot_id = int(lot_resp.get_json()["item"]["id"])
+
+    bid_resp = client.post(
+        f"/api/sessions/{session_id}/auction/actions",
+        json={
+            "lot_id": lot_id,
+            "action": "bid",
+            "bid_level": "target",
+            "auction_mode": "tie_break_all_pay",
+            "allpay_triggered": True,
+            "bid_amount": 125.0,
+        },
+    )
+    assert bid_resp.status_code == 200
+    event = dict(bid_resp.get_json()["item"]["event"])
+
+    lost_resp = client.post(
+        f"/api/sessions/{session_id}/auction/outcomes",
+        json={"lot_id": lot_id, "event_id": int(event["id"]), "outcome": "lost"},
+    )
+    assert lost_resp.status_code == 200
+    lost_payload = lost_resp.get_json()
+    assert lost_payload["item"]["event"]["details_json"]["allpay_applied"] is True
+    meta = dict(lost_payload["refresh"]["meta"])
+    assert float(meta["allpay_spent"]) == pytest.approx(125.0)
+    assert float(meta["cash_available"]) == pytest.approx(float(meta["budget_total"]) - 125.0)
+
+
+def test_special_case_allpay_respects_5000_budget_cap(client):
+    login(client, "admin", "admin123")
+    ruleset_id = ruleset_id_by_code(client, "ies_2026")
+    created = client.post(
+        "/api/sessions",
+        json={
+            "title": "Special all-pay cap",
+            "ruleset_id": ruleset_id,
+            "selected_strategy": "balanced",
+            "budget_total": 7000.0,
+        },
+    )
+    assert created.status_code == 200
+    session_id = int(created.get_json()["item"]["id"])
+    wind_id = _type_id_by_code(client, "wind")
+
+    lot_resp = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Fixed package",
+            "scope": "global",
+            "base_bid": 30.0,
+            "current_bid": 30.0,
+            "items": [{"object_type_id": wind_id, "quantity": 1}],
+        },
+    )
+    assert lot_resp.status_code == 200
+    lot_id = int(lot_resp.get_json()["item"]["id"])
+
+    bid_resp = client.post(
+        f"/api/sessions/{session_id}/auction/actions",
+        json={
+            "lot_id": lot_id,
+            "action": "bid",
+            "bid_amount": 5100.0,
+            "auction_mode": "fixed_tariff_package_all_pay",
+            "allpay_triggered": True,
+        },
+    )
+    assert bid_resp.status_code == 400
+    error = bid_resp.get_json()["error"]
+    assert error["code"] == "bad_request"
+    assert "All-Pay бюджета" in error["message"]
 
 
 def test_allpay_flow_bid_won_keeps_allpay_zero_and_purchases_once(client):
