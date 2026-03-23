@@ -7,7 +7,7 @@
     <p class="section-kicker">Сессия #{{ session.id }}</p>
     <h1 class="hero-title">{{ session.title }}</h1>
     <p class="hero-subtitle">
-      Режим: {{ strategy_label(session.selected_strategy) }} ·
+      Профиль анализа: {{ strategy_label(session.selected_strategy) }} ·
       Бюджет: <span data-session-budget-total>{{ fmt_num(session.budget_total, 1) }}</span> ·
       Потрачено: <span data-session-spent-total>{{ fmt_num(spent, 1) }}</span> ·
       Остаток: <span data-session-remaining-budget>{{ fmt_num(remaining, 1) }}</span>
@@ -16,6 +16,8 @@
   <div class="hero-badges">
     <span class="pill">Куплено лотов: <span data-session-bought-count>{{ bought_count }}</span></span>
     <span class="pill">Набор правил: {{ session.ruleset.code if session.ruleset else 'n/a' }}</span>
+    <span class="pill">Горизонт: 48 тактов</span>
     <span class="pill">{{ 'Есть стартовый пакет' if session.ruleset and session.ruleset.active_start_pack_template else 'Без стартового пакета' }}</span>
   </div>
 </section>
+{% include "components/session_nav.html" %}

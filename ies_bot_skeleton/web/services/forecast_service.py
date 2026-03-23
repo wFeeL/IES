@@ -25,6 +25,7 @@ CANONICAL_FACTOR_KEYS = (
     "solar_factor",
     "market_price_buy",
     "market_price_sell",
+    "balancing_penalty_price",
     "fuel_price",
     "temperature",
     "time_of_day",
@@ -32,13 +33,22 @@ CANONICAL_FACTOR_KEYS = (
 CANONICAL_PROFILE_KEYS = (
     "factory_load",
     "office_load",
-    "house_load",
-    "solar_profile",
-    "wind_profile",
+    "house_a_load",
+    "house_b_load",
+    "hospital_load",
     "storage_default_profile",
 )
 
-CANONICAL_LOAD_KEYS = ("housea", "houseb", "office", "factory", "consumer", "load", "class3")
+CANONICAL_LOAD_KEYS = (
+    "house_a",
+    "house_b",
+    "office",
+    "factory",
+    "hospital",
+    "consumer",
+    "load",
+    "class3",
+)
 _CANONICAL_LOAD_SET = set(CANONICAL_LOAD_KEYS)
 _FACTOR_SET = set(CANONICAL_FACTOR_KEYS)
 _PROFILE_SET = set(CANONICAL_PROFILE_KEYS)
@@ -55,6 +65,7 @@ _FACTOR_ALIASES: Dict[str, tuple[str, ...]] = {
         "рынок",
     ),
     "market_price_sell": ("market_price_sell", "price_sell", "sell_price"),
+    "balancing_penalty_price": ("balancing_penalty_price", "imbalance_penalty", "balancing_penalty"),
     "fuel_price": ("fuel_price", "fuel"),
     "temperature": ("temperature", "temp", "t_air"),
     "time_of_day": ("time_of_day", "hour", "tod"),
@@ -69,49 +80,66 @@ _PROFILE_ALIASES: Dict[str, tuple[str, ...]] = {
         "demand_factory",
     ),
     "office_load": ("office_load", "office", "load_office", "consumption_office", "demand_office"),
-    "house_load": (
-        "house_load",
-        "house",
+    "house_a_load": (
+        "house_a_load",
+        "house_a",
         "housea",
-        "houseb",
-        "load_house",
-        "load_houseb",
+        "load_house_a",
         "load_housea",
-        "consumption_houseb",
-        "consumption_house",
+        "consumption_house_a",
+        "consumption_housea",
     ),
-    "solar_profile": ("solar_profile", "solar_output_profile"),
-    "wind_profile": ("wind_profile", "wind_output_profile"),
+    "house_b_load": (
+        "house_b_load",
+        "house_b",
+        "houseb",
+        "load_house_b",
+        "load_houseb",
+        "consumption_house_b",
+        "consumption_houseb",
+    ),
+    "hospital_load": (
+        "hospital_load",
+        "hospital",
+        "load_hospital",
+        "consumption_hospital",
+        "demand_hospital",
+    ),
     "storage_default_profile": ("storage_default_profile", "storage_profile"),
 }
 
 _LEGACY_PROFILE_TO_LOAD = {
-    "house_load": "housea",
+    "house_a_load": "house_a",
+    "house_b_load": "house_b",
     "office_load": "office",
     "factory_load": "factory",
+    "hospital_load": "hospital",
 }
 
 _LEGACY_LOAD_TO_PROFILE = {
-    "house": "house_load",
-    "housea": "house_load",
-    "house_a": "house_load",
-    "houseb": "house_load",
-    "house_b": "house_load",
-    "load_house": "house_load",
-    "load_housea": "house_load",
-    "load_house_a": "house_load",
-    "load_houseb": "house_load",
-    "load_house_b": "house_load",
-    "consumption_house": "house_load",
-    "consumption_house_a": "house_load",
-    "consumption_houseb": "house_load",
-    "consumption_house_b": "house_load",
+    "house": "house_a_load",
+    "housea": "house_a_load",
+    "house_a": "house_a_load",
+    "load_house": "house_a_load",
+    "load_housea": "house_a_load",
+    "load_house_a": "house_a_load",
+    "consumption_house": "house_a_load",
+    "consumption_house_a": "house_a_load",
+    "houseb": "house_b_load",
+    "house_b": "house_b_load",
+    "load_houseb": "house_b_load",
+    "load_house_b": "house_b_load",
+    "consumption_houseb": "house_b_load",
+    "consumption_house_b": "house_b_load",
     "office": "office_load",
     "load_office": "office_load",
     "consumption_office": "office_load",
     "factory": "factory_load",
     "load_factory": "factory_load",
     "consumption_factory": "factory_load",
+    "hospital": "hospital_load",
+    "load_hospital": "hospital_load",
+    "consumption_hospital": "hospital_load",
 }
 
 WEATHER_RAW_ALIASES: Dict[str, tuple[str, ...]] = {
@@ -132,7 +160,7 @@ WEATHER_CATEGORY_SERIES_ORDER = (
     "house_a",
     "house_b",
     "office",
-    "house_load",
+    "consumer",
 )
 
 WEATHER_SERIES_LABELS: Dict[str, str] = {
@@ -238,6 +266,13 @@ def _sum_available(*values: Optional[float]) -> Optional[float]:
     if not numeric:
         return None
     return float(sum(numeric))
+
+
+def _mean(values: Iterable[float]) -> float:
+    rows = [float(value) for value in values]
+    if not rows:
+        return 0.0
+    return float(sum(rows) / len(rows))
 
 
 def _series_payload(ticks: List[int], series: Dict[int, float] | None) -> List[Optional[float]]:
@@ -492,7 +527,7 @@ def _canonical_load_key(raw_key: str) -> Optional[str]:
     if stripped in _CANONICAL_LOAD_SET:
         return stripped
     if stripped in {"house"}:
-        return "housea"
+        return "house_a"
     if stripped in {"class_3"}:
         return "class3"
     if key in {"consumption", "demand"}:
@@ -505,7 +540,7 @@ def _load_aliases(canonical_key: str) -> List[str]:
     if key not in _CANONICAL_LOAD_SET:
         return []
     aliases = [key, f"load_{key}", f"consumption_{key}", f"demand_{key}"]
-    if key == "housea":
+    if key == "house_a":
         aliases.append("house")
     if key == "class3":
         aliases.append("class_3")
@@ -558,7 +593,7 @@ def _build_class3_series(load_rows: Dict[str, Dict[int, float]]) -> Dict[int, fl
     ticks = sorted(set().union(*[set(values.keys()) for values in load_rows.values()] or [set()]))
     for tick in ticks:
         total = 0.0
-        for key in ("housea", "houseb", "office", "consumer", "load"):
+        for key in ("house_a", "house_b", "office", "hospital", "consumer", "load"):
             total += float((load_rows.get(key) or {}).get(tick, 0.0) or 0.0)
         if total > 0:
             class3[int(tick)] = float(total)
@@ -1631,19 +1666,20 @@ def _required_forecast_links(object_type: ObjectType) -> Dict[str, List[str]]:
         if not required_profiles:
             if code == "factory":
                 required_profiles.append("factory_load")
+            elif code == "hospital":
+                required_profiles.append("hospital_load")
             elif code == "office":
                 required_profiles.append("office_load")
+            elif code in {"house_b", "houseb"}:
+                required_profiles.append("house_b_load")
             else:
-                required_profiles.append("house_load")
+                required_profiles.append("house_a_load")
     elif resolved_role == "generator":
-        if code == "wind" and "wind_factor" not in required_factors:
+        if code in {"wind", "tps"} and "wind_factor" not in required_factors:
             required_factors.append("wind_factor")
-        if (
-            code in {"solar", "cyber_solar", "solarrobot"}
-            and "solar_factor" not in required_factors
-        ):
+        if code in {"solar", "cyber_solar", "solarrobot"} and "solar_factor" not in required_factors:
             required_factors.append("solar_factor")
-        if model_type in {"wind_factor_curve", "solar_factor_output"}:
+        if model_type in {"wind_factor_curve", "solar_factor_output", "wind_output_2026", "solar_output_2026"}:
             optional_profiles.extend(required_profiles)
             required_profiles = []
     elif resolved_role == "storage":
@@ -1847,7 +1883,14 @@ def _bundled_canonical_dataset() -> (
     pack = load_bundled_forecast_pack()
     factors: Dict[str, Dict[int, float]] = {}
     profiles: Dict[str, Dict[int, float]] = {}
-    wind_rows = (pack.get("wind", {}) or {}).get("wind", {}) or {}
+    wind_bucket = dict(pack.get("wind", {}) or {})
+    wind_rows = (wind_bucket.get("wind", {}) or {})
+    if not wind_rows and wind_bucket:
+        ticks = sorted({int(tick) for series in wind_bucket.values() for tick in series.keys()})
+        wind_rows = {
+            int(tick): _mean([float((series or {}).get(int(tick), 0.0) or 0.0) for series in wind_bucket.values()])
+            for tick in ticks
+        }
     solar_rows = (pack.get("solar", {}) or {}).get("solar", {}) or {}
     market_rows = (pack.get("market", {}) or {}).get("price", {}) or {}
     if wind_rows:
@@ -2186,6 +2229,29 @@ def build_forecast_pack(forecast: Forecast) -> Dict[str, Dict[str, Dict[int, flo
     solar = factors.get("solar_factor", {})
     market_buy = factors.get("market_price_buy", {})
     market_sell = factors.get("market_price_sell", {})
+    balancing_penalty = factors.get("balancing_penalty_price", {})
+
+    wind_bucket: Dict[str, Dict[int, float]] = {}
+    if wind:
+        wind_bucket["wind"] = wind
+    for period in forecast.periods:
+        raw_columns = dict((period.extra_json or {}).get("raw_columns") or {})
+        for raw_key, raw_value in raw_columns.items():
+            key = _norm(str(raw_key))
+            if not key.startswith("wind_"):
+                continue
+            value = _parse_float(raw_value)
+            if value is None:
+                continue
+            wind_bucket.setdefault(key, {})[int(period.tick)] = float(value)
+    if "wind" not in wind_bucket and wind_bucket:
+        ticks = sorted({int(tick) for series in wind_bucket.values() for tick in series.keys()})
+        wind_bucket["wind"] = {
+            int(tick): _mean(
+                [float((series or {}).get(int(tick), 0.0) or 0.0) for series in wind_bucket.values() if series]
+            )
+            for tick in ticks
+        }
 
     raw_load_series: Dict[str, Dict[int, float]] = {}
     for profile_key, legacy_key in _LEGACY_PROFILE_TO_LOAD.items():
@@ -2202,13 +2268,15 @@ def build_forecast_pack(forecast: Forecast) -> Dict[str, Dict[str, Dict[int, flo
     load_bucket = _with_load_aliases(load_series)
 
     out: Dict[str, Dict[str, Dict[int, float]]] = {
-        "wind": {"wind": wind} if wind else {},
+        "wind": wind_bucket,
         "solar": {"solar": solar} if solar else {},
         "load": load_bucket,
         "market": {"price": market_buy} if market_buy else {},
     }
     if market_sell:
         out["market"]["sell_price"] = market_sell
+    if balancing_penalty:
+        out["market"]["balancing_penalty_price"] = balancing_penalty
     return out
 
 

@@ -292,6 +292,12 @@ html[data-theme="dark"] .topbar {
   color: var(--text);
 }
 
+.nav-tab.is-active {
+  border-color: rgba(22, 124, 135, 0.28);
+  background: rgba(22, 124, 135, 0.12);
+  color: var(--primary-strong);
+}
+
 .card,
 .context-card,
 .hero-card,
@@ -409,6 +415,24 @@ html[data-theme="dark"] .topbar {
   padding: 0 12px;
   font-size: 0.84rem;
   background: rgba(255, 255, 255, 0.5);
+}
+
+.risk-pill-low {
+  border-color: rgba(15, 119, 95, 0.24);
+  color: var(--ok);
+  background: rgba(15, 119, 95, 0.08);
+}
+
+.risk-pill-medium {
+  border-color: rgba(176, 121, 27, 0.22);
+  color: var(--warning);
+  background: rgba(176, 121, 27, 0.08);
+}
+
+.risk-pill-high {
+  border-color: rgba(191, 62, 80, 0.22);
+  color: var(--danger);
+  background: rgba(191, 62, 80, 0.08);
 }
 
 .status-fresh {

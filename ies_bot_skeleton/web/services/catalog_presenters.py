@@ -6,45 +6,49 @@ from ..models import ObjectType
 from .ui_text import category_label
 
 FIELD_LABELS: Dict[str, str] = {
-    "contract_rub_per_tick": "Контрактная цена",
+    "contract_rub_per_tick": "Тариф обслуживания за такт",
     "generation_mw": "Генерация, МВт",
     "expected_consumption_mw": "Ожидаемое потребление, МВт",
     "forecast_sensitivity": "Чувствительность к прогнозу",
     "profile": "Профиль",
-    "tariff_rub_per_mw_tick": "Тариф, руб/МВт·тик",
-    "eco_score": "Эко-оценка",
-    "fuel_price": "Цена топлива",
-    "eco_tax_fuel": "Экологический налог на топливо",
+    "tariff_rub_per_mw_tick": "Тариф подключения/обслуживания, руб/МВт·такт",
+    "elasticity": "Эластичность спроса",
+    "reference_tariff": "Опорный тариф",
     "capacity_mw_tick": "Ёмкость, МВт·тик",
     "charge_rate_mw": "Скорость заряда, МВт",
+    "charge_rate_mw_tick": "Скорость заряда, МВт·такт",
     "discharge_rate_mw": "Скорость разряда, МВт",
+    "discharge_rate_mw_tick": "Скорость разряда, МВт·такт",
     "efficiency": "КПД",
+    "roundtrip_efficiency": "КПД цикла",
     "ports": "Порты",
     "soft_flow_limit_mw": "Лимит потока, МВт",
-    "wear_impact": "Влияние на износ",
-    "maintenance_cost": "Стоимость обслуживания",
-    "tax": "Налог",
+    "maintenance_cost_per_tick": "Сервисные расходы за такт",
     "district": "Район",
     "requires_substation": "Требуется подстанция",
     "depends_on_sun": "Зависит от солнца",
     "depends_on_wind": "Зависит от ветра",
+    "wind_channel": "Канал ветра",
+    "cut_in_mps": "Cut-in, м/с",
+    "rated_mps": "Rated, м/с",
+    "cut_out_mps": "Cut-out, м/с",
+    "secondary_connection_point": "Второй ввод",
 }
 
 GLOSSARY_GROUPS: List[Dict[str, Any]] = [
     {
         "title": "Коды объектов",
         "items": [
-            ("house", "жилой дом"),
+            ("house_a", "дома типа A"),
+            ("house_b", "дома типа B"),
             ("office", "офис"),
             ("factory", "завод"),
-            ("cyber_solar", "солнечная панель"),
-            ("solar", "дополнительная солнечная электростанция"),
-            ("wind", "ветряк"),
-            ("tps", "тепловая электростанция"),
+            ("hospital", "больница"),
+            ("solar", "СЭС"),
+            ("wind", "ВЭС"),
             ("storage", "накопитель"),
             ("main_substation", "главная подстанция"),
-            ("mini_substation_a", "мини-подстанция"),
-            ("mini_substation_b", "мини-подстанция B"),
+            ("mini_substation", "мини-подстанция"),
         ],
     },
     {
@@ -61,12 +65,11 @@ GLOSSARY_GROUPS: List[Dict[str, Any]] = [
         "items": [
             ("generation_mw", "объём генерации"),
             ("expected_consumption_mw", "ожидаемое потребление"),
-            ("forecast_sensitivity", "чувствительность к прогнозу"),
-            ("eco_score", "экологическая оценка"),
-            ("contract_rub_per_tick", "контрактная стоимость за тик"),
-            ("fuel_price", "цена топлива"),
-            ("eco_tax_fuel", "экологический налог на топливо"),
-            ("wear_impact", "вклад в износ сети"),
+            ("elasticity", "эластичность спроса"),
+            ("contract_rub_per_tick", "тариф обслуживания за такт"),
+            ("tariff_rub_per_mw_tick", "тариф потребителя"),
+            ("wind_channel", "отдельный wind channel"),
+            ("roundtrip_efficiency", "параметр накопителя"),
             ("ports", "число подключаемых линий"),
         ],
     },
@@ -83,14 +86,14 @@ KEY_FIELDS_BY_CATEGORY: Dict[str, List[str]] = {
     "consumer": [
         "tariff_rub_per_mw_tick",
         "expected_consumption_mw",
-        "profile",
+        "elasticity",
         "forecast_sensitivity",
     ],
     "generator": [
         "contract_rub_per_tick",
         "generation_mw",
         "efficiency",
-        "forecast_sensitivity",
+        "wind_channel",
     ],
     "storage": [
         "capacity_mw_tick",
@@ -135,6 +138,8 @@ def _present_params(keys: Iterable[str], params: Dict[str, Any]) -> List[Dict[st
 def build_catalog_sections(rows: Iterable[ObjectType]) -> List[Dict[str, Any]]:
     sections: Dict[str, List[Dict[str, Any]]] = {}
     for row in rows:
+        if bool((row.rules_json or {}).get("hidden_from_ui")):
+            continue
         params = dict(row.default_parameters_json or {})
         key_fields = KEY_FIELDS_BY_CATEGORY.get(row.category, [])
         details_fields = [key for key in params.keys() if key not in key_fields]

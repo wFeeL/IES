@@ -54,6 +54,7 @@ FORECAST_FACTOR_LABELS: Dict[str, str] = {
     "solar_factor": "Фактор солнца",
     "market_price_buy": "Рыночная цена покупки",
     "market_price_sell": "Рыночная цена продажи",
+    "balancing_penalty_price": "Штраф за небаланс",
     "fuel_price": "Цена топлива",
     "temperature": "Температура",
     "time_of_day": "Время суток",
@@ -62,17 +63,18 @@ FORECAST_FACTOR_LABELS: Dict[str, str] = {
 FORECAST_PROFILE_LABELS: Dict[str, str] = {
     "factory_load": "Нагрузка завода",
     "office_load": "Нагрузка офиса",
-    "house_load": "Нагрузка домохозяйств",
-    "solar_profile": "Профиль солнечной генерации",
-    "wind_profile": "Профиль ветровой генерации",
+    "house_a_load": "Нагрузка домов A",
+    "house_b_load": "Нагрузка домов B",
+    "hospital_load": "Нагрузка больницы",
     "storage_default_profile": "Профиль накопителя",
 }
 
 FORECAST_LOAD_LABELS: Dict[str, str] = {
-    "housea": "Домохозяйства A",
-    "houseb": "Домохозяйства B",
+    "house_a": "Дома типа A",
+    "house_b": "Дома типа B",
     "office": "Офисная нагрузка",
     "factory": "Промышленная нагрузка",
+    "hospital": "Нагрузка больницы",
     "consumer": "Общая потребительская нагрузка",
     "load": "Совокупная нагрузка",
     "class3": "Служебный ряд: class3",

@@ -3,53 +3,174 @@
 {% block page_title %}Лот #{{ lot.id }}{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
+{% include "components/analysis_context.html" %}
+
 <section class="card mt-4">
   <div class="section-head">
     <div>
       <p class="section-kicker">Лот #{{ lot.id }}</p>
       <h1 class="h1">{{ lot.name }}</h1>
-      <p class="muted">{{ lot_scope_label(lot.scope) }} · {{ lot_status_label(lot.status) }} · текущая ставка {{ fmt_num(lot.current_bid, 1) }}</p>
+      <p class="muted mt-2">{{ lot_scope_label(lot.scope) }} · {{ lot_status_label(lot.status) }} · текущая цена {{ fmt_num(lot.current_bid, 2) }}</p>
       <p class="muted">Состав: {{ lot_summary.structure }}</p>
     </div>
     <div class="actions">
       {% if lot.status == 'available' and not forecast_blocked %}
-      <a class="btn btn-primary" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=lot.id) }}">Купить</a>
+      <a class="btn btn-primary" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=lot.id) }}">Купить лот</a>
       {% endif %}
       <a class="btn btn-secondary" href="{{ url_for('pages.lot_edit_page', lot_id=lot.id) }}">Редактировать</a>
     </div>
   </div>
+  {% if forecast_blocked %}
+  <div class="risk-block mt-3">
+    <strong>Оценка недоступна.</strong>
+    <div class="mt-2">{{ compatibility_guidance.primary_message }}</div>
+  </div>
+  {% endif %}
 </section>
+
 <section class="kpi-grid mt-4">
-  <article class="kpi-card"><span class="metric-label">Полезность</span><strong>{{ fmt_num(evaluation.summary_score, 2) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Чистая прибыль при текущей цене</span><strong>{{ fmt_num(evaluation.financial_breakdown.result.net_profit_at_current_price or evaluation.financial_breakdown.result.net_profit, 2) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Чистая прибыль после рабочей ставки</span><strong>{{ fmt_num(evaluation.decision_summary.net_profit_at_recommended_bid or evaluation.financial_breakdown.result.net_profit_at_recommended_bid, 2) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Безопасная ставка</span><strong>{{ fmt_num(evaluation.recommended_bid_safe or evaluation.decision_summary.recommended_bid_safe or 0, 1) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Рабочая ставка</span><strong>{{ fmt_num(evaluation.recommended_bid_balanced or evaluation.decision_summary.recommended_bid_balanced or evaluation.working_bid or 0, 1) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Потолок</span><strong>{{ fmt_num(evaluation.max_bid or evaluation.decision_summary.max_bid, 1) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Expected delta-profit</span><strong>{{ fmt_num(evaluation.expected_delta_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Break-even тариф</span><strong>{{ fmt_num(evaluation.break_even_tariff, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Recommended tariff</span><strong>{{ fmt_num(evaluation.recommended_bid_or_tariff or evaluation.recommended_bid, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Base case</span><strong>{{ fmt_num(evaluation.base_case.delta_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Best case</span><strong>{{ fmt_num(evaluation.best_case.delta_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Worst case</span><strong>{{ fmt_num(evaluation.worst_case.delta_profit, 2) }}</strong></article>
 </section>
-<section class="grid cols-2 gap-4 mt-4">
+
+<section class="page-grid mt-4">
   <article class="card">
-    <p class="section-kicker">Решение</p>
-    <h2 class="h2">Брать или пропускать</h2>
+    <p class="section-kicker">Рекомендация</p>
+    <h2 class="h2">Итог по аукциону</h2>
     <div class="risk-block mt-3">
-      <strong>{% if (evaluation.recommended_bid_balanced or evaluation.decision_summary.recommended_bid_balanced or evaluation.working_bid or 0.0) <= 0 %}Пас{% elif (evaluation.recommended_bid_balanced or evaluation.decision_summary.recommended_bid_balanced or evaluation.working_bid or 0.0) <= ((evaluation.max_bid or evaluation.decision_summary.max_bid or 0.0) * 0.35) %}Только по дешёвому входу{% else %}Брать до рабочей ставки{% endif %}</strong>
-      <div class="mt-2">{{ evaluation.decision_summary.recommended_bid_reason or evaluation.recommended_bid_reason or evaluation.decision_summary.working_bid_reason }}</div>
-      {% if evaluation.decision_summary.bid_constraints_summary %}<div class="mt-2 muted">{{ evaluation.decision_summary.bid_constraints_summary }}</div>{% endif %}
+      <strong>{{ evaluation.decision_summary.recommended_bid_reason or evaluation.explanation }}</strong>
+      <div class="mt-2">Направление торгов: {{ evaluation.decision_summary.auction_direction }}</div>
+      <div class="mt-2">Предельный безубыточный тариф: {{ fmt_num(evaluation.break_even_tariff, 2) }}. Рекомендуемый тариф/потолок: {{ fmt_num(evaluation.recommended_bid_or_tariff or evaluation.recommended_bid, 2) }}.</div>
     </div>
+    <div class="pill-row mt-3">
+      <span class="pill risk-pill risk-pill-{{ evaluation.topology_risk }}">Topology: {{ evaluation.topology_risk }}</span>
+      <span class="pill risk-pill risk-pill-{{ evaluation.market_risk }}">Market: {{ evaluation.market_risk }}</span>
+      <span class="pill risk-pill risk-pill-{{ evaluation.balancing_risk }}">Balance: {{ evaluation.balancing_risk }}</span>
+      <span class="pill risk-pill risk-pill-{{ evaluation.loss_risk }}">Loss: {{ evaluation.loss_risk }}</span>
+    </div>
+    {% if evaluation.system_check.critical_blocking_errors %}
+    <div class="issue issue-error mt-3">
+      <strong>Topology risk блокирует рекомендацию.</strong>
+      <ul class="stack gap-1 mt-2">
+        {% for issue in evaluation.system_check.critical_blocking_errors %}
+        <li>{{ issue }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
   </article>
+
   <article class="card">
-    <p class="section-kicker">Портфель и fit</p>
-    <h2 class="h2">Что происходит после покупки</h2>
+    <p class="section-kicker">Синергия и fit</p>
+    <h2 class="h2">Как лот встраивается в систему</h2>
     <div class="table-wrap mt-3">
       <table class="table">
         <tbody>
-          <tr><th>Остаток бюджета</th><td class="num">{{ fmt_num(evaluation.portfolio_context.remaining_budget, 1) }}</td></tr>
-          <tr><th>Синергия</th><td class="num">{{ fmt_num(evaluation.metrics.synergy.score, 2) }}</td></tr>
-          <tr><th>System fit</th><td class="num">{{ fmt_num(evaluation.system_check.system_fit_score, 2) }}</td></tr>
-          <tr><th>Комментарий системы</th><td>{{ evaluation.system_check.message }}</td></tr>
+          <tr><th>System fit</th><td>{{ fmt_num(evaluation.system_check.system_fit_score, 2) }}</td></tr>
+          <tr><th>Синергия</th><td>{{ fmt_num(evaluation.metrics.synergy.score, 2) }}</td></tr>
+          <tr><th>Standalone delta-profit</th><td>{{ fmt_num(evaluation.metrics.synergy.standalone_expected_net_profit, 2) }}</td></tr>
+          <tr><th>Marginal delta-profit</th><td>{{ fmt_num(evaluation.metrics.synergy.marginal_expected_net_profit, 2) }}</td></tr>
+          <tr><th>Комментарий сети</th><td>{{ evaluation.system_check.message }}</td></tr>
         </tbody>
       </table>
     </div>
+  </article>
+</section>
+
+<section class="page-grid mt-4">
+  <article class="card">
+    <p class="section-kicker">Разложение экономики</p>
+    <h2 class="h2">Из чего складывается ценность лота</h2>
+    <div class="table-wrap mt-3">
+      <table class="table">
+        <tbody>
+          {% for row in evaluation.financial_breakdown.ui_rows %}
+          <tr>
+            <th>{{ row.label }}</th>
+            <td class="num">{{ fmt_num(row.value, 2) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="card">
+    <p class="section-kicker">Сценарии</p>
+    <h2 class="h2">Диапазон результатов</h2>
+    <div class="stack gap-3 mt-3">
+      <div class="alt-row">
+        <strong>Best case: {{ fmt_num(evaluation.best_case.delta_profit, 2) }}</strong>
+        <div class="table-secondary">{{ (evaluation.best_case.notes or [])|join('; ') or 'Без дополнительных замечаний.' }}</div>
+      </div>
+      <div class="alt-row">
+        <strong>Base case: {{ fmt_num(evaluation.base_case.delta_profit, 2) }}</strong>
+        <div class="table-secondary">{{ (evaluation.base_case.notes or [])|join('; ') or 'Без дополнительных замечаний.' }}</div>
+      </div>
+      <div class="alt-row">
+        <strong>Worst case: {{ fmt_num(evaluation.worst_case.delta_profit, 2) }}</strong>
+        <div class="table-secondary">{{ (evaluation.worst_case.notes or [])|join('; ') or 'Без дополнительных замечаний.' }}</div>
+      </div>
+    </div>
+  </article>
+</section>
+
+<section class="page-grid mt-4">
+  <article class="card">
+    <p class="section-kicker">Монтажные требования</p>
+    <h2 class="h2">Что обязательно проверить в сети</h2>
+    {% if evaluation.system_check.critical_blocking_errors or evaluation.system_check.warnings or evaluation.system_check.optimization_hints %}
+    <div class="stack gap-3 mt-3">
+      {% if evaluation.system_check.critical_blocking_errors %}
+      <div class="issue issue-error">
+        <strong>Critical blocking errors</strong>
+        <ul class="stack gap-1 mt-2">
+          {% for item in evaluation.system_check.critical_blocking_errors %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      {% if evaluation.system_check.warnings %}
+      <div class="issue issue-warning">
+        <strong>Warnings</strong>
+        <ul class="stack gap-1 mt-2">
+          {% for item in evaluation.system_check.warnings %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      {% if evaluation.system_check.optimization_hints %}
+      <div class="issue issue-ok">
+        <strong>Optimization hints</strong>
+        <ul class="stack gap-1 mt-2">
+          {% for item in evaluation.system_check.optimization_hints %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="empty-state mt-3">Критических ограничений по монтажу не найдено.</div>
+    {% endif %}
+  </article>
+
+  <article class="card">
+    <p class="section-kicker">Допущения модели</p>
+    <h2 class="h2">Что ещё калибруется</h2>
+    <ul class="stack gap-2 mt-3">
+      {% for item in (evaluation.metrics.bids.valuation_model.assumptions or []) %}
+      <li>{{ item }}</li>
+      {% else %}
+      <li>Допущения не указаны.</li>
+      {% endfor %}
+    </ul>
   </article>
 </section>
 {% endblock %}

@@ -1,60 +1,19 @@
 {
-  "scenarios": {
-    "base": { "wind": 1.0, "solar": 1.0, "load": 1.0 },
-    "worst": { "wind": 1.0, "solar": 0.5, "load": 1.5 },
-    "best": { "wind": 1.0, "solar": 1.5, "load": 0.5 }
+  "evaluation": {
+    "analysis_mode": "ies_2026",
+    "horizon_ticks": 48,
+    "delta_profit_model": "marginal_system_profit",
+    "explicit_assumptions_required": true
   },
   "market": {
-    "market_max_power": 1000000,
-    "instant_buy_max_power": 0,
-    "instant_sell_max_power": 0
-  },
-  "network": {
-    "wear_threshold_mw": 9999,
-    "wear_limit": 1000000,
-    "wear_k": 0.0,
-    "outage_ticks": 1,
-    "outage_penalty_rub": 0.0,
-    "outage_loss_scale": 1.0
-  },
-  "ranking": {
-    "ev_weight_base": 0.50,
-    "ev_weight_worst": 0.35,
-    "ev_weight_best": 0.15,
-    "risk_lambda": 0.25
-  },
-  "evaluation": {
-    "risk_lambda": 0.25,
-    "volatility_lambda": 0.15,
-    "reserve_margin_abs": 5.0,
-    "reserve_margin_share": 0.10,
-    "storage_operating_cost_per_mwh_throughput": 0.0,
-    "enable_strategy_profiles": false,
-    "ignore_connection_sectors": false,
-    "analysis_mode": "unified"
+    "low_price_sale_factor": 0.55,
+    "sale_ramp_limit_mw": 8.0,
+    "sale_risk_buffer_mw": 1.5,
+    "bid_cap_mw": 120.0
   },
   "auction": {
-    "allpay_limit": 200.0,
-    "starting_budget": 200.0,
-    "tie_break_threshold": 2.0,
-    "pwin_default": 0.35,
-    "pwin_min": 0.08,
-    "pwin_max": 0.88,
-    "serious_competitors_default": 3,
-    "serious_competitors_min": 2,
-    "serious_competitors_max": 7,
-    "rank_weight": 0.22,
-    "synergy_weight": 0.12,
-    "scarcity_weight": 0.08,
-    "scope_weight": 0.06,
-    "safe_multiplier": 0.82,
-    "balanced_multiplier": 1.0,
-    "aggressive_multiplier": 1.22,
-    "volatility_lambda_bid": 0.15,
-    "auction_bid_model_version": "strategic_anchor_v4",
-    "conservative_utility_method": "weighted_expected_minus_volatility",
-    "scope_signal_global": 0.65,
-    "scope_signal_local": -0.45,
-    "block_on_topology_invalid": false
+    "consumer_competitiveness_share": 0.45,
+    "provider_margin_share": 0.18,
+    "allpay_mode": "special_only"
   }
 }

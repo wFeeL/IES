@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from copy import deepcopy
+from typing import Any, Dict, List, Optional
 
+from ..domain.ies2026 import EnergyObject, validate_network
 from ..web.extensions import db
 from ..web.models import GameSession, ObjectInstance, ObjectType
-from ..web.services.network import MAIN_CODES, MINI_CODES
 from ..web.services.purchased_objects import refresh_integration_state
 from ..web.services.stale import mark_stale_for_session
 
@@ -41,6 +42,25 @@ def _object_type_or_error(object_type_id: int) -> ObjectType:
     return row
 
 
+def _norm(value: Any) -> str:
+    return "".join(ch.lower() for ch in str(value or "").strip() if ch.isalnum() or ch == "_")
+
+
+def _canonical_code(code: str) -> str:
+    normalized = _norm(code)
+    if normalized in {"mini_substation_a", "mini_substation_b", "mini_substation", "mini"}:
+        return "mini_substation"
+    if normalized in {"house", "housea", "house_a"}:
+        return "house_a"
+    if normalized in {"houseb", "house_b"}:
+        return "house_b"
+    if normalized in {"cyber_solar", "solarrobot"}:
+        return "solar"
+    if normalized == "tps":
+        return "wind"
+    return normalized
+
+
 def _normalize_parent(
     *,
     session_id: int,
@@ -49,7 +69,10 @@ def _normalize_parent(
 ) -> int | None:
     if parent_instance_id in (None, "", 0, "0"):
         return None
-    parent_id = int(parent_instance_id)
+    try:
+        parent_id = int(float(parent_instance_id))
+    except Exception as exc:
+        raise ValueError("Родительский объект должен быть числом") from exc
     if current_object_id is not None and parent_id == int(current_object_id):
         raise ValueError("Объект не может быть родителем самому себе")
     parent = db.session.get(ObjectInstance, parent_id)
@@ -58,122 +81,149 @@ def _normalize_parent(
     return parent_id
 
 
-def _norm(value: Any) -> str:
-    return "".join(ch.lower() for ch in str(value or "").strip() if ch.isalnum() or ch == "_")
-
-
-def _ensure_parent_write_valid(
+def _normalize_connection_inputs(
     *,
     session_id: int,
-    object_type_id: int,
-    parent_instance_id: int | None,
+    parameters: Dict[str, Any],
     current_object_id: int | None,
-    is_active: bool,
-) -> None:
-    objects = (
-        db.session.query(ObjectInstance)
-        .filter_by(session_id=int(session_id))
-        .order_by(ObjectInstance.id)
-        .all()
-    )
-    candidate_id = int(current_object_id) if current_object_id is not None else -1
-    parent_by_id: Dict[int, int | None] = {}
-    object_type_by_id: Dict[int, int] = {}
-    active_by_id: Dict[int, bool] = {}
-    for obj in objects:
-        object_id = int(obj.id)
-        if object_id == candidate_id:
-            parent_by_id[object_id] = parent_instance_id
-            object_type_by_id[object_id] = int(object_type_id)
-            active_by_id[object_id] = bool(is_active)
-            continue
-        parent_by_id[object_id] = int(obj.parent_instance_id) if obj.parent_instance_id else None
-        object_type_by_id[object_id] = int(obj.object_type_id)
-        active_by_id[object_id] = bool(obj.is_active)
-    if candidate_id not in parent_by_id:
-        parent_by_id[candidate_id] = parent_instance_id
-        object_type_by_id[candidate_id] = int(object_type_id)
-        active_by_id[candidate_id] = bool(is_active)
-
-    cursor = parent_instance_id
-    seen: set[int] = set()
-    while cursor is not None:
-        if int(cursor) == candidate_id:
-            raise ValueError("Подключение образует цикл в дереве сети")
-        if int(cursor) in seen:
-            raise ValueError("Подключение образует цикл в дереве сети")
-        seen.add(int(cursor))
-        next_parent = parent_by_id.get(int(cursor))
-        if next_parent is None:
-            break
-        cursor = int(next_parent)
-
-    if not bool(is_active):
-        return
-
-    used_type_ids = {int(type_id) for type_id in object_type_by_id.values()}
-    types = (
-        db.session.query(ObjectType).filter(ObjectType.id.in_(used_type_ids)).all()
-        if used_type_ids
-        else []
-    )
-    type_code_by_id = {int(row.id): _norm(row.code) for row in types}
-    type_category_by_id = {int(row.id): _norm(row.category) for row in types}
-    main_ids = {
-        object_id
-        for object_id, type_id in object_type_by_id.items()
-        if bool(active_by_id.get(object_id))
-        and str(type_code_by_id.get(int(type_id), "")) in MAIN_CODES
-    }
-    if not main_ids:
-        return
-
-    candidate_code = str(type_code_by_id.get(int(object_type_id), ""))
-    if candidate_code in MAIN_CODES:
-        if parent_instance_id is not None:
-            raise ValueError("Главная подстанция не может иметь родителя")
-        return
-
-    if parent_instance_id is None:
-        raise ValueError(
-            "Объект должен быть подключен к главной подстанции: выберите родительский объект."
+) -> Dict[str, Any]:
+    params = deepcopy(parameters)
+    normalized_inputs: List[Dict[str, Any]] = []
+    for idx, raw in enumerate(list(params.get("connection_inputs") or []), start=1):
+        if not isinstance(raw, dict):
+            raise ValueError(f"connection_inputs[{idx}] должен быть объектом")
+        parent_id = _normalize_parent(
+            session_id=session_id,
+            parent_instance_id=raw.get("parent_instance_id"),
+            current_object_id=current_object_id,
         )
+        normalized_inputs.append(
+            {
+                "key": str(raw.get("key") or f"in{idx}"),
+                "label": str(raw.get("label") or f"Ввод {idx}"),
+                "required": bool(raw.get("required", True)),
+                "parent_instance_id": parent_id,
+                "connection_point": str(
+                    raw.get("connection_point") or raw.get("point") or raw.get("slot") or "A"
+                ).upper(),
+                "load_share": float(raw.get("load_share", 1.0) or 1.0),
+            }
+        )
+    if normalized_inputs:
+        params["connection_inputs"] = normalized_inputs
 
-    parent_type_id = object_type_by_id.get(int(parent_instance_id))
-    parent_code = str(type_code_by_id.get(int(parent_type_id or 0), ""))
-    parent_category = str(type_category_by_id.get(int(parent_type_id or 0), ""))
-    if (
-        parent_code not in MAIN_CODES
-        and parent_code not in MINI_CODES
-        and parent_category != "infrastructure"
-    ):
-        raise ValueError("Родителем может быть только подстанция или инфраструктурный объект.")
-
-    cursor = int(parent_instance_id)
-    visited: set[int] = set()
-    while True:
-        if cursor in main_ids:
-            return
-        if cursor in visited:
-            raise ValueError("Подключение образует цикл в дереве сети")
-        visited.add(cursor)
-        if not bool(active_by_id.get(cursor, False)):
-            break
-        next_parent = parent_by_id.get(cursor)
-        if next_parent is None:
-            break
-        cursor = int(next_parent)
-    raise ValueError(
-        "Родительская цепочка не доходит до главной подстанции: проверьте подключение объекта."
-    )
+    if "secondary_parent_instance_id" in params:
+        params["secondary_parent_instance_id"] = _normalize_parent(
+            session_id=session_id,
+            parent_instance_id=params.get("secondary_parent_instance_id"),
+            current_object_id=current_object_id,
+        )
+    return params
 
 
-def _normalize_parameters(value: Any) -> Dict[str, Any]:
+def _normalize_parameters(
+    session_id: int,
+    value: Any,
+    *,
+    current_object_id: int | None = None,
+) -> Dict[str, Any]:
     if value is None:
         return {}
     if not isinstance(value, dict):
         raise ValueError("current_parameters должен быть объектом")
-    return dict(value)
+    return _normalize_connection_inputs(
+        session_id=session_id,
+        parameters=dict(value),
+        current_object_id=current_object_id,
+    )
+
+
+def _energy_object(
+    *,
+    object_id: int,
+    object_type: ObjectType,
+    custom_name: str,
+    parameters: Dict[str, Any],
+    district: str,
+    source_lot_id: Any,
+    is_active: bool,
+    parent_instance_id: int | None,
+) -> EnergyObject:
+    return EnergyObject(
+        object_id=f"obj-{int(object_id)}",
+        object_type_id=int(object_type.id),
+        code=_canonical_code(object_type.code),
+        name=custom_name or object_type.name,
+        category=str(object_type.category),
+        district=str(district or parameters.get("district") or "default"),
+        parameters=deepcopy(parameters),
+        source_lot_id=int(source_lot_id) if source_lot_id else None,
+        is_candidate=False,
+        is_active=bool(is_active),
+        parent_id=f"obj-{int(parent_instance_id)}" if parent_instance_id else None,
+        terminals=[],
+    )
+
+
+def _validate_future_state(
+    *,
+    session: GameSession,
+    object_type: ObjectType,
+    custom_name: str,
+    parameters: Dict[str, Any],
+    district: str,
+    source_lot_id: Any,
+    is_active: bool,
+    parent_instance_id: int | None,
+    current_object_id: int | None,
+) -> None:
+    future: List[EnergyObject] = []
+    for row in session.objects:
+        if current_object_id is not None and int(row.id) == int(current_object_id):
+            future.append(
+                _energy_object(
+                    object_id=int(row.id),
+                    object_type=object_type,
+                    custom_name=custom_name,
+                    parameters=parameters,
+                    district=district,
+                    source_lot_id=source_lot_id,
+                    is_active=is_active,
+                    parent_instance_id=parent_instance_id,
+                )
+            )
+            continue
+        if row.object_type is None:
+            continue
+        future.append(
+            _energy_object(
+                object_id=int(row.id),
+                object_type=row.object_type,
+                custom_name=row.custom_name,
+                parameters=dict(row.current_parameters_json or {}),
+                district=str(row.district or "default"),
+                source_lot_id=row.source_lot_id,
+                is_active=bool(row.is_active),
+                parent_instance_id=int(row.parent_instance_id) if row.parent_instance_id else None,
+            )
+        )
+    if current_object_id is None:
+        future.append(
+            _energy_object(
+                object_id=-1,
+                object_type=object_type,
+                custom_name=custom_name,
+                parameters=parameters,
+                district=district,
+                source_lot_id=source_lot_id,
+                is_active=is_active,
+                parent_instance_id=parent_instance_id,
+            )
+        )
+    report = validate_network(future)
+    critical = [issue.message for issue in report.issues if issue.severity == "critical"]
+    if critical:
+        raise ValueError(critical[0])
 
 
 def create_session_object(payload: Dict[str, Any]) -> ObjectInstance:
@@ -189,22 +239,31 @@ def create_session_object(payload: Dict[str, Any]) -> ObjectInstance:
         parent_instance_id=payload.get("parent_instance_id"),
     )
     is_active = bool(payload.get("is_active", True))
-    _ensure_parent_write_valid(
-        session_id=session.id,
-        object_type_id=object_type.id,
+    parameters = _normalize_parameters(session.id, payload.get("current_parameters"))
+    custom_name = str(payload.get("custom_name", ""))
+    district = str(payload.get("district", "default"))
+
+    _validate_future_state(
+        session=session,
+        object_type=object_type,
+        custom_name=custom_name,
+        parameters=parameters,
+        district=district,
+        source_lot_id=payload.get("source_lot_id"),
+        is_active=is_active,
         parent_instance_id=parent_instance_id,
         current_object_id=None,
-        is_active=is_active,
     )
+
     row = ObjectInstance(
         session_id=session.id,
         object_type_id=object_type.id,
-        custom_name=str(payload.get("custom_name", "")),
-        current_parameters_json=_normalize_parameters(payload.get("current_parameters")),
+        custom_name=custom_name,
+        current_parameters_json=parameters,
         source_lot_id=payload.get("source_lot_id"),
         is_from_start_pack=bool(payload.get("is_from_start_pack", False)),
         parent_instance_id=parent_instance_id,
-        district=str(payload.get("district", "default")),
+        district=district,
         is_active=is_active,
     )
     refresh_integration_state(row)
@@ -215,40 +274,45 @@ def create_session_object(payload: Dict[str, Any]) -> ObjectInstance:
 
 
 def update_session_object(row: ObjectInstance, payload: Dict[str, Any]) -> ObjectInstance:
-    next_object_type_id = int(row.object_type_id)
+    next_object_type = row.object_type or _object_type_or_error(int(row.object_type_id))
     if "object_type_id" in payload:
-        object_type = _object_type_or_error(int(payload["object_type_id"]))
-        next_object_type_id = int(object_type.id)
-    next_parent_instance_id = (
-        int(row.parent_instance_id) if row.parent_instance_id is not None else None
-    )
+        next_object_type = _object_type_or_error(int(payload["object_type_id"]))
+    next_parent_instance_id = int(row.parent_instance_id) if row.parent_instance_id is not None else None
     if "parent_instance_id" in payload:
         next_parent_instance_id = _normalize_parent(
             session_id=row.session_id,
             parent_instance_id=payload.get("parent_instance_id"),
             current_object_id=row.id,
         )
-    next_is_active = bool(payload["is_active"]) if "is_active" in payload else bool(row.is_active)
-    if any(key in payload for key in ("parent_instance_id", "object_type_id", "is_active")):
-        _ensure_parent_write_valid(
-            session_id=int(row.session_id),
-            object_type_id=next_object_type_id,
-            parent_instance_id=next_parent_instance_id,
-            current_object_id=int(row.id),
-            is_active=next_is_active,
-        )
-
-    if "object_type_id" in payload:
-        row.object_type_id = next_object_type_id
-    for key in ("custom_name", "district"):
-        if key in payload:
-            setattr(row, key, str(payload[key] or ""))
-    if "parent_instance_id" in payload:
-        row.parent_instance_id = next_parent_instance_id
+    next_parameters = dict(row.current_parameters_json or {})
     if "current_parameters" in payload:
-        row.current_parameters_json = _normalize_parameters(payload["current_parameters"])
-    if "is_active" in payload:
-        row.is_active = next_is_active
+        next_parameters = _normalize_parameters(
+            row.session_id,
+            payload["current_parameters"],
+            current_object_id=int(row.id),
+        )
+    next_is_active = bool(payload["is_active"]) if "is_active" in payload else bool(row.is_active)
+    next_custom_name = str(payload.get("custom_name", row.custom_name or ""))
+    next_district = str(payload.get("district", row.district or "default"))
+
+    _validate_future_state(
+        session=row.session,
+        object_type=next_object_type,
+        custom_name=next_custom_name,
+        parameters=next_parameters,
+        district=next_district,
+        source_lot_id=row.source_lot_id,
+        is_active=next_is_active,
+        parent_instance_id=next_parent_instance_id,
+        current_object_id=int(row.id),
+    )
+
+    row.object_type_id = int(next_object_type.id)
+    row.custom_name = next_custom_name
+    row.district = next_district
+    row.parent_instance_id = next_parent_instance_id
+    row.current_parameters_json = next_parameters
+    row.is_active = next_is_active
     refresh_integration_state(row)
     db.session.add(row)
     db.session.commit()

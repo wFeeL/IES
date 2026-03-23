@@ -1,34 +1,100 @@
 {% extends "base.html" %}
 {% block title %}Энергосистема {{ session.id }} | IES{% endblock %}
+{% block page_title %}Схема сети{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
-<section class="card mt-4">
-  <p class="section-kicker">Проверка структуры</p>
-  <h2 class="h2">Валидация сети</h2>
-  <ul class="stack gap-2 mt-3">
-    {% for issue in issues %}<li class="issue issue-{{ issue.severity }}"><strong>{{ issue.code }}</strong>: {{ issue.message }}</li>{% else %}<li class="issue issue-ok">Проверка пройдена без предупреждений.</li>{% endfor %}
-  </ul>
-</section>
+
 <section class="card mt-4">
   <div class="section-head">
-    <div><p class="section-kicker">Объекты энергосистемы</p><h2 class="h2">Текущий состав и рекомендации подключения</h2></div>
+    <div>
+      <p class="section-kicker">Валидация сети 2026</p>
+      <h1 class="h1">Дерево, связность и ограничения подключения</h1>
+      <p class="muted">Проверяются: один корень, отсутствие циклов и островов, путь до главной подстанции, двухвходовые потребители и разделение генерации/потребителей по энергорайонам.</p>
+    </div>
     <a class="btn btn-primary" href="{{ url_for('pages.object_create_page', session_id=session.id) }}">Добавить объект</a>
   </div>
+
+  {% set critical_issues = issues|selectattr('severity', 'equalto', 'critical')|list %}
+  {% set warning_issues = issues|selectattr('severity', 'equalto', 'warning')|list %}
+  {% set hint_issues = issues|selectattr('severity', 'equalto', 'hint')|list %}
+
+  <div class="page-grid mt-3">
+    <div class="issue issue-error">
+      <strong>Critical blocking errors</strong>
+      <ul class="stack gap-1 mt-2">
+        {% for issue in critical_issues %}
+        <li>{{ issue.message }}</li>
+        {% else %}
+        <li>Блокирующих ошибок нет.</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="issue issue-warning">
+      <strong>Warnings</strong>
+      <ul class="stack gap-1 mt-2">
+        {% for issue in warning_issues %}
+        <li>{{ issue.message }}</li>
+        {% else %}
+        <li>Предупреждений нет.</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="issue issue-ok">
+      <strong>Optimization hints</strong>
+      <ul class="stack gap-1 mt-2">
+        {% for issue in hint_issues %}
+        <li>{{ issue.message }}</li>
+        {% else %}
+        <li>Подсказок нет.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="card mt-4">
+  <p class="section-kicker">Объекты энергосистемы</p>
+  <h2 class="h2">Текущий состав и рекомендации по подключению</h2>
   <div class="table-wrap mt-3">
     <table class="table">
-      <thead><tr><th>ID</th><th>Тип</th><th>Имя</th><th>Район</th><th>Интеграция</th><th>Рекомендация</th><th>Действия</th></tr></thead>
+      <thead><tr><th>ID</th><th>Тип</th><th>Имя</th><th>Энергорайон</th><th>Статус интеграции</th><th>Рекомендация</th><th>Действия</th></tr></thead>
       <tbody>
         {% for obj in object_rows %}
         {% set recommendation = (connection_recommendations or {}).get(obj.id) %}
-        {% set integration_state = (obj.current_parameters_json or {}).get('integration_state') or ('pending_connection' if obj.source_lot_id and not obj.parent_instance_id and obj.is_active else 'integrated') %}
+        {% set params = obj.current_parameters_json or {} %}
+        {% set integration_state = params.get('integration_state') or ('pending_connection' if obj.source_lot_id and not obj.parent_instance_id and obj.is_active else 'integrated') %}
         <tr>
           <td>{{ obj.id }}</td>
-          <td>{{ obj.object_type.code if obj.object_type else 'n/a' }}</td>
+          <td>
+            <strong>{{ obj.object_type.name if obj.object_type else 'n/a' }}</strong>
+            <div class="table-secondary">{{ obj.object_type.code if obj.object_type else 'n/a' }}</div>
+          </td>
           <td>{{ obj.custom_name or '—' }}</td>
           <td>{{ obj.district }}</td>
-          <td>{% if integration_state == 'pending_connection' %}<span class="status-badge status-stale">Требует подключения</span>{% else %}<span class="status-badge status-fresh">Подключён</span>{% endif %}</td>
-          <td>{% if recommendation %}<strong>{{ recommendation.recommended_point }}</strong><div class="muted">{{ recommendation.message }}</div>{% else %}<span class="muted">Рекомендация недоступна.</span>{% endif %}</td>
-          <td><div class="actions"><a class="btn btn-secondary" href="{{ url_for('pages.object_edit_page', object_id=obj.id) }}">Редактировать</a><a class="btn btn-danger" href="{{ url_for('pages.object_delete_confirm_page', object_id=obj.id) }}">Удалить</a></div></td>
+          <td>
+            {% if integration_state == 'pending_connection' %}
+            <span class="status-badge status-stale">Требует обязательного исправления</span>
+            {% else %}
+            <span class="status-badge status-fresh">Интегрирован</span>
+            {% endif %}
+            {% if params.get('secondary_parent_instance_id') %}
+            <div class="table-secondary">Есть второй ввод</div>
+            {% endif %}
+          </td>
+          <td>
+            {% if recommendation %}
+            <strong>{{ recommendation.recommended_point }}</strong>
+            <div class="table-secondary">{{ recommendation.message }}</div>
+            {% else %}
+            <span class="muted">Автоподсказка не найдена.</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="actions">
+              <a class="btn btn-secondary" href="{{ url_for('pages.object_edit_page', object_id=obj.id) }}">Редактировать</a>
+              <a class="btn btn-danger" href="{{ url_for('pages.object_delete_confirm_page', object_id=obj.id) }}">Удалить</a>
+            </div>
+          </td>
         </tr>
         {% else %}
         <tr><td colspan="7" class="muted">Объекты ещё не добавлены.</td></tr>

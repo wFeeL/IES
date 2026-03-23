@@ -4,18 +4,28 @@
 {% block content %}
 {% include "components/session_hero.html" %}
 {% include "components/analysis_context.html" %}
+
 <section class="card mt-4">
   <div class="section-head">
     <div>
-      <p class="section-kicker">Каталог лотов</p>
-      <h1 class="h1">Лоты сессии</h1>
-      <p class="muted">Сначала смотрите на статус решения и прибыль на рабочей ставке. Высокая ставка сама по себе не делает лот сильным.</p>
+      <p class="section-kicker">Аукцион 2026</p>
+      <h1 class="h1">Консолидированная оценка лотов</h1>
+      <p class="muted">Для каждого лота показаны expected delta-profit, предельный break-even тариф, рекомендованный тариф и набор рисков. Старые strategy-переключатели убраны из основного интерфейса.</p>
     </div>
     <div class="actions">
       <a class="btn btn-primary" href="{{ url_for('pages.lots_edit', session_id=session.id) }}">Добавить лот</a>
-      <button class="btn btn-secondary" id="recalculateLotsBtn" type="button" {% if forecast_blocked %}disabled{% endif %}>Пересчитать все лоты</button>
+      <button class="btn btn-secondary" id="recalculateLotsBtn" type="button" {% if forecast_blocked %}disabled{% endif %}>Пересчитать все</button>
     </div>
   </div>
+  {% if forecast_blocked %}
+  <div class="risk-block mt-3">
+    <strong>Оценка лотов заблокирована.</strong>
+    <div class="mt-2">{{ compatibility_guidance.primary_message }}</div>
+    <div class="actions mt-3">
+      <a class="btn btn-primary" href="{{ compatibility_guidance.forecast_url }}">Исправить прогноз</a>
+    </div>
+  </div>
+  {% endif %}
   <form method="get" class="grid cols-4 gap-3 mt-3 lots-filter-grid">
     <label class="label">Статус
       <select class="input" name="status">
@@ -28,26 +38,26 @@
     <label class="label">Состав
       <select class="input" name="composition">
         <option value="all" {{ 'selected' if filters.get('composition', 'all') == 'all' else '' }}>Все</option>
-        <option value="consumer" {{ 'selected' if filters.get('composition') == 'consumer' else '' }}>Потребительский</option>
-        <option value="generator" {{ 'selected' if filters.get('composition') == 'generator' else '' }}>Генераторный</option>
-        <option value="mixed" {{ 'selected' if filters.get('composition') == 'mixed' else '' }}>Смешанный</option>
-        <option value="infrastructure" {{ 'selected' if filters.get('composition') == 'infrastructure' else '' }}>Инфраструктурный</option>
-        <option value="storage" {{ 'selected' if filters.get('composition') == 'storage' else '' }}>Накопительный</option>
+        <option value="consumer" {{ 'selected' if filters.get('composition') == 'consumer' else '' }}>Потребители</option>
+        <option value="generator" {{ 'selected' if filters.get('composition') == 'generator' else '' }}>Генерация</option>
+        <option value="mixed" {{ 'selected' if filters.get('composition') == 'mixed' else '' }}>Смешанные</option>
+        <option value="infrastructure" {{ 'selected' if filters.get('composition') == 'infrastructure' else '' }}>Инфраструктура</option>
+        <option value="storage" {{ 'selected' if filters.get('composition') == 'storage' else '' }}>Накопители</option>
       </select>
     </label>
     <label class="label">Сортировка
       <select class="input" name="sort">
-        <option value="utility_desc" {{ 'selected' if sort_key == 'utility_desc' else '' }}>Полезность ↓</option>
-        <option value="profit_desc" {{ 'selected' if sort_key == 'profit_desc' else '' }}>Прибыль на рабочей ставке ↓</option>
-        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Рабочая ставка ↓</option>
+        <option value="profit_desc" {{ 'selected' if sort_key == 'profit_desc' else '' }}>Delta-profit ↓</option>
+        <option value="utility_desc" {{ 'selected' if sort_key == 'utility_desc' else '' }}>Risk-adjusted ↓</option>
+        <option value="bid_desc" {{ 'selected' if sort_key == 'bid_desc' else '' }}>Recommended tariff ↓</option>
         <option value="risk_asc" {{ 'selected' if sort_key == 'risk_asc' else '' }}>Риск ↑</option>
-        <option value="price_asc" {{ 'selected' if sort_key == 'price_asc' else '' }}>Цена ↑</option>
-        <option value="price_desc" {{ 'selected' if sort_key == 'price_desc' else '' }}>Цена ↓</option>
+        <option value="price_asc" {{ 'selected' if sort_key == 'price_asc' else '' }}>Текущая цена ↑</option>
+        <option value="price_desc" {{ 'selected' if sort_key == 'price_desc' else '' }}>Текущая цена ↓</option>
       </select>
     </label>
     <label class="label">Цена от <input class="input" name="price_min" value="{{ filters.get('price_min', '') }}" type="number" step="0.1" /></label>
     <label class="label">Цена до <input class="input" name="price_max" value="{{ filters.get('price_max', '') }}" type="number" step="0.1" /></label>
-    <label class="label">Полезность от <input class="input" name="utility_min" value="{{ filters.get('utility_min', '') }}" type="number" step="0.1" /></label>
+    <label class="label">Delta-profit от <input class="input" name="utility_min" value="{{ filters.get('utility_min', '') }}" type="number" step="0.1" /></label>
     <label class="label">Риск до <input class="input" name="risk_max" value="{{ filters.get('risk_max', '') }}" type="number" step="0.1" /></label>
     <div class="actions lots-filter-actions">
       <button class="btn btn-secondary" type="submit">Применить</button>
@@ -56,26 +66,64 @@
   </form>
 </section>
 
-<section class="card mt-4">
-  <div class="table-wrap">
-    <table class="table table-fixed table-lots">
-      <thead><tr><th>Лот</th><th>Состав</th><th>Цена</th><th>Полезность / прибыль</th><th>Ставки</th><th>Статус / причина</th><th>Действия</th></tr></thead>
-      <tbody>
-        {% for row in lot_rows %}
-        <tr>
-          <td><strong>{{ row.name }}</strong><div class="table-secondary">{{ row.composition_label }}</div></td>
-          <td>{{ row.structure }}</td>
-          <td class="num">{{ fmt_num(row.price, 1) }}</td>
-          <td><strong>{{ fmt_num(row.utility, 2) }}</strong><div class="table-secondary">чистая {{ fmt_num(row.net_profit, 2) }}</div><div class="table-secondary">после ставки {{ fmt_num(row.net_profit_at_recommended_bid, 2) }}</div></td>
-          <td><strong>{{ fmt_num(row.recommended_bid_balanced or row.recommended_bid or row.working_bid, 1) }}</strong><div class="table-secondary">безопасная {{ fmt_num(row.recommended_bid_safe, 1) }}</div><div class="table-secondary">потолок {{ fmt_num(row.max_bid, 1) }}</div></td>
-          <td><strong>{{ row.decision_status_label or lot_status_label(row.status) }}</strong><div class="table-secondary">{{ row.decision_reason_short or row.working_bid_short_reason or '—' }}</div></td>
-          <td><div class="actions"><a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть</a></div></td>
-        </tr>
+<section class="stack gap-4 mt-4">
+  {% for row in lot_rows %}
+  <article class="card">
+    <div class="section-head">
+      <div>
+        <p class="section-kicker">{{ row.composition_label }}</p>
+        <h2 class="h2">{{ row.name }}</h2>
+        <p class="muted mt-2">{{ row.structure }}</p>
+      </div>
+      <div class="actions">
+        <span class="status-badge {{ 'status-fresh' if row.can_recommend else 'status-stale' }}">{{ row.decision_status_label }}</span>
+        <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть анализ</a>
+      </div>
+    </div>
+
+    <div class="insight-grid mt-3">
+      <div class="metric-card"><span class="metric-label">Текущая цена/тариф</span><strong>{{ fmt_num(row.price, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Recommended</span><strong>{{ fmt_num(row.recommended_bid_or_tariff, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Break-even</span><strong>{{ fmt_num(row.break_even_tariff, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Expected delta-profit</span><strong>{{ fmt_num(row.expected_delta_profit, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Base / best / worst</span><strong>{{ fmt_num(row.base_case_delta_profit, 1) }} / {{ fmt_num(row.best_case_delta_profit, 1) }} / {{ fmt_num(row.worst_case_delta_profit, 1) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Synergy</span><strong>{{ fmt_num(row.synergy_score, 2) }}</strong></div>
+    </div>
+
+    <div class="pill-row mt-3">
+      {% for badge in row.risk_badges %}
+      <span class="pill risk-pill risk-pill-{{ badge.value }}">{{ badge.label }}: {{ badge.value }}</span>
+      {% endfor %}
+    </div>
+
+    <div class="page-grid mt-3">
+      <div class="risk-block">
+        <strong>Почему рекомендовано именно так</strong>
+        <div class="mt-2">{{ row.recommended_bid_reason or row.decision_reason or 'Объяснение отсутствует.' }}</div>
+        <div class="table-secondary mt-2">Доход потребителей: {{ fmt_num(row.consumer_revenue, 2) }} · рынок: {{ fmt_num(row.market_net, 2) }} · обслуживание: {{ fmt_num(row.service_cost, 2) }} · потери: {{ fmt_num(row.loss_cost, 2) }} · небаланс: {{ fmt_num(row.balancing_penalty, 2) }}</div>
+      </div>
+      <div class="risk-block">
+        <strong>Монтаж и конфликты</strong>
+        {% if row.mounting_requirements %}
+        <ul class="stack gap-1 mt-2">
+          {% for item in row.mounting_requirements %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+        {% elif row.conflicts %}
+        <ul class="stack gap-1 mt-2">
+          {% for item in row.conflicts %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
         {% else %}
-        <tr><td colspan="7"><div class="empty-state">Лоты ещё не добавлены.</div></td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+        <div class="mt-2 muted">Критических монтажных ограничений не найдено.</div>
+        {% endif %}
+      </div>
+    </div>
+  </article>
+  {% else %}
+  <div class="empty-state">Лоты ещё не добавлены.</div>
+  {% endfor %}
 </section>
 {% endblock %}

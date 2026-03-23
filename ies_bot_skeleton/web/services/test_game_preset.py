@@ -9,165 +9,79 @@ from ..extensions import db
 from ..models import GameSession, Lot, LotItem, ObjectType, Ruleset
 from .start_pack import apply_start_pack_template_to_session
 
-ROOT = Path(__file__).resolve().parents[2]
-
 TEST_GAME_RULESET_CODE = "ies_test_game_2026"
 TEST_GAME_RULESET_VERSION = "1"
-TEST_GAME_RULESET_NAME = "Тестовая игра ИЭС"
+TEST_GAME_RULESET_NAME = "Тестовая игра ИЭС 2026"
 
-TEST_GAME_START_PACK_CODE = "test_game_default"
-TEST_GAME_START_PACK_NAME = "Стартовый пакет тестовой игры"
+TEST_GAME_START_PACK_CODE = "test_game_default_2026"
+TEST_GAME_START_PACK_NAME = "Стартовый пакет тестовой игры 2026"
 TEST_GAME_START_PACK_DESCRIPTION = (
-    "Главная подстанция + мини-подстанция + солнечная панель + жилой дом."
+    "Главная подстанция, мини-подстанция нагрузки и базовый дом по правилам ИЭС 2026."
 )
 
-TEST_GAME_DEFAULT_SESSION_TITLE = "Тестовая игра"
-TEST_GAME_BUNDLED_FORECAST_NAME = "Прогноз тестовой игры"
-TEST_GAME_FORECAST_SOURCE_LABEL = "Встроенный прогноз тестовой игры"
-TEST_GAME_UPLOAD_FORECAST_DEFAULT_NAME = "Прогноз игры"
+TEST_GAME_DEFAULT_SESSION_TITLE = "Тестовая игра 2026"
+TEST_GAME_BUNDLED_FORECAST_NAME = "Прогноз тестовой игры 2026"
+TEST_GAME_FORECAST_SOURCE_LABEL = "Встроенный прогноз ИЭС 2026"
+TEST_GAME_UPLOAD_FORECAST_DEFAULT_NAME = "Прогноз 2026"
 
 TEST_GAME_OBJECT_CODES = (
     "main_substation",
-    "mini_substation_a",
-    "mini_substation_b",
-    "cyber_solar",
+    "mini_substation",
     "solar",
-    "house",
+    "wind",
+    "storage",
+    "house_a",
+    "house_b",
     "office",
     "factory",
-    "wind",
-    "tps",
-    "storage",
+    "hospital",
 )
 
-TEST_GAME_LOTS_DIR = ROOT / "resources" / "legacy_import" / "lots"
-TEST_GAME_LOT_FILES = ("L01.json", "L02.json", "L03.json", "L04.json", "L05.json")
-TEST_GAME_LOT_PATHS = tuple(TEST_GAME_LOTS_DIR / name for name in TEST_GAME_LOT_FILES)
-TEST_GAME_GENERATED_LOTS_COUNT = 20
-TEST_GAME_GENERATED_LOTS_SEED = 20260322
-
-GENERATED_LOT_TITLE_ADJECTIVES = (
-    "Северный",
-    "Южный",
-    "Янтарный",
-    "Тихий",
-    "Резервный",
-    "Гибкий",
-    "Пиковый",
-    "Опорный",
-    "Городской",
-    "Речной",
-    "Степной",
-    "Полярный",
-    "Индустриальный",
-    "Сетевой",
-    "Балансовый",
-    "Маневровый",
-    "Транзитный",
-    "Локальный",
-    "Контурный",
-    "Энергетический",
-)
-GENERATED_LOT_TITLE_SUFFIXES = (
-    "контур",
-    "узел",
-    "кластер",
-    "пакет",
-    "лот",
-    "канал",
-    "блок",
-    "комплект",
-    "резерв",
-    "модуль",
-    "контракт",
-    "микс",
-    "альянс",
-    "профиль",
-    "пул",
-    "каскад",
-    "фидер",
-    "баланс",
-    "сегмент",
-    "переход",
-)
-GENERATED_LOT_PATTERNS: Sequence[Dict[str, Any]] = (
-    {"title": "Солнечный квартал", "items": (("houseA", (1, 2)), ("solarRobot", (1, 2)))},
-    {"title": "Офисный узел", "items": (("office", (1, 2)), ("miniA", (1, 1)))},
-    {"title": "Ветропром", "items": (("factory", (1, 1)), ("wind", (1, 2)))},
-    {"title": "Сетевой резерв", "items": (("storage", (1, 2)), ("miniB", (1, 1)))},
-    {"title": "Тепловой узел", "items": (("tps", (1, 1)), ("main", (1, 1)))},
-    {"title": "Офисный резерв", "items": (("office", (1, 1)), ("storage", (1, 2)))},
-    {"title": "Жилой буфер", "items": (("houseA", (1, 3)), ("storage", (1, 1)))},
-    {"title": "Промышленная генерация", "items": (("factory", (1, 1)), ("tps", (1, 1)))},
-    {"title": "Ветровой буфер", "items": (("wind", (1, 2)), ("storage", (1, 2)))},
-    {"title": "Солнечный буфер", "items": (("solarRobot", (1, 2)), ("storage", (1, 2)))},
-    {"title": "Магистральный офис", "items": (("main", (1, 1)), ("office", (1, 1)))},
-    {"title": "Промышленный фидер", "items": (("miniB", (1, 1)), ("factory", (1, 1)))},
-    {"title": "Жилой ветер", "items": (("houseB", (1, 2)), ("wind", (1, 1)))},
-    {"title": "Солнечная сеть", "items": (("miniA", (1, 1)), ("solarRobot", (1, 2)))},
-    {"title": "Тепловой резерв", "items": (("tps", (1, 1)), ("storage", (1, 1)))},
-    {
-        "title": "Смешанный квартал",
-        "items": (("houseA", (1, 2)), ("office", (1, 1)), ("miniA", (1, 1))),
-    },
-    {"title": "Индустриальный буфер", "items": (("factory", (1, 1)), ("storage", (1, 2)))},
-    {"title": "Маневровая СЭС", "items": (("solar", (1, 2)), ("storage", (1, 1)))},
-    {"title": "Транзитный ветер", "items": (("main", (1, 1)), ("wind", (1, 1)))},
-    {
-        "title": "Гибкий офис",
-        "items": (("office", (1, 1)), ("solarRobot", (1, 1)), ("storage", (1, 1))),
-    },
-)
-GENERATED_LOT_BID_WEIGHTS = {
-    "housea": 4.0,
-    "houseb": 4.0,
-    "office": 5.0,
-    "factory": 7.0,
-    "solarrobot": 6.0,
-    "solar": 6.5,
-    "wind": 6.5,
-    "tps": 9.0,
-    "storage": 5.5,
-    "main": 8.0,
-    "minia": 4.5,
-    "minib": 5.0,
-}
-
-LOT_KIND_TO_OBJECT_CODE = {
+TEST_GAME_GENERATED_LOTS_SEED = 20260323
+LOT_KIND_TO_OBJECT_CODE: Dict[str, str] = {
     "main": "main_substation",
-    "minia": "mini_substation_a",
-    "minib": "mini_substation_b",
-    "housea": "house",
-    "houseb": "house",
+    "main_substation": "main_substation",
+    "mini": "mini_substation",
+    "minia": "mini_substation",
+    "minib": "mini_substation",
+    "mini_substation": "mini_substation",
+    "mini_substation_a": "mini_substation",
+    "mini_substation_b": "mini_substation",
+    "solar": "solar",
+    "solarrobot": "solar",
+    "cyber_solar": "solar",
+    "wind": "wind",
+    # Legacy thermal plant is imported as a generic dispatchable generation proxy.
+    "tps": "wind",
+    "storage": "storage",
+    "house": "house_a",
+    "housea": "house_a",
+    "house_b": "house_b",
+    "houseb": "house_b",
     "office": "office",
     "factory": "factory",
-    "wind": "wind",
-    "solarrobot": "cyber_solar",
-    "solar": "solar",
-    "tps": "tps",
-    "storage": "storage",
+    "hospital": "hospital",
 }
-
-
-def _norm(value: str) -> str:
-    return "".join(ch.lower() for ch in str(value or "") if ch.isalnum() or ch == "_")
-
-
-def _read_json(path: Path) -> Dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
+LOT_PATTERNS: Sequence[Dict[str, Any]] = (
+    {"title": "Жилой север", "items": (("house_a", 2), ("mini_substation", 1))},
+    {"title": "Жилой юг", "items": (("house_b", 2),)},
+    {"title": "Офисный кластер", "items": (("office", 2), ("mini_substation", 1))},
+    {"title": "Промышленный узел", "items": (("factory", 1), ("mini_substation", 1))},
+    {"title": "Критическая нагрузка", "items": (("hospital", 1), ("mini_substation", 1))},
+    {"title": "Солнечный контур", "items": (("solar", 2),)},
+    {"title": "Ветровой контур", "items": (("wind", 2),)},
+    {"title": "Сетевой буфер", "items": (("storage", 1), ("mini_substation", 1))},
+    {"title": "Гибкий микс", "items": (("solar", 1), ("storage", 1), ("mini_substation", 1))},
+    {"title": "Потребительский резерв", "items": (("house_a", 1), ("office", 1), ("storage", 1))},
+    {"title": "Пиковый ветер", "items": (("wind", 1), ("storage", 1))},
+    {"title": "Солнечная больница", "items": (("hospital", 1), ("solar", 1), ("mini_substation", 1))},
+)
 
 
 def is_test_game_ruleset(ruleset: Ruleset | None) -> bool:
-    if ruleset is None:
-        return False
-    return (
-        str(ruleset.code) == TEST_GAME_RULESET_CODE
+    return bool(
+        ruleset is not None
+        and str(ruleset.code) == TEST_GAME_RULESET_CODE
         and str(ruleset.version or "") == TEST_GAME_RULESET_VERSION
     )
 
@@ -175,11 +89,7 @@ def is_test_game_ruleset(ruleset: Ruleset | None) -> bool:
 def preferred_default_ruleset() -> Ruleset | None:
     preferred = (
         db.session.query(Ruleset)
-        .filter_by(
-            code=TEST_GAME_RULESET_CODE,
-            version=TEST_GAME_RULESET_VERSION,
-            is_active=True,
-        )
+        .filter_by(code=TEST_GAME_RULESET_CODE, version=TEST_GAME_RULESET_VERSION, is_active=True)
         .one_or_none()
     )
     if preferred is not None:
@@ -192,76 +102,107 @@ def preferred_default_ruleset() -> Ruleset | None:
     )
 
 
-def load_lot_payloads_from_paths(paths: Sequence[Path]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    for path in paths:
-        payload = _read_json(path)
-        if payload:
-            out.append(payload)
-    return out
+def _object_type_map() -> Dict[str, ObjectType]:
+    rows = db.session.query(ObjectType).all()
+    return {row.code: row for row in rows}
 
 
-def load_lot_payloads_from_dir(lots_dir: Path) -> List[Dict[str, Any]]:
-    return load_lot_payloads_from_paths(sorted(lots_dir.glob("*.json")))
+def _norm(value: Any) -> str:
+    return "".join(ch.lower() for ch in str(value or "").strip() if ch.isalnum() or ch == "_")
 
 
-def load_test_game_lot_payloads() -> List[Dict[str, Any]]:
-    return [
-        *load_lot_payloads_from_paths(TEST_GAME_LOT_PATHS),
-        *_generated_test_game_lot_payloads(),
-    ]
+def _legacy_item_to_payload(item: Dict[str, Any]) -> Dict[str, Any] | None:
+    kind = _norm(item.get("kind"))
+    code = LOT_KIND_TO_OBJECT_CODE.get(kind)
+    if not code:
+        return None
+    meta = dict(item.get("meta", {}) or {})
+    overrides: Dict[str, Any] = {}
+    if meta.get("connection_point"):
+        overrides["connection_point"] = str(meta["connection_point"]).strip().upper()
+    if meta.get("secondary_connection_point"):
+        overrides["secondary_connection_point"] = str(meta["secondary_connection_point"]).strip().upper()
+    if code == "wind":
+        overrides.setdefault("wind_channel", "wind_main")
+    return {
+        "object_type_code": code,
+        "quantity": max(1, int(item.get("qty", item.get("quantity", 1)) or 1)),
+        "overrides": overrides,
+    }
 
 
-def _generated_test_game_lot_payloads() -> List[Dict[str, Any]]:
-    rng = random.Random(TEST_GAME_GENERATED_LOTS_SEED)
+def load_lot_payloads_from_dir(path: Path) -> List[Dict[str, Any]]:
     payloads: List[Dict[str, Any]] = []
-    used_titles: set[str] = set()
-    connection_points = ("A", "B", "C", "D", "E", "F")
-    for index, spec in enumerate(GENERATED_LOT_PATTERNS[:TEST_GAME_GENERATED_LOTS_COUNT], start=1):
-        title = (
-            f"{spec['title']} "
-            f"{GENERATED_LOT_TITLE_ADJECTIVES[index - 1].lower()} "
-            f"{GENERATED_LOT_TITLE_SUFFIXES[index - 1]}"
-        )
-        if title in used_titles:
-            title = f"{title} #{index}"
-        used_titles.add(title)
-
-        items_payload: List[Dict[str, Any]] = []
-        bid_weight = 0.0
-        note_bits: List[str] = []
-        for item_index, (kind, qty_range) in enumerate(spec["items"], start=1):
-            quantity = rng.randint(int(qty_range[0]), int(qty_range[1]))
-            normalized_kind = _norm(kind)
-            bid_weight += float(GENERATED_LOT_BID_WEIGHTS.get(normalized_kind, 4.0)) * quantity
-            note_bits.append(f"{kind} x{quantity}")
-            items_payload.append(
-                {
-                    "kind": str(kind),
-                    "id": f"g{index:02d}_{normalized_kind}_{item_index}",
-                    "qty": int(quantity),
-                    "contract_rub_per_tick": round(rng.uniform(0.0, 2.5), 1),
-                    "tariff_rub_per_mw_tick": round(rng.uniform(0.0, 6.0), 1),
-                    "meta": {"connection_point": connection_points[(index + item_index - 2) % 6]},
-                }
-            )
-
-        suggested_bid = round(max(7.0, bid_weight * rng.uniform(0.82, 1.16)), 1)
+    if not path.exists():
+        return payloads
+    for file_path in sorted(path.glob("*.json")):
+        try:
+            raw = json.loads(file_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(raw, dict):
+            continue
+        items = []
+        for item in list(raw.get("items") or []):
+            if not isinstance(item, dict):
+                continue
+            prepared = _legacy_item_to_payload(item)
+            if prepared is not None:
+                items.append(prepared)
+        if not items:
+            continue
         payloads.append(
             {
-                "lot_id": f"G{index:02d}",
-                "title": title,
-                "note": " · ".join(note_bits),
-                "items": items_payload,
-                "suggested_bid": float(suggested_bid),
+                "title": str(raw.get("title") or file_path.stem),
+                "note": str(raw.get("note") or "Импортировано из legacy fixtures в режим ИЭС 2026."),
+                "items": items,
+                "suggested_bid": float(raw.get("suggested_bid", 0.0) or 0.0),
             }
         )
     return payloads
 
 
-def _object_type_map() -> Dict[str, ObjectType]:
-    rows = db.session.query(ObjectType).all()
-    return {row.code: row for row in rows}
+def load_test_game_lot_payloads() -> List[Dict[str, Any]]:
+    rng = random.Random(TEST_GAME_GENERATED_LOTS_SEED)
+    payloads: List[Dict[str, Any]] = []
+    for index, spec in enumerate(LOT_PATTERNS, start=1):
+        items = []
+        total_bid = 0.0
+        for item_index, (code, quantity) in enumerate(spec["items"], start=1):
+            current_bid = {
+                "house_a": 6.0,
+                "house_b": 6.5,
+                "office": 7.3,
+                "factory": 8.5,
+                "hospital": 10.0,
+                "solar": 6.4,
+                "wind": 7.0,
+                "storage": 5.2,
+                "mini_substation": 4.6,
+                "main_substation": 0.0,
+            }.get(code, 5.0)
+            total_bid += current_bid * quantity
+            overrides: Dict[str, Any] = {}
+            if code == "wind":
+                overrides["wind_channel"] = "wind_main" if item_index % 2 else "wind_west"
+            if code in {"factory", "hospital"}:
+                overrides["secondary_connection_point"] = "B"
+            items.append(
+                {
+                    "object_type_code": code,
+                    "quantity": quantity,
+                    "overrides": overrides,
+                }
+            )
+        payloads.append(
+            {
+                "title": spec["title"],
+                "note": "Набор для демонстрации правил ИЭС 2026.",
+                "items": items,
+                "suggested_bid": round(total_bid * rng.uniform(0.95, 1.08), 2),
+            }
+        )
+    return payloads
 
 
 def add_lot_payloads_to_session(
@@ -279,15 +220,11 @@ def add_lot_payloads_to_session(
     }
 
     for payload in payloads:
-        lot_name = str(payload.get("title") or payload.get("lot_id") or "").strip()
+        lot_name = str(payload.get("title") or "").strip()
         if not lot_name:
             report["skipped"].append("lot payload without title")
             continue
-
-        if (
-            db.session.query(Lot).filter_by(session_id=session.id, name=lot_name).first()
-            is not None
-        ):
+        if db.session.query(Lot).filter_by(session_id=session.id, name=lot_name).first() is not None:
             report["skipped"].append(f"lot {lot_name}: already exists")
             continue
 
@@ -307,37 +244,23 @@ def add_lot_payloads_to_session(
         report["lots_created"] += 1
 
         for idx, item in enumerate(payload.get("items", []) or [], start=1):
-            kind = _norm(str(item.get("kind", item.get("type", ""))))
-            code = LOT_KIND_TO_OBJECT_CODE.get(kind)
-            if not code or code not in resolved_types:
-                report["skipped"].append(f"lot {lot_name} item {idx}: unknown kind={kind}")
+            code = str(item.get("object_type_code") or "").strip()
+            if code not in resolved_types:
+                report["skipped"].append(f"lot {lot_name} item {idx}: unknown object_type_code={code}")
                 continue
-
-            quantity = max(1, int(item.get("qty", 1) or 1))
-            overrides = {
-                "contract_rub_per_tick": float(item.get("contract_rub_per_tick", 0.0) or 0.0),
-                "tariff_rub_per_mw_tick": float(item.get("tariff_rub_per_mw_tick", 0.0) or 0.0),
-                "legacy_id": str(item.get("id", "")),
-                "legacy_kind": str(item.get("kind", item.get("type", ""))),
-            }
-
-            lot_item = LotItem(
-                lot_id=lot.id,
-                object_type_id=resolved_types[code].id,
-                quantity=quantity,
-                overrides_json=overrides,
+            db.session.add(
+                LotItem(
+                    lot_id=lot.id,
+                    object_type_id=resolved_types[code].id,
+                    quantity=max(1, int(item.get("quantity", 1) or 1)),
+                    overrides_json=dict(item.get("overrides", {}) or {}),
+                )
             )
-            db.session.add(lot_item)
             report["lot_items_created"] += 1
-
     return report
 
 
-def bootstrap_test_game_session(
-    session: GameSession,
-    *,
-    commit: bool = True,
-) -> Dict[str, Any]:
+def bootstrap_test_game_session(session: GameSession, *, commit: bool = True) -> Dict[str, Any]:
     report: Dict[str, Any] = {
         "session_id": int(session.id),
         "objects_created": 0,
@@ -355,23 +278,12 @@ def bootstrap_test_game_session(
     report["objects_created"] = len(created)
 
     payloads = load_test_game_lot_payloads()
-    lot_report = add_lot_payloads_to_session(
-        session=session,
-        payloads=payloads,
-    )
+    lot_report = add_lot_payloads_to_session(session=session, payloads=payloads)
     report["lots_created"] = int(lot_report.get("lots_created", 0) or 0)
     report["lot_items_created"] = int(lot_report.get("lot_items_created", 0) or 0)
     skipped = list(lot_report.get("skipped") or [])
     if skipped:
-        raise ValueError(
-            "Не удалось полностью инициализировать тестовую игру: " + "; ".join(skipped)
-        )
-    expected_lots = len(payloads)
-    if report["lots_created"] != expected_lots:
-        raise ValueError(
-            "Не удалось полностью инициализировать тестовую игру: "
-            f"ожидалось {expected_lots} лотов, создано {report['lots_created']}"
-        )
+        raise ValueError("Не удалось полностью инициализировать тестовую игру: " + "; ".join(skipped))
     if commit:
         db.session.commit()
     return report

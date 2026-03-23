@@ -3,66 +3,90 @@
     "ticks_per_day": 48,
     "horizon_ticks": 48
   },
-  "fine": {
-    "class3_pardon": 0,
-    "class3_rub_per_mw": 10,
-    "factory_rub_per_mw": 10
-  },
-  "eco": {
-    "wind_points_per_mw_tick": 1,
-    "solar_points_per_mw_tick": 1,
-    "storage_discharge_points_per_mw_tick": 0,
-    "eco_point_value_rub": 2.0
+  "consumer": {
+    "demand_elasticity": {
+      "house_a": {"reference_tariff": 6.0, "elasticity": 0.18, "min_multiplier": 0.78},
+      "house_b": {"reference_tariff": 6.6, "elasticity": 0.16, "min_multiplier": 0.80},
+      "office": {"reference_tariff": 7.5, "elasticity": 0.12, "min_multiplier": 0.85},
+      "factory": {"reference_tariff": 8.0, "elasticity": 0.08, "min_multiplier": 0.90},
+      "hospital": {"reference_tariff": 9.5, "elasticity": 0.03, "min_multiplier": 0.96}
+    },
+    "unserved_penalty_per_mw_tick": {
+      "house_a": 2.5,
+      "house_b": 2.5,
+      "office": 4.0,
+      "factory": 9.0,
+      "hospital": 14.0
+    }
   },
   "storage": {
-    "capacity_mw_tick": 20,
-    "charge_rate_mw": 5,
-    "discharge_rate_mw": 5,
-    "leak_fraction_per_tick": 0.05
+    "capacity_mw_tick": 120.0,
+    "charge_rate_mw_tick": 15.0,
+    "discharge_rate_mw_tick": 20.0,
+    "roundtrip_efficiency": 0.93,
+    "reserve_floor_share": 0.20,
+    "reserve_credit_per_mw_tick": 0.35
   },
   "network": {
-    "mode": "branches",
-    "soft_flow_mw": 40,
-    "main_substation_limit_mw": 40,
-    "line_max_power_mw": 15,
+    "base_edge_loss_pct": 1.5,
+    "depth_loss_pct": 1.1,
+    "district_cross_loss_pct": 0.5,
     "default_connection_point": "A",
     "connection_loss_pct_by_point": {
       "A": 0.0,
-      "B": 3.0,
-      "C": 6.0,
-      "D": 10.0,
-      "E": 15.0,
-      "F": 20.0,
-      "G": 25.0
-    },
-    "loss_alpha": 0.0,
-    "wear_overload_mw": 9999,
-    "wear_risk_penalty_rub": 0.0,
-    "loss_tax": 1.0
+      "B": 1.5,
+      "C": 3.0,
+      "D": 4.5
+    }
   },
   "market": {
-    "external_buy_price": 10,
-    "external_sell_price": 2,
-    "instant_buy_price": 10,
-    "instant_sell_price": 2,
-    "market_max_power": 1000000,
-    "instant_buy_max_power": 0,
-    "instant_sell_max_power": 0
-  },
-  "tps": {
-    "fuel_max": 15,
-    "eta_nominal": 1.0,
-    "fuel_price": 0.5,
-    "eco_tax_fuel": 0.0
+    "default_buy_price": 9.0,
+    "default_sell_price": 6.5,
+    "default_balancing_penalty_price": 3.0,
+    "low_price_sale_factor": 0.55,
+    "sale_ramp_limit_mw": 8.0,
+    "sale_risk_buffer_mw": 1.5,
+    "bid_cap_mw": 120.0
   },
   "auction": {
-    "allpay_limit": 200,
-    "starting_budget": 200,
-    "tie_break_threshold": 2
+    "starting_budget": 200.0,
+    "consumer_competitiveness_share": 0.45,
+    "provider_margin_share": 0.18,
+    "allpay_mode": "special_only"
   },
-  "object_defaults": {
-    "wind_k_default": 0.08,
-    "wind_cap_mw": 8,
-    "solar_cap_mw": 10
+  "generation": {
+    "solar": {
+      "default_capacity_mw": 22.0,
+      "default_efficiency": 0.94
+    },
+    "wind": {
+      "rated_power_mw": 18.0,
+      "cut_in_mps": 3.0,
+      "rated_mps": 11.0,
+      "cut_out_mps": 25.0
+    }
+  },
+  "scenarios": {
+    "base": {
+      "illumination": 1.0,
+      "wind": 1.0,
+      "load": 1.0,
+      "sell_price": 1.0,
+      "buy_price": 1.0
+    },
+    "best": {
+      "illumination": 1.12,
+      "wind": 1.14,
+      "load": 0.96,
+      "sell_price": 1.06,
+      "buy_price": 0.97
+    },
+    "worst": {
+      "illumination": 0.82,
+      "wind": 0.88,
+      "load": 1.08,
+      "sell_price": 0.91,
+      "buy_price": 1.08
+    }
   }
 }

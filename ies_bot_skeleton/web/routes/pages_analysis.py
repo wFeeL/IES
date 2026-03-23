@@ -98,12 +98,21 @@ def _object_type_choices(*, current_type_id: int | None = None) -> List[tuple[in
     choices = [
         (row.id, f"{row.name} ({row.code})")
         for row in list_object_types_for_admin(include_inactive=False)
+        if not bool((row.rules_json or {}).get("hidden_from_ui"))
     ]
     if current_type_id is not None and current_type_id not in {row_id for row_id, _ in choices}:
         row = db.session.get(ObjectType, int(current_type_id))
         if row is not None:
             choices.append((row.id, f"{row.name} ({row.code})"))
     return choices
+
+
+def _visible_object_types():
+    return [
+        row
+        for row in list_object_types_for_admin(include_inactive=False)
+        if not bool((row.rules_json or {}).get("hidden_from_ui"))
+    ]
 
 
 def _object_parent_choices(session: GameSession, *, current_object_id: int | None = None):
@@ -967,7 +976,7 @@ def lots_edit(session_id: int):
 
     form = LotForm()
     form.session_id.data = session_id
-    object_types = list_object_types_for_admin(include_inactive=False)
+    object_types = _visible_object_types()
 
     if form.validate_on_submit():
         lot = Lot(
@@ -1030,7 +1039,7 @@ def lot_edit_page(lot_id: int):
 
     form = LotForm()
     form.session_id.data = session.id
-    object_types = list_object_types_for_admin(include_inactive=False)
+    object_types = _visible_object_types()
 
     if request.method == "GET":
         form.name.data = lot.name

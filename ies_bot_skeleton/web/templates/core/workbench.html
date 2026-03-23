@@ -1,43 +1,130 @@
 {% extends "base.html" %}
-{% block head_extra %}{{ super() }}<script defer src="{{ url_for('static', filename='js/analysis/strategy_snapshot.js') }}"></script>{% endblock %}
 {% block title %}Сессия {{ session.id }} | IES{% endblock %}
 {% block page_title %}Сессия #{{ session.id }}{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
+{% set top_lot = available_rows[0] if available_rows else none %}
+
 <section class="kpi-grid mt-4">
-  <article class="kpi-card"><span class="metric-label">Лотов в сессии</span><strong>{{ kpis.lots_total }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Куплено лотов</span><strong>{{ kpis.bought_total }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Суммарная полезность</span><strong>{{ fmt_num(kpis.portfolio_utility, 2) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Чистая прибыль портфеля</span><strong>{{ fmt_num(kpis.portfolio_net_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Активных лотов</span><strong>{{ kpis.lots_total }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Куплено</span><strong>{{ kpis.bought_total }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Портфельный delta-profit</span><strong>{{ fmt_num(kpis.portfolio_net_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Суммарная полезная оценка</span><strong>{{ fmt_num(kpis.portfolio_utility, 2) }}</strong></article>
   <article class="kpi-card"><span class="metric-label">Риск портфеля</span><strong>{{ kpis.risk_profile }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Готовность данных</span><strong>{{ kpis.data_status }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Статус данных</span><strong>{{ kpis.data_status }}</strong></article>
 </section>
 
 <section class="page-grid mt-4">
-  <article class="card">
-    <p class="section-kicker">Активный прогноз</p>
-    <h2 class="h2">{{ forecast_card.name or 'Прогноз тестовой игры' }}</h2>
-    <p class="muted">{{ forecast_context.source_label }}</p>
+  <article class="card accent-card">
+    <p class="section-kicker">Главное решение</p>
+    <h2 class="h2">Следующий приоритетный лот</h2>
+    {% if forecast_blocked %}
+    <div class="risk-block mt-3">
+      <strong>Оценка временно заблокирована прогнозом.</strong>
+      <div class="mt-2">{{ compatibility_guidance.primary_message }}</div>
+      <div class="actions mt-3">
+        <a class="btn btn-primary" href="{{ compatibility_guidance.forecast_url }}">Исправить прогноз</a>
+      </div>
+    </div>
+    {% elif top_lot %}
+    <p class="muted mt-2">{{ top_lot.name }} · {{ top_lot.composition_label }}</p>
     <div class="insight-grid mt-3">
-      <div class="metric-card"><span class="metric-label">Горизонт</span><strong>{{ fmt_tick_range(forecast_card.tick_from, forecast_card.tick_to, periods=forecast_card.count or 0) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ fmt_num(forecast_card.avg_wind, 2) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ fmt_num(forecast_card.avg_illumination, 2) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Средняя цена рынка</span><strong>{{ fmt_num(forecast_card.avg_market_price, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Recommended</span><strong>{{ fmt_num(top_lot.recommended_bid_or_tariff, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Break-even</span><strong>{{ fmt_num(top_lot.break_even_tariff, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Expected delta-profit</span><strong>{{ fmt_num(top_lot.expected_delta_profit, 2) }}</strong></div>
     </div>
-    <div class="risk-block mt-3">{{ forecast_card.quality.text }}</div>
+    <div class="pill-row mt-3">
+      {% for badge in top_lot.risk_badges %}
+      <span class="pill risk-pill risk-pill-{{ badge.value }}">{{ badge.label }}: {{ badge.value }}</span>
+      {% endfor %}
+    </div>
+    <div class="risk-block mt-3">
+      <strong>{{ top_lot.decision_status_label }}</strong>
+      <div class="mt-2">{{ top_lot.decision_reason or top_lot.working_bid_reason or 'Причина не указана.' }}</div>
+      {% if top_lot.mounting_requirements %}
+      <div class="mt-2">Монтаж: {{ top_lot.mounting_requirements|join('; ') }}</div>
+      {% endif %}
+    </div>
     <div class="actions mt-3">
-      <a class="btn btn-secondary" href="{{ url_for('pages.forecast_page', session_id=session.id) }}">Открыть прогноз</a>
-      <a class="btn btn-secondary" href="{{ url_for('pages.system_view', session_id=session.id) }}">Проверить энергосистему</a>
+      <a class="btn btn-primary" href="{{ url_for('pages.lot_detail_page', lot_id=top_lot.lot_id) }}">Открыть анализ</a>
+      <a class="btn btn-secondary" href="{{ url_for('pages.lots_page', session_id=session.id, sort='profit_desc') }}">Все лоты</a>
     </div>
+    {% else %}
+    <div class="empty-state mt-3">Доступных лотов пока нет. Добавьте их в раздел аукциона.</div>
+    {% endif %}
   </article>
+
   <article class="card">
-    <p class="section-kicker">Рабочая таблица принятия решений</p>
-    <h2 class="h2">Доступные лоты</h2>
-    <p class="muted">Главный порядок — статус решения, прибыль на рабочей ставке и полезность. Высокий bid сам по себе не приоритет.</p>
-    <div class="actions mt-3">
-      <a class="btn btn-primary" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Открыть лоты</a>
-      <a class="btn btn-secondary" href="{{ url_for('pages.quick_auction_page', session_id=session.id) }}">Быстрый аукцион</a>
+    <p class="section-kicker">Контроль качества</p>
+    <h2 class="h2">Что требует внимания</h2>
+    <div class="stack gap-3 mt-3">
+      {% for card in readiness_cards %}
+      <div class="alt-row">
+        <strong>{{ card.label }}: {{ card.value }}</strong>
+        <div class="table-secondary">{{ card.hint }}</div>
+      </div>
+      {% endfor %}
+      {% if network_readiness and network_readiness.action_required %}
+      <div class="issue issue-warning">
+        <strong>Есть неподключённые объекты.</strong>
+        <div class="mt-2">{{ network_readiness.message }}</div>
+      </div>
+      {% endif %}
+      {% if stale_warning and stale_warning.has_stale %}
+      <div class="issue issue-warning">
+        <strong>Оценки устарели.</strong>
+        <div class="mt-2">Нужно пересчитать {{ stale_warning.stale_count }} позиций после изменения данных.</div>
+      </div>
+      {% endif %}
     </div>
   </article>
 </section>
+
+<section class="page-grid mt-4">
+  <article class="action-card">
+    <p class="section-kicker">Объекты</p>
+    <strong>Схема сети и подключение</strong>
+    <span class="muted">Проверьте дерево сети, отсутствие циклов, двухвходовые нагрузки и разделение энергорайонов.</span>
+    <a class="btn btn-secondary mt-3" href="{{ url_for('pages.system_view', session_id=session.id) }}">Открыть схему</a>
+  </article>
+  <article class="action-card">
+    <p class="section-kicker">Аукцион</p>
+    <strong>Консолидированная оценка лотов</strong>
+    <span class="muted">Смотрите recommended tariff, break-even, сценарии прибыли и монтажные требования в одном месте.</span>
+    <a class="btn btn-secondary mt-3" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Открыть лоты</a>
+  </article>
+  <article class="action-card">
+    <p class="section-kicker">Прогноз</p>
+    <strong>48 тактов, погода и рынок</strong>
+    <span class="muted">Проверьте освещённость, wind channels, нагрузку по типам и окна дефицита/профицита.</span>
+    <a class="btn btn-secondary mt-3" href="{{ url_for('pages.forecast_page', session_id=session.id) }}">Открыть прогноз</a>
+  </article>
+</section>
+
+{% if purchased_rows %}
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Текущий портфель</p>
+      <h2 class="h2">Уже купленные лоты</h2>
+    </div>
+    <a class="btn btn-secondary" href="{{ url_for('pages.lots_page', session_id=session.id, status='bought') }}">Открыть список</a>
+  </div>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead><tr><th>Лот</th><th>Delta-profit</th><th>Риски</th><th>Синергия</th></tr></thead>
+      <tbody>
+        {% for row in purchased_rows[:5] %}
+        <tr>
+          <td><strong>{{ row.name }}</strong><div class="table-secondary">{{ row.structure }}</div></td>
+          <td>{{ fmt_num(row.expected_delta_profit or row.net_profit, 2) }}</td>
+          <td>{{ row.topology_risk }}/{{ row.market_risk }}/{{ row.balancing_risk }}/{{ row.loss_risk }}</td>
+          <td>{{ fmt_num(row.synergy_score, 2) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
 {% endblock %}

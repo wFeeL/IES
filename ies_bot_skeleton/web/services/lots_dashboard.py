@@ -103,6 +103,8 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
     financial = dict(evaluation.get("financial_breakdown") or {})
     result = dict(financial.get("result") or {})
     losses = dict(financial.get("losses_and_risks") or {})
+    income = dict(financial.get("income") or {})
+    expenses = dict(financial.get("expenses") or {})
     decision_summary = dict(evaluation.get("decision_summary") or {})
     recommended_bid_safe = float(
         decision_summary.get("recommended_bid_safe", decision_summary.get("cautious_bid", 0.0)) or 0.0
@@ -182,6 +184,31 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         for point in list(system_check.get("recommended_points") or [])
         if str(point).strip()
     ]
+    risk_badges = [
+        {
+            "label": "Topology",
+            "value": str(evaluation.get("topology_risk") or "low"),
+        },
+        {
+            "label": "Market",
+            "value": str(evaluation.get("market_risk") or "low"),
+        },
+        {
+            "label": "Balance",
+            "value": str(evaluation.get("balancing_risk") or "low"),
+        },
+        {
+            "label": "Loss",
+            "value": str(evaluation.get("loss_risk") or "low"),
+        },
+    ]
+    scenario_breakdown = dict(evaluation.get("scenario_breakdown") or {})
+    base_case = dict(evaluation.get("base_case") or scenario_breakdown.get("base") or {})
+    best_case = dict(evaluation.get("best_case") or scenario_breakdown.get("best") or {})
+    worst_case = dict(evaluation.get("worst_case") or scenario_breakdown.get("worst") or {})
+    storage_value = dict(((evaluation.get("metrics") or {}).get("storage_value") or {}))
+    synergy = dict(((evaluation.get("metrics") or {}).get("synergy") or {}))
+    can_recommend = decision_status == "go" and str(system_check.get("status") or "") != "blocked"
     stale_reason_raw = str(evaluation.get("stale_reason") or "")
     return {
         "lot": lot,
@@ -217,6 +244,13 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
             or 0.0
         ),
         "risk": float(losses.get("risk_total", 0.0) or 0.0),
+        "expected_delta_profit": float(evaluation.get("expected_delta_profit", result.get("net_profit", 0.0)) or 0.0),
+        "break_even_tariff": float(
+            evaluation.get("break_even_tariff", decision_summary.get("break_even_tariff", 0.0)) or 0.0
+        ),
+        "recommended_bid_or_tariff": float(
+            evaluation.get("recommended_bid_or_tariff", recommended_bid_balanced) or 0.0
+        ),
         "working_bid": float(working_bid),
         "recommended_bid_safe": float(recommended_bid_safe),
         "recommended_bid_balanced": float(recommended_bid_balanced),
@@ -256,6 +290,35 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "system_check": system_check,
         "connection_fit_status": str(system_check.get("status") or "neutral"),
         "recommended_points": recommended_points,
+        "risk_badges": risk_badges,
+        "topology_risk": str(evaluation.get("topology_risk") or "low"),
+        "market_risk": str(evaluation.get("market_risk") or "low"),
+        "balancing_risk": str(evaluation.get("balancing_risk") or "low"),
+        "loss_risk": str(evaluation.get("loss_risk") or "low"),
+        "base_case_delta_profit": float(base_case.get("delta_profit", 0.0) or 0.0),
+        "best_case_delta_profit": float(best_case.get("delta_profit", 0.0) or 0.0),
+        "worst_case_delta_profit": float(worst_case.get("delta_profit", 0.0) or 0.0),
+        "scenario_spread": float(
+            abs(float(best_case.get("delta_profit", 0.0) or 0.0) - float(worst_case.get("delta_profit", 0.0) or 0.0))
+        ),
+        "consumer_revenue": float(income.get("consumer_revenue", 0.0) or 0.0),
+        "market_net": float(
+            (income.get("market_revenue", 0.0) or 0.0)
+            - (expenses.get("market_purchase", 0.0) or 0.0)
+        ),
+        "service_cost": float(expenses.get("service_cost", 0.0) or 0.0),
+        "loss_cost": float(losses.get("network_losses", 0.0) or 0.0),
+        "balancing_penalty": float(losses.get("balancing_penalty", 0.0) or 0.0),
+        "unmet_load_penalty": float(losses.get("unmet_load_penalty", 0.0) or 0.0),
+        "storage_value_total": float(
+            (storage_value.get("arbitrage", 0.0) or 0.0)
+            + (storage_value.get("balancing", 0.0) or 0.0)
+            + (storage_value.get("reserve", 0.0) or 0.0)
+        ),
+        "synergy_score": float(synergy.get("score", 0.0) or 0.0),
+        "mounting_requirements": list(evaluation.get("mounting_requirements") or []),
+        "conflicts": list(evaluation.get("conflicts") or []),
+        "can_recommend": bool(can_recommend),
         "connection_block_reasons_count": int(system_check.get("connection_block_reasons_count", 0) or 0),
         "status": lot.status,
         "is_stale": bool(evaluation.get("is_stale")),

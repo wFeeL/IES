@@ -6,8 +6,9 @@
 
 <section class="page-grid forecast-page-grid mt-4">
   <article class="card forecast-upload-card">
-    <p class="section-kicker">Загрузка CSV</p>
-    <h1 class="h1">Центр прогноза</h1>
+    <p class="section-kicker">Загрузка данных</p>
+    <h1 class="h1">Прогноз ИЭС 2026</h1>
+    <p class="muted">Активный прогноз должен покрывать 48 тактов, освещённость, нагрузку по типам потребителей и ветер с поддержкой нескольких каналов.</p>
     <form id="forecastForm" class="stack gap-3 mt-3" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <input type="hidden" name="session_id" value="{{ session.id }}" />
@@ -26,14 +27,26 @@
       <div class="metric-card"><span class="metric-label">Средний ветер</span><strong>{{ fmt_num(active_forecast_summary.avg_wind, 2) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя освещённость</span><strong>{{ fmt_num(active_forecast_summary.avg_illumination, 2) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Средняя цена рынка</span><strong>{{ fmt_num(active_forecast_summary.avg_market_price, 2) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Колонки исходного CSV</span><strong>{{ (active_forecast_summary.raw_csv_columns or [])|length }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Используемые колонки CSV</span><strong>{{ (active_forecast_summary.used_raw_columns or [])|length }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Лишние колонки CSV</span><strong>{{ (active_forecast_summary.unsupported_raw_columns or [])|length }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Raw колонки</span><strong>{{ (active_forecast_summary.raw_csv_columns or [])|length }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Используемые ряды</span><strong>{{ (active_forecast_summary.used_raw_columns or [])|length }}</strong></div>
     </div>
     <div class="risk-block mt-3">{{ active_forecast_summary.quality.text }}</div>
+
+    <div class="table-wrap mt-3">
+      <table class="table table-forecast-meta">
+        <tbody>
+          <tr><th class="col-text">Совместимость прогноза</th><td>{{ 'Совместим' if active_forecast_compatibility.is_compatible else 'Несовместим' }}</td></tr>
+          <tr><th class="col-text">Покрытые типы объектов</th><td>{{ (active_forecast_compatibility.compatibility_report.covered_types or [])|join(', ') or '—' }}</td></tr>
+          <tr><th class="col-text">Частично покрытые типы</th><td>{{ (active_forecast_compatibility.compatibility_report.partial_types or [])|join(', ') or '—' }}</td></tr>
+          <tr><th class="col-text">Отсутствующие типы</th><td>{{ (active_forecast_compatibility.compatibility_report.missing_types or [])|join(', ') or '—' }}</td></tr>
+          <tr><th class="col-text">Лишние колонки CSV</th><td>{{ (active_forecast_summary.unsupported_raw_columns or [])|join(', ') or '—' }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
     <div class="forecast-columns-grid mt-4">
       <article class="card">
-        <p class="section-kicker">Колонки исходного CSV</p>
+        <p class="section-kicker">Source columns</p>
         <div class="lot-chip-wrap mt-2">
           {% for name in active_forecast_summary.raw_csv_columns or [] %}
           <span class="lot-chip">{{ name }}</span>
@@ -43,7 +56,7 @@
         </div>
       </article>
       <article class="card">
-        <p class="section-kicker">Mapping</p>
+        <p class="section-kicker">Canonical mapping</p>
         <div class="mapping-list mt-2">
           {% for row in active_forecast_summary.column_mapping_rows or [] %}
           <div class="key-value">
@@ -56,87 +69,70 @@
         </div>
       </article>
       <article class="card">
-        <p class="section-kicker">Лишние колонки CSV</p>
+        <p class="section-kicker">Неподдержанные колонки</p>
         <div class="lot-chip-wrap mt-2">
           {% for name in active_forecast_summary.unsupported_raw_columns or [] %}
           <span class="lot-chip">{{ name }}</span>
           {% else %}
-          <span class="muted">Лишних raw-колонок нет.</span>
+          <span class="muted">Неподдержанных raw-колонок нет.</span>
           {% endfor %}
         </div>
       </article>
     </div>
-    <div class="table-wrap mt-3">
-      <table class="table table-forecast-meta">
-        <tbody>
-          <tr><th class="col-text">Совместимость прогноза</th><td>{{ 'Совместим' if active_forecast_compatibility.is_compatible else 'Несовместим' }}</td></tr>
-          <tr><th class="col-text">Покрытые типы объектов</th><td>{{ (active_forecast_compatibility.compatibility_report.covered_types or [])|join(', ') or '—' }}</td></tr>
-          <tr><th class="col-text">Частично покрытые типы</th><td>{{ (active_forecast_compatibility.compatibility_report.partial_types or [])|join(', ') or '—' }}</td></tr>
-          <tr><th class="col-text">Отсутствующие типы</th><td>{{ (active_forecast_compatibility.compatibility_report.missing_types or [])|join(', ') or '—' }}</td></tr>
-          <tr><th class="col-text">Лишние колонки CSV</th><td>{{ (active_forecast_summary.unsupported_raw_columns or [])|join(', ') or '—' }}</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="table-wrap mt-3">
-      <table class="table table-forecast-coverage">
-        <colgroup>
-          <col class="forecast-coverage-name-col" />
-          <col class="forecast-coverage-status-col" />
-          <col class="forecast-coverage-required-col" />
-          <col class="forecast-coverage-missing-col" />
-        </colgroup>
-        <thead><tr><th class="col-text">Object type</th><th class="col-text">Coverage</th><th class="col-text">Required series</th><th class="col-text">Missing / partial</th></tr></thead>
-        <tbody>
-          {% for row in active_forecast_summary.object_coverage_rows or [] %}
-          <tr>
-            <td class="col-text">{{ row.object_type_name }} ({{ row.object_type_code }})</td>
-            <td class="col-text">{{ row.status }}</td>
-            <td class="col-text">{{ (row.required_profiles or [])|join(', ') or '—' }}{% if row.required_factors %} · {{ (row.required_factors or [])|join(', ') }}{% endif %}</td>
-            <td class="col-text">
-              {{ (row.missing_profiles or [])|join(', ') or '—' }}
-              {% if row.missing_factors %} · {{ (row.missing_factors or [])|join(', ') }}{% endif %}
-              {% if row.partial_profiles or row.partial_factors %}
-              <div class="muted">partial: {{ (row.partial_profiles or [])|join(', ') }} {{ (row.partial_factors or [])|join(', ') }}</div>
-              {% endif %}
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="4" class="muted">Покрытие по объектам ещё не рассчитано.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+
     {% if not active_forecast_compatibility.is_compatible %}
     <div class="risk-block mt-3">
-      <strong>Оценка лотов заблокирована до исправления прогноза.</strong>
-      <ul class="stack gap-1 mt-2">
-        {% for reason in active_forecast_compatibility.compatibility_report.blocking_reasons %}
-        <li>{{ reason }}</li>
-        {% else %}
-        <li>Проверьте маппинг canonical профилей и факторов.</li>
-        {% endfor %}
-      </ul>
-      <div class="mt-3"><strong>{{ compatibility_guidance.primary_message }}</strong></div>
+      <strong>Оценка лотов и сети заблокирована до исправления прогноза.</strong>
+      <div class="mt-2">{{ compatibility_guidance.primary_message }}</div>
       <ul class="stack gap-1 mt-2">
         {% for item in compatibility_guidance.actions %}
         <li>{{ item }}</li>
         {% endfor %}
       </ul>
-      {% if compatibility_guidance.lots_url %}
-      <div class="actions mt-3">
-        <a class="btn btn-secondary" href="{{ compatibility_guidance.lots_url }}">Открыть проблемные лоты</a>
-      </div>
-      {% endif %}
     </div>
     {% endif %}
   </article>
 </section>
 
 <section class="card mt-4 weather-analysis-section">
-  <p class="section-kicker">Анализ прогноза погоды</p>
-  <h2 class="h2">Генерация, потребление и баланс</h2>
+  <p class="section-kicker">Прогнозный анализ</p>
+  <h2 class="h2">Генерация, нагрузка, net balance и окна работы накопителей</h2>
   <div id="activeForecastWeatherAnalysis" class="mt-3">
-    <div class="muted">Готовлю weather analysis...</div>
+    <div class="muted">Готовлю 48-тактный weather and market analysis...</div>
+  </div>
+</section>
+
+<section class="card mt-4">
+  <p class="section-kicker">Покрытие по объектам</p>
+  <h2 class="h2">Какие серии реально доступны для расчёта</h2>
+  <div class="table-wrap mt-3">
+    <table class="table table-forecast-coverage">
+      <colgroup>
+        <col class="forecast-coverage-name-col" />
+        <col class="forecast-coverage-status-col" />
+        <col class="forecast-coverage-required-col" />
+        <col class="forecast-coverage-missing-col" />
+      </colgroup>
+      <thead><tr><th class="col-text">Тип объекта</th><th class="col-text">Coverage</th><th class="col-text">Required series</th><th class="col-text">Missing / partial</th></tr></thead>
+      <tbody>
+        {% for row in active_forecast_summary.object_coverage_rows or [] %}
+        <tr>
+          <td class="col-text">{{ row.object_type_name }} ({{ row.object_type_code }})</td>
+          <td class="col-text">{{ row.status }}</td>
+          <td class="col-text">{{ (row.required_profiles or [])|join(', ') or '—' }}{% if row.required_factors %} · {{ (row.required_factors or [])|join(', ') }}{% endif %}</td>
+          <td class="col-text">
+            {{ (row.missing_profiles or [])|join(', ') or '—' }}
+            {% if row.missing_factors %} · {{ (row.missing_factors or [])|join(', ') }}{% endif %}
+            {% if row.partial_profiles or row.partial_factors %}
+            <div class="muted">partial: {{ (row.partial_profiles or [])|join(', ') }} {{ (row.partial_factors or [])|join(', ') }}</div>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted">Покрытие по объектам ещё не рассчитано.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </section>
 
@@ -149,7 +145,7 @@
   </div>
   <div class="table-wrap mt-3">
     <table class="table">
-      <thead><tr><th>ID</th><th>Название</th><th>Диапазон</th><th>Ряды нагрузки</th><th>Совместимость</th><th>Качество</th><th>Активный</th><th>Действия</th></tr></thead>
+      <thead><tr><th>ID</th><th>Название</th><th>Диапазон</th><th>Используемые ряды</th><th>Совместимость</th><th>Качество</th><th>Активный</th><th>Действия</th></tr></thead>
       <tbody>
         {% for fc in forecasts %}
         {% set summary = forecast_summaries[fc.id] %}
@@ -185,7 +181,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="muted">Прогнозы ещё не загружены. Пока будет использоваться встроенный прогноз тестовой игры.</td></tr>
+        <tr><td colspan="8" class="muted">Прогнозы ещё не загружены. Пока используется встроенный прогноз тестовой игры.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -194,14 +190,14 @@
 
 <section class="page-grid mt-4">
   <article class="card">
-    <p class="section-kicker">Диагностика прогноза</p>
+    <p class="section-kicker">Диагностика</p>
     <h2 class="h2">Статистика и качество данных</h2>
     <div id="forecastOut" class="stack gap-3 mt-3">
       <div class="muted">Выберите прогноз и нажмите «Диагностика».</div>
     </div>
   </article>
   <article class="card">
-    <p class="section-kicker">График</p>
+    <p class="section-kicker">Графики</p>
     <h2 class="h2">Предпросмотр рядов</h2>
     <div id="forecastChart" class="forecast-chart mt-3"></div>
   </article>

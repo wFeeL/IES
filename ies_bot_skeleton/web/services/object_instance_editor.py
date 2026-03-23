@@ -19,6 +19,9 @@ PARAMETER_LABELS: Dict[str, str] = {
     "capacity_mw_tick": "Ёмкость, МВт·тик",
     "charge_rate_mw": "Скорость заряда, МВт",
     "discharge_rate_mw": "Скорость разряда, МВт",
+    "charge_rate_mw_tick": "Скорость заряда, МВт·такт",
+    "discharge_rate_mw_tick": "Скорость разряда, МВт·такт",
+    "roundtrip_efficiency": "КПД цикла",
     "efficiency": "КПД",
     "ports": "Порты",
     "soft_flow_limit_mw": "Лимит потока, МВт",
@@ -28,6 +31,14 @@ PARAMETER_LABELS: Dict[str, str] = {
     "depends_on_wind": "Зависит от ветра",
     "requires_substation": "Требуется подстанция",
     "is_root": "Корневой узел",
+    "elasticity": "Эластичность спроса",
+    "connection_point": "Точка подключения",
+    "secondary_parent_instance_id": "Второй родитель",
+    "secondary_connection_point": "Вторая точка подключения",
+    "wind_channel": "Канал ветра",
+    "cut_in_mps": "Cut-in, м/с",
+    "rated_mps": "Rated, м/с",
+    "cut_out_mps": "Cut-out, м/с",
 }
 
 

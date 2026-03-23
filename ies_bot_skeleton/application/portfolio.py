@@ -54,17 +54,22 @@ def _portfolio_objects_for_lot(lot: Lot) -> list[ObjectInstance]:
     for item in lot.items:
         params = _merge_item_parameters(item)
         district = str(params.get("district") or "default")
-        row = ObjectInstance(
-            session_id=lot.session_id,
-            object_type_id=item.object_type_id,
-            custom_name=str(item.object_type.name if item.object_type else "").strip(),
-            current_parameters_json=params,
-            source_lot_id=lot.id,
-            is_from_start_pack=False,
-            district=district,
-            is_active=True,
-        )
-        rows.append(mark_generated_from_lot(row, lot_id=int(lot.id)))
+        quantity = max(1, int(item.quantity or params.get("qty", 1) or 1))
+        base_name = str(item.object_type.name if item.object_type else "").strip()
+        for index in range(1, quantity + 1):
+            object_params = dict(params)
+            object_params["qty"] = 1
+            row = ObjectInstance(
+                session_id=lot.session_id,
+                object_type_id=item.object_type_id,
+                custom_name=f"{base_name} #{index}" if quantity > 1 and base_name else base_name,
+                current_parameters_json=object_params,
+                source_lot_id=lot.id,
+                is_from_start_pack=False,
+                district=district,
+                is_active=True,
+            )
+            rows.append(mark_generated_from_lot(row, lot_id=int(lot.id)))
     return rows
 
 
