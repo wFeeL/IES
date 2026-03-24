@@ -3,9 +3,9 @@
 {% set nav_items = [
   ('Обзор', url_for('pages.session_page', session_id=session.id), ['pages.session_page']),
   ('Редактор объектов', url_for('pages.object_create_page', session_id=session.id), ['pages.object_create_page', 'pages.object_edit_page', 'pages.object_delete_confirm_page']),
-  ('Аукцион и лоты', url_for('pages.lots_page', session_id=session.id), ['pages.lots_page', 'pages.lots_edit', 'pages.lot_edit_page', 'pages.lot_delete_confirm_page', 'pages.lot_buy_confirm_page', 'pages.quick_auction_page']),
+  ('Аукцион и лоты', url_for('pages.lots_page', session_id=session.id), ['pages.lots_page', 'pages.lots_edit', 'pages.lot_edit_page', 'pages.lot_delete_confirm_page', 'pages.lot_buy_confirm_page', 'pages.quick_auction_page', 'pages.lot_detail_page']),
   ('Прогнозы', url_for('pages.forecast_page', session_id=session.id), ['pages.forecast_page']),
-  ('Результаты', url_for('pages.results_page', session_id=session.id), ['pages.results_page', 'pages.lot_detail_page']),
+  ('Результаты', url_for('pages.results_page', session_id=session.id), ['pages.results_page']),
   ('Сборка энергосистемы', url_for('pages.system_view', session_id=session.id), ['pages.system_view']),
   ('Правила и справка', url_for('pages.catalog'), ['pages.catalog'])
 ] %}
