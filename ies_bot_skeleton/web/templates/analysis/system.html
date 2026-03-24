@@ -1,54 +1,103 @@
 {% extends "base.html" %}
 {% block title %}Энергосистема {{ session.id }} | IES{% endblock %}
-{% block page_title %}Схема сети{% endblock %}
+{% block page_title %}Сборка энергосистемы{% endblock %}
 {% block content %}
 {% include "components/session_hero.html" %}
 
 <section class="card mt-4">
   <div class="section-head">
     <div>
-      <p class="section-kicker">Валидация сети 2026</p>
-      <h1 class="h1">Дерево, связность и ограничения подключения</h1>
-      <p class="muted">Проверяются: один корень, отсутствие циклов и островов, путь до главной подстанции, двухвходовые потребители и разделение генерации/потребителей по энергорайонам.</p>
+      <p class="section-kicker">Post-Auction Planning · Stage B</p>
+      <h1 class="h1">Сборка энергосистемы</h1>
+      <p class="muted">Раздел показывает, как раскладывать купленные объекты по энергорайонам, где должны быть generation branches и load branches, и какие ошибки монтажа блокируют запуск.</p>
     </div>
     <a class="btn btn-primary" href="{{ url_for('pages.object_create_page', session_id=session.id) }}">Добавить объект</a>
   </div>
+</section>
 
-  {% set critical_issues = network_summary.critical_errors %}
-  {% set warning_issues = network_summary.warnings %}
-  {% set hint_issues = network_summary.optimization_hints %}
-
-  <div class="page-grid mt-3">
-    <div class="issue issue-error">
+<section class="page-grid mt-4">
+  <article class="card">
+    <p class="section-kicker">Инвентарь</p>
+    <h2 class="h2">Все объекты сессии</h2>
+    <div class="table-wrap mt-3">
+      <table class="table">
+        <thead><tr><th>ID</th><th>Объект</th><th>Энергорайон</th><th>Статус</th><th>Parent</th></tr></thead>
+        <tbody>
+          {% for row in network_summary.inventory_rows %}
+          <tr>
+            <td>{{ row.id }}</td>
+            <td><strong>{{ row.label }}</strong><div class="table-secondary">{{ row.code }}</div></td>
+            <td>{{ row.district }}</td>
+            <td>{{ row.status }}</td>
+            <td>{{ row.parent_id or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="muted">Объекты ещё не добавлены.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+  <article class="card">
+    <p class="section-kicker">Диагностика</p>
+    <h2 class="h2">Blocking errors и warnings</h2>
+    <div class="issue issue-error mt-3">
       <strong>Critical blocking errors</strong>
       <ul class="stack gap-1 mt-2">
-        {% for issue in critical_issues %}
+        {% for issue in network_summary.critical_errors %}
         <li>{{ issue.message }}</li>
         {% else %}
         <li>Блокирующих ошибок нет.</li>
         {% endfor %}
       </ul>
     </div>
-    <div class="issue issue-warning">
+    <div class="issue issue-warning mt-3">
       <strong>Warnings</strong>
       <ul class="stack gap-1 mt-2">
-        {% for issue in warning_issues %}
+        {% for issue in network_summary.warnings %}
         <li>{{ issue.message }}</li>
         {% else %}
         <li>Предупреждений нет.</li>
         {% endfor %}
       </ul>
     </div>
-    <div class="issue issue-ok">
+    <div class="issue issue-ok mt-3">
       <strong>Optimization hints</strong>
       <ul class="stack gap-1 mt-2">
-        {% for issue in hint_issues %}
+        {% for issue in network_summary.optimization_hints %}
         <li>{{ issue.message }}</li>
         {% else %}
         <li>Подсказок нет.</li>
         {% endfor %}
       </ul>
     </div>
+  </article>
+</section>
+
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Энергорайоны</p>
+      <h2 class="h2">Как раскладывать объекты по веткам</h2>
+    </div>
+  </div>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead><tr><th>Энергорайон</th><th>Тип района</th><th>Объекты</th><th>Upstream</th><th>Статус</th></tr></thead>
+      <tbody>
+        {% for row in network_summary.district_rows %}
+        <tr>
+          <td><strong>{{ row.district_id }}</strong></td>
+          <td>{{ row.district_type }}</td>
+          <td>{{ row.object_labels|join(', ') if row.object_labels else '—' }}</td>
+          <td>{{ row.upstream_node or '—' }}</td>
+          <td>{{ row.status }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted">Энергорайоны ещё не сформированы.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </section>
 
@@ -56,9 +105,8 @@
 <section class="card mt-4">
   <div class="section-head">
     <div>
-      <p class="section-kicker">Topology Candidates</p>
+      <p class="section-kicker">Topology candidates</p>
       <h2 class="h2">Короткий список допустимых схем</h2>
-      <p class="muted">Планировщик показывает несколько feasible candidate-схем, чтобы было видно не только ошибки, но и запасные варианты подключения.</p>
     </div>
   </div>
   <div class="table-wrap mt-3">
@@ -68,28 +116,11 @@
         {% for candidate in network_summary.topology_candidates[:5] %}
         {% set validation_block = candidate.validation_block or {} %}
         <tr>
-          <td>
-            <strong>{{ candidate.candidate_id }}</strong>
-            {% if candidate.edge_list %}
-            <div class="table-secondary">{{ candidate.edge_list|join(', ') }}</div>
-            {% endif %}
-          </td>
+          <td><strong>{{ candidate.candidate_id }}</strong><div class="table-secondary">{{ candidate.edge_list|join(', ') if candidate.edge_list else '—' }}</div></td>
           <td>{{ candidate.strategy }}</td>
           <td>{{ fmt_num(candidate.expected_losses, 2) }}</td>
-          <td>
-            {% if validation_block.blocking %}
-            <span class="status-badge status-stale">Есть blocking errors</span>
-            {% else %}
-            <span class="status-badge status-fresh">Feasible</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if candidate.mandatory_fixes %}
-            {{ candidate.mandatory_fixes|join('; ') }}
-            {% else %}
-            <span class="muted">Нет обязательных исправлений.</span>
-            {% endif %}
-          </td>
+          <td>{% if validation_block.blocking %}<span class="status-badge status-stale">Есть blocking errors</span>{% else %}<span class="status-badge status-fresh">Feasible</span>{% endif %}</td>
+          <td>{{ candidate.mandatory_fixes|join('; ') if candidate.mandatory_fixes else '—' }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -97,6 +128,22 @@
   </div>
 </section>
 {% endif %}
+
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">План сборки</p>
+      <h2 class="h2">Пошаговый монтажный план</h2>
+    </div>
+  </div>
+  <ol class="stack gap-2 mt-3">
+    {% for step in network_summary.assembly_plan %}
+    <li>{{ step }}</li>
+    {% else %}
+    <li class="muted">План сборки пока не сформирован.</li>
+    {% endfor %}
+  </ol>
+</section>
 
 <section class="card mt-4">
   <p class="section-kicker">Объекты энергосистемы</p>
@@ -111,36 +158,12 @@
         {% set integration_state = params.get('integration_state') or ('pending_connection' if obj.source_lot_id and not obj.parent_instance_id and obj.is_active else 'integrated') %}
         <tr>
           <td>{{ obj.id }}</td>
-          <td>
-            <strong>{{ obj.object_type.name if obj.object_type else 'n/a' }}</strong>
-            <div class="table-secondary">{{ obj.object_type.code if obj.object_type else 'n/a' }}</div>
-          </td>
+          <td><strong>{{ obj.object_type.name if obj.object_type else 'n/a' }}</strong><div class="table-secondary">{{ obj.object_type.code if obj.object_type else 'n/a' }}</div></td>
           <td>{{ obj.custom_name or '—' }}</td>
           <td>{{ obj.district }}</td>
-          <td>
-            {% if integration_state == 'pending_connection' %}
-            <span class="status-badge status-stale">Требует обязательного исправления</span>
-            {% else %}
-            <span class="status-badge status-fresh">Интегрирован</span>
-            {% endif %}
-            {% if params.get('secondary_parent_instance_id') %}
-            <div class="table-secondary">Есть второй ввод</div>
-            {% endif %}
-          </td>
-          <td>
-            {% if recommendation %}
-            <strong>{{ recommendation.recommended_point }}</strong>
-            <div class="table-secondary">{{ recommendation.message }}</div>
-            {% else %}
-            <span class="muted">Автоподсказка не найдена.</span>
-            {% endif %}
-          </td>
-          <td>
-            <div class="actions">
-              <a class="btn btn-secondary" href="{{ url_for('pages.object_edit_page', object_id=obj.id) }}">Редактировать</a>
-              <a class="btn btn-danger" href="{{ url_for('pages.object_delete_confirm_page', object_id=obj.id) }}">Удалить</a>
-            </div>
-          </td>
+          <td>{% if integration_state == 'pending_connection' %}<span class="status-badge status-stale">Требует обязательного исправления</span>{% else %}<span class="status-badge status-fresh">Интегрирован</span>{% endif %}</td>
+          <td>{% if recommendation %}<strong>{{ recommendation.recommended_point }}</strong><div class="table-secondary">{{ recommendation.message }}</div>{% else %}<span class="muted">Автоподсказка не найдена.</span>{% endif %}</td>
+          <td><div class="actions"><a class="btn btn-secondary" href="{{ url_for('pages.object_edit_page', object_id=obj.id) }}">Редактировать</a><a class="btn btn-danger" href="{{ url_for('pages.object_delete_confirm_page', object_id=obj.id) }}">Удалить</a></div></td>
         </tr>
         {% else %}
         <tr><td colspan="7" class="muted">Объекты ещё не добавлены.</td></tr>

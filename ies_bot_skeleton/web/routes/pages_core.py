@@ -12,22 +12,10 @@ from ...application.context import (
 from ...application.portfolio import portfolio_rows, portfolio_summary
 from ...application.sessions import create_session_record, delete_session_record
 from ..extensions import db
-from ..forms import (
-    ConfirmDeleteForm,
-    ForecastSelectionForm,
-    LoginForm,
-    SessionForm,
-    SessionImportForm,
-    StrategySelectionForm,
-)
+from ..forms import ConfirmDeleteForm, ForecastSelectionForm, LoginForm, SessionForm, SessionImportForm
 from ..models import GameSession, ObjectType, Ruleset, User
 from ..services.evaluation import ForecastCompatibilityError
 from ..services.navigation import is_safe_internal_url, safe_next_url
-from ..services.test_game_preset import (
-    TEST_GAME_BUNDLED_FORECAST_NAME,
-    TEST_GAME_DEFAULT_SESSION_TITLE,
-    is_test_game_ruleset,
-)
 from ..services.lots_dashboard import (
     analytics_by_lot_for_session,
     filter_lot_rows,
@@ -36,8 +24,9 @@ from ..services.lots_dashboard import (
 )
 from ..services.session_io import import_session_payload
 from ..services.stale import mark_stale_for_session
-from ..services.strategy_catalog import strategy_list, strategy_meta
-from ..services.ui_text import SESSION_TERMS, strategy_label
+from ..services.strategy import build_strategy_snapshot
+from ..services.strategy_catalog import strategy_meta
+from ..services.ui_text import SESSION_TERMS
 from .page_support import (
     forecast_compatibility_guidance,
     nav,
@@ -46,6 +35,9 @@ from .page_support import (
     session_stale_ctx,
 )
 from .shared import pages_bp
+
+
+NO_FORECAST_LABEL = "Прогноз не выбран"
 
 
 def _fmt_datetime(value) -> str:
@@ -60,15 +52,8 @@ def _missing_session_redirect():
 
 
 def _sorted_active_rulesets() -> List[Ruleset]:
-    rows = db.session.query(Ruleset).filter_by(is_active=True).all()
-    return sorted(
-        rows,
-        key=lambda row: (
-            0 if is_test_game_ruleset(row) else 1,
-            str(row.name or "").lower(),
-            row.id,
-        ),
-    )
+    rows = [row for row in db.session.query(Ruleset).filter_by(is_active=True).all() if 'test' not in str(row.code or '').lower()]
+    return sorted(rows, key=lambda row: (str(row.name or "").lower(), row.id))
 
 
 def _dashboard_cards(sessions: List[GameSession]) -> List[Dict[str, object]]:
@@ -80,7 +65,7 @@ def _dashboard_cards(sessions: List[GameSession]) -> List[Dict[str, object]]:
             {
                 "id": session.id,
                 "title": session.title,
-                "strategy_label": strategy_label(session.selected_strategy),
+                "strategy_label": "Unified optimizer 2026",
                 "budget_total": float(session.budget_total or 0.0),
                 "remaining_budget": float(portfolio["remaining_budget"]),
                 "lots_count": len(session.lots),
@@ -136,10 +121,6 @@ def logout():
 def dashboard():
     form = SessionForm()
     import_form = SessionImportForm()
-    strategy_catalog = strategy_list()
-    form.selected_strategy.choices = [
-        (row["code"], row["label"]) for row in strategy_catalog
-    ]
     rulesets = _sorted_active_rulesets()
     default_budget = 200.0
     if rulesets:
@@ -157,9 +138,7 @@ def dashboard():
     if request.method == "GET" and not form.budget_total.data:
         form.budget_total.data = default_budget
     if request.method == "GET" and not (form.title.data or "").strip():
-        form.title.data = TEST_GAME_DEFAULT_SESSION_TITLE
-    if request.method == "GET" and not (form.selected_strategy.data or "").strip():
-        form.selected_strategy.data = "unified"
+        form.title.data = "Боевая сессия 2026"
 
     if form.validate_on_submit():
         row = create_session_record(
@@ -182,7 +161,6 @@ def dashboard():
         import_form=import_form,
         session_terms=SESSION_TERMS,
         selected_strategy_meta=strategy_meta("unified"),
-        strategy_catalog=strategy_catalog,
     )
 
 
@@ -195,19 +173,15 @@ def session_page(session_id: int):
 
     analysis_ctx = resolve_session_analysis_context(session)
     forecast_form = ForecastSelectionForm()
-    strategy_form = StrategySelectionForm()
-    strategy_form.selected_strategy.choices = [
-        (row["code"], row["label"]) for row in strategy_list()
-    ]
-    strategy_form.selected_strategy.data = "unified"
-    forecast_form.selected_forecast_id.choices = [(0, TEST_GAME_BUNDLED_FORECAST_NAME)] + [
+    forecast_form.selected_forecast_id.choices = [
         (forecast.id, f"{forecast.name} ({forecast.source_file})") for forecast in session.forecasts
     ]
-    forecast_form.selected_forecast_id.data = int(session.selected_forecast_id or 0)
+    if forecast_form.selected_forecast_id.choices:
+        forecast_form.selected_forecast_id.data = int(session.selected_forecast_id or forecast_form.selected_forecast_id.choices[0][0])
+    else:
+        forecast_form.selected_forecast_id.data = None
 
-    forecast_report = dict(
-        (analysis_ctx["forecast_summary"] or {}).get("compatibility_report") or {}
-    )
+    forecast_report = dict((analysis_ctx["forecast_summary"] or {}).get("compatibility_report") or {})
     forecast_blocked = not bool((analysis_ctx["forecast_summary"] or {}).get("is_compatible", True))
     analytics_by_lot: Dict[int, Dict[str, object]] = {}
     if not forecast_blocked:
@@ -217,10 +191,7 @@ def session_page(session_id: int):
             forecast_blocked = True
             forecast_report = dict(exc.report)
             analytics_by_lot = {}
-    compatibility_guidance = forecast_compatibility_guidance(
-        forecast_report,
-        session=session,
-    )
+    compatibility_guidance = forecast_compatibility_guidance(forecast_report, session=session)
 
     shell_view = session_shell_view(session, analytics_by_lot=analytics_by_lot)
     portfolio = shell_view["portfolio"]
@@ -233,7 +204,6 @@ def session_page(session_id: int):
     stale_ctx = session_stale_ctx(session)
     stale_warning = stale_ctx.get("stale_warning") or {}
     has_stale = bool(stale_warning.get("has_stale"))
-    uses_bundled = analysis_ctx["forecast_context"]["source"] == "bundled_forecast"
     readiness_cards = [
         {
             "label": "Энергосистема",
@@ -250,8 +220,8 @@ def session_page(session_id: int):
         {
             "label": "Прогноз",
             "value": analysis_ctx["forecast_context"]["forecast_name"],
-            "hint": "встроенный базовый" if uses_bundled else "загружен пользователем",
-            "status": "attention" if uses_bundled else "ready",
+            "hint": "обязателен для оценки",
+            "status": "ready" if not forecast_blocked else "attention",
         },
         {
             "label": "Актуальность оценок",
@@ -263,20 +233,13 @@ def session_page(session_id: int):
     kpis = {
         "lots_total": len(session.lots),
         "bought_total": int(portfolio["bought_lots_count"]),
-        "portfolio_utility": float(
-            sum(float(row.get("utility", 0.0) or 0.0) for row in purchased_rows)
-        ),
+        "portfolio_utility": float(sum(float(row.get("utility", 0.0) or 0.0) for row in purchased_rows)),
         "portfolio_net_profit": float(portfolio["aggregate_net_profit"]),
         "risk_profile": portfolio["risk_profile_label"],
-        "data_status": (
-            "Готово" if len(session.lots) > 0 and len(session.objects) > 0 else "Требует внимания"
-        ),
+        "data_status": ("Готово" if len(session.lots) > 0 and len(session.objects) > 0 and not forecast_blocked else "Требует внимания"),
     }
     ctx = nav(
-        breadcrumb_items=[
-            ("Сессии", "pages.dashboard", None),
-            (f"Сессия #{session.id}", None, None),
-        ],
+        breadcrumb_items=[("Сессии", "pages.dashboard", None), (f"Сессия #{session.id}", None, None)],
         fallback_endpoint="pages.dashboard",
     )
     return render_template(
@@ -297,7 +260,6 @@ def session_page(session_id: int):
         post_auction_plan_yaml_url=url_for("api.export_post_auction_plan_yaml_endpoint", session_id=session.id),
         recalculate_url=url_for("api.recalculate_session_lots", session_id=session.id),
         strategy_api_url=url_for("api.strategy_snapshot", session_id=session.id),
-        strategy_form=strategy_form,
         selected_strategy_meta=strategy_meta("unified"),
         forecast_blocked=forecast_blocked,
         forecast_compatibility_report=forecast_report,
@@ -355,14 +317,12 @@ def session_forecast_selection_action(session_id: int):
     if session is None:
         return _missing_session_redirect()
     form = ForecastSelectionForm()
-    form.selected_forecast_id.choices = [(0, TEST_GAME_BUNDLED_FORECAST_NAME)] + [
+    form.selected_forecast_id.choices = [
         (forecast.id, f"{forecast.name} ({forecast.source_file})") for forecast in session.forecasts
     ]
     previous_forecast_id = int(session.selected_forecast_id or 0)
     if form.validate_on_submit():
-        update_analysis_settings_for_session(
-            session, {"selected_forecast_id": form.selected_forecast_id.data or None}
-        )
+        update_analysis_settings_for_session(session, {"selected_forecast_id": form.selected_forecast_id.data or None})
         db.session.add(session)
         db.session.commit()
         if int(session.selected_forecast_id or 0) != previous_forecast_id:
@@ -370,22 +330,6 @@ def session_forecast_selection_action(session_id: int):
         flash("Активный прогноз обновлён", "success")
     else:
         flash("Не удалось выбрать прогноз", "error")
-    target = (request.form.get("next") or request.referrer or "").strip()
-    if target and is_safe_internal_url(target):
-        return redirect(target)
-    return redirect(url_for("pages.session_page", session_id=session.id))
-
-
-@pages_bp.post("/sessions/<int:session_id>/strategy-selection")
-@login_required
-def session_strategy_selection_action(session_id: int):
-    session = db.session.get(GameSession, session_id)
-    if session is None:
-        return _missing_session_redirect()
-    update_analysis_settings_for_session(session, {"selected_strategy": "unified"})
-    db.session.add(session)
-    db.session.commit()
-    flash("Сессия переведена на единый оптимизатор 2026", "success")
     target = (request.form.get("next") or request.referrer or "").strip()
     if target and is_safe_internal_url(target):
         return redirect(target)
@@ -421,10 +365,7 @@ def import_session_action():
 def catalog():
     rows = db.session.query(ObjectType).order_by(ObjectType.category, ObjectType.code).all()
     ctx = nav(
-        breadcrumb_items=[
-            ("Сессии", "pages.dashboard", None),
-            ("Справочник", None, None),
-        ],
+        breadcrumb_items=[("Сессии", "pages.dashboard", None), ("Справочник", None, None)],
         fallback_endpoint="pages.dashboard",
     )
     from ..services.catalog_presenters import build_catalog_sections, glossary_groups
@@ -435,4 +376,44 @@ def catalog():
         sections=build_catalog_sections(rows),
         glossary=glossary_groups(),
         **ctx,
+    )
+
+
+@pages_bp.get("/sessions/<int:session_id>/results")
+@login_required
+def results_page(session_id: int):
+    session = db.session.get(GameSession, session_id)
+    if session is None:
+        return _missing_session_redirect()
+    analysis_ctx = resolve_session_analysis_context(session)
+    forecast_report = dict((analysis_ctx["forecast_summary"] or {}).get("compatibility_report") or {})
+    forecast_blocked = not bool((analysis_ctx["forecast_summary"] or {}).get("is_compatible", True))
+    snapshot = None
+    if not forecast_blocked:
+        try:
+            snapshot = build_strategy_snapshot(session=session)
+        except ForecastCompatibilityError as exc:
+            forecast_blocked = True
+            forecast_report = dict(exc.report)
+    compatibility_guidance = forecast_compatibility_guidance(forecast_report, session=session)
+    shell_view = session_shell_view(session)
+    ctx = nav(
+        breadcrumb_items=[
+            ("Сессии", "pages.dashboard", None),
+            (f"Сессия #{session.id}", "pages.session_page", {"session_id": session.id}),
+            ("Результаты", None, None),
+        ],
+        fallback_endpoint="pages.session_page",
+        fallback_values={"session_id": session.id},
+    )
+    return render_template(
+        "analysis/results.html",
+        session=session,
+        snapshot=snapshot,
+        forecast_blocked=forecast_blocked,
+        forecast_compatibility_report=forecast_report,
+        compatibility_guidance=compatibility_guidance,
+        **shell_view,
+        **ctx,
+        **session_stale_ctx(session),
     )

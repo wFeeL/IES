@@ -26,16 +26,20 @@
       <div><strong>Источник:</strong> {{ forecast_context.source_label }}</div>
       <div><strong>Горизонт:</strong> {{ forecast_context.periods_count or 48 }} тактов</div>
     </div>
+    {% if forecast_form.selected_forecast_id.choices %}
     <form method="post" action="{{ url_for('pages.session_forecast_selection_action', session_id=session.id) }}" class="mt-3">
       {{ forecast_form.hidden_tag() }}
       {{ forecast_form.selected_forecast_id(class_='input') }}
       <input type="hidden" name="next" value="{{ request.full_path }}" />
       <button class="btn btn-secondary mt-2" type="submit">Обновить прогноз</button>
     </form>
+    {% else %}
+    <div class="risk-block mt-3">Для оценки лотов сначала загрузите пользовательский прогноз в разделе «Прогнозы».</div>
+    {% endif %}
   </article>
   <article class="card">
     <p class="section-kicker">Бюджет и портфель</p>
-    <h2 class="h2">Режим: {{ strategy_label(session.selected_strategy) }}</h2>
+    <h2 class="h2">Unified optimizer 2026</h2>
     <div class="stack gap-2 mt-3">
       <div><strong>Остаток бюджета:</strong> {{ fmt_num(portfolio.remaining_budget, 2) }}</div>
       <div><strong>All-Pay использовано:</strong> {{ fmt_num(portfolio.allpay_spent, 2) }}</div>
@@ -53,10 +57,9 @@
     </div>
   </article>
   <article class="card">
-    <p class="section-kicker">Auction Stage</p>
-    <h2 class="h2">{{ selected_strategy_meta.label }}</h2>
-    <p class="muted mt-2">{{ selected_strategy_meta.summary }}</p>
-    <div class="table-secondary mt-3">Stage A оценивает лоты до проектирования сети. Ручной selector стратегий скрыт: сайт всегда показывает один основной `optimal_purchase_price` и общий каталог `singles/pairs/groups`.</div>
+    <p class="section-kicker">Stage A</p>
+    <h2 class="h2">Unified lot optimizer</h2>
+    <p class="muted mt-2">Сайт всегда показывает один основной результат по лоту: optimal purchase price, hard limit, expected profit и risk-adjusted profit. Переключателя стратегий больше нет.</p>
   </article>
 </section>
 
@@ -75,9 +78,9 @@
     {% elif top_lot %}
     <p class="muted mt-2">{{ top_lot.name }} · {{ top_lot.composition_label }}</p>
     <div class="insight-grid mt-3">
-      <div class="metric-card"><span class="metric-label">Recommended</span><strong>{{ fmt_num(top_lot.recommended_bid_or_tariff, 2) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Break-even</span><strong>{{ fmt_num(top_lot.break_even_tariff, 2) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Expected delta-profit</span><strong>{{ fmt_num(top_lot.expected_delta_profit, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Optimal purchase price</span><strong>{{ fmt_num(top_lot.optimal_purchase_price or top_lot.recommended_bid_or_tariff, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Hard limit</span><strong>{{ fmt_num(top_lot.hard_limit or top_lot.break_even_tariff, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Expected profit</span><strong>{{ fmt_num(top_lot.expected_profit or top_lot.expected_delta_profit, 2) }}</strong></div>
     </div>
     <div class="pill-row mt-3">
       {% for badge in top_lot.risk_badges %}
@@ -93,7 +96,7 @@
     </div>
     <div class="actions mt-3">
       <a class="btn btn-primary" href="{{ url_for('pages.lot_detail_page', lot_id=top_lot.lot_id) }}">Открыть анализ</a>
-      <a class="btn btn-secondary" href="{{ url_for('pages.lots_page', session_id=session.id, sort='profit_desc') }}">Все лоты</a>
+      <a class="btn btn-secondary" href="{{ url_for('pages.results_page', session_id=session.id) }}">Открыть результаты</a>
     </div>
     {% else %}
     <div class="empty-state mt-3">Доступных лотов пока нет. Добавьте их в раздел аукциона.</div>
@@ -132,6 +135,7 @@
       <p class="section-kicker">Каталог комбинаций</p>
       <h2 class="h2">Best singles, pairs, groups и сценарии второго круга</h2>
     </div>
+    <a class="btn btn-secondary" href="{{ url_for('pages.results_page', session_id=session.id) }}">Полный раздел результатов</a>
   </div>
   <div class="muted mt-2" id="strategySnapshotStatus">Загружается unified catalog комбинаций.</div>
   <div id="strategySnapshotContent" hidden></div>
@@ -140,37 +144,27 @@
 <section class="page-grid mt-4">
   <article class="action-card">
     <p class="section-kicker">Объекты</p>
-    <strong>Схема сети и подключение</strong>
-    <span class="muted">Проверьте дерево сети, отсутствие циклов, двухвходовые нагрузки и разделение энергорайонов.</span>
-    <a class="btn btn-secondary mt-3" href="{{ url_for('pages.system_view', session_id=session.id) }}">Проверить энергосистему</a>
+    <strong>Сборка энергосистемы</strong>
+    <span class="muted">Проверьте дерево сети, энергорайоны, отсутствие циклов и монтажный план для уже купленных лотов.</span>
+    <a class="btn btn-secondary mt-3" href="{{ url_for('pages.system_view', session_id=session.id) }}">Открыть сборку энергосистемы</a>
   </article>
   <article class="action-card">
     <p class="section-kicker">Аукцион</p>
     <strong>Консолидированная оценка лотов</strong>
-    <span class="muted">Смотрите recommended tariff, break-even, сценарии прибыли и монтажные требования в одном месте.</span>
+    <span class="muted">Смотрите floor/ceiling, optimal purchase price, expected profit и монтажные требования в одном месте.</span>
     <a class="btn btn-secondary mt-3" href="{{ url_for('pages.lots_page', session_id=session.id) }}">Открыть лоты</a>
   </article>
   <article class="action-card">
     <p class="section-kicker">Прогноз</p>
     <strong>48 тактов, погода и рынок</strong>
-    <span class="muted">Проверьте освещённость, wind channels, нагрузку по типам и окна дефицита/профицита.</span>
+    <span class="muted">Загрузите боевой прогноз и проверьте покрытие нагрузки, солнца, ветра и market rows.</span>
     <a class="btn btn-secondary mt-3" href="{{ url_for('pages.forecast_page', session_id=session.id) }}">Открыть прогноз</a>
   </article>
   <article class="action-card">
-    <p class="section-kicker">Аукцион</p>
-    <strong>Быстрый аукцион</strong>
-    <span class="muted">Используйте live-flow ставок и outcome tracking только после проверки `optimal_purchase_price`, `hard_limit` и каталога комбинаций.</span>
-    <a class="btn btn-secondary mt-3" href="{{ url_for('pages.quick_auction_page', session_id=session.id) }}">Открыть быстрый аукцион</a>
-  </article>
-  <article class="action-card">
-    <p class="section-kicker">Экспорт</p>
-    <strong>Экспорт сессии</strong>
-    <span class="muted">Скачайте JSON/CSV и post-auction template для дальнейшего моделирования и разбора стратегии.</span>
-    <div class="actions mt-3">
-      <a class="btn btn-secondary" href="{{ export_json_url }}">JSON</a>
-      <a class="btn btn-secondary" href="{{ export_csv_url }}">CSV</a>
-      <a class="btn btn-secondary" href="{{ post_auction_plan_yaml_url }}">Post-auction YAML</a>
-    </div>
+    <p class="section-kicker">Результаты</p>
+    <strong>Лучшие комбинации</strong>
+    <span class="muted">Откройте отдельный раздел с best singles, pairs, groups, plan B и plan C.</span>
+    <a class="btn btn-secondary mt-3" href="{{ url_for('pages.results_page', session_id=session.id) }}">Открыть результаты</a>
   </article>
 </section>
 
@@ -187,35 +181,7 @@
   </div>
   <div class="stack gap-2 mt-3">
     <div><strong>Stage A vs Stage B:</strong> сначала auction valuation лотов, потом отдельное post-auction planning сети.</div>
-    <div><strong>Что внутри:</strong> topology candidates, installation priority, market plan, tick model и critical fixes.</div>
-    <div><strong>Зачем нужен:</strong> после аукциона быстро перейти от лотов к проверяемой схеме энергосистемы и 48-тактной модели.</div>
+    <div><strong>Что внутри:</strong> topology candidates, energy districts, assembly steps, market plan, tick model и critical fixes.</div>
   </div>
 </section>
-
-{% if purchased_rows %}
-<section class="card mt-4">
-  <div class="section-head">
-    <div>
-      <p class="section-kicker">Текущий портфель</p>
-      <h2 class="h2">Уже купленные лоты</h2>
-    </div>
-    <a class="btn btn-secondary" href="{{ url_for('pages.lots_page', session_id=session.id, status='bought') }}">Открыть список</a>
-  </div>
-  <div class="table-wrap mt-3">
-    <table class="table">
-      <thead><tr><th>Лот</th><th>Delta-profit</th><th>Риски</th><th>Синергия</th></tr></thead>
-      <tbody>
-        {% for row in purchased_rows[:5] %}
-        <tr>
-          <td><strong>{{ row.name }}</strong><div class="table-secondary">{{ row.structure }}</div></td>
-          <td>{{ fmt_num(row.expected_delta_profit or row.net_profit, 2) }}</td>
-          <td>{{ row.topology_risk }}/{{ row.market_risk }}/{{ row.balancing_risk }}/{{ row.loss_risk }}</td>
-          <td>{{ fmt_num(row.synergy_score, 2) }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-{% endif %}
 {% endblock %}

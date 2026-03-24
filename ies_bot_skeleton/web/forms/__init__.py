@@ -12,7 +12,7 @@ from .lot import (
 from .object_type import ObjectTypeForm
 from .object_instance import ObjectInstanceForm
 from .ruleset import RulesetCopyForm, RulesetForm
-from .session import ConfirmDeleteForm, SessionForm, SessionImportForm, StrategySelectionForm
+from .session import ConfirmDeleteForm, SessionForm, SessionImportForm
 from .start_pack import StartPackTemplateForm
 
 __all__ = [
@@ -32,6 +32,5 @@ __all__ = [
     "ConfirmDeleteForm",
     "SessionForm",
     "SessionImportForm",
-    "StrategySelectionForm",
     "StartPackTemplateForm",
 ]
