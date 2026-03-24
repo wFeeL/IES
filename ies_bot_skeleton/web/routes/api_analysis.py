@@ -892,10 +892,11 @@ def upload_forecast():
         content=content,
         column_map=column_map,
     )
-    if session.selected_forecast_id is None:
-        session.selected_forecast_id = forecast.id
-        db.session.add(session)
-        db.session.commit()
+    previous_forecast_id = int(session.selected_forecast_id or 0)
+    session.selected_forecast_id = int(forecast.id)
+    db.session.add(session)
+    db.session.commit()
+    if int(forecast.id) != previous_forecast_id:
         mark_stale_for_session(session.id, reason="forecast_changed")
 
     return jsonify(

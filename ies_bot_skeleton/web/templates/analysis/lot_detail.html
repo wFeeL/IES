@@ -7,6 +7,15 @@
 {% block content %}
 {% include "components/session_hero.html" %}
 {% include "components/analysis_context.html" %}
+{% set decision = evaluation.decision_summary if evaluation.decision_summary is defined else {} %}
+{% set scenario_breakdown = evaluation.scenario_breakdown if evaluation.scenario_breakdown is defined else {} %}
+{% set base_case = evaluation.base_case if evaluation.base_case is defined else (scenario_breakdown.base if scenario_breakdown is defined else {}) %}
+{% set best_case = evaluation.best_case if evaluation.best_case is defined else (scenario_breakdown.best if scenario_breakdown is defined else {}) %}
+{% set worst_case = evaluation.worst_case if evaluation.worst_case is defined else (scenario_breakdown.worst if scenario_breakdown is defined else {}) %}
+{% set financial_breakdown = evaluation.financial_breakdown if evaluation.financial_breakdown is defined else {} %}
+{% set financial_rows = financial_breakdown.ui_rows if financial_breakdown.ui_rows is defined else [] %}
+{% set opening_bid = decision.recommended_opening_bid if decision.recommended_opening_bid is defined else (decision.opening_bid if decision.opening_bid is defined else 0) %}
+{% set counter_bid = decision.recommended_counter_bid if decision.recommended_counter_bid is defined else (decision.counter_bid if decision.counter_bid is defined else 0) %}
 
 <section class="card mt-4">
   <div class="section-head">
@@ -34,12 +43,12 @@
 
 <section class="kpi-grid mt-4">
   <article class="kpi-card"><span class="metric-label">Optimal purchase price</span><strong>{{ fmt_num(evaluation.optimal_purchase_price or evaluation.recommended_bid_or_tariff, 2) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">{{ 'Hard floor' if evaluation.decision_summary.floor_or_ceiling_type == 'floor' else 'Hard ceiling' }}</span><strong>{{ fmt_num(evaluation.decision_summary.hard_limit, 2) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Expected profit</span><strong>{{ fmt_num(evaluation.expected_profit_after_purchase or evaluation.expected_delta_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">{{ 'Hard floor' if decision.floor_or_ceiling_type == 'floor' else 'Hard ceiling' }}</span><strong>{{ fmt_num(decision.hard_limit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Expected profit</span><strong>{{ fmt_num(evaluation.expected_profit_after_purchase or evaluation.expected_profit or evaluation.expected_delta_profit, 2) }}</strong></article>
   <article class="kpi-card"><span class="metric-label">Risk-adjusted profit</span><strong>{{ fmt_num(evaluation.risk_adjusted_profit, 2) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Base case</span><strong>{{ fmt_num(evaluation.base_case.delta_profit, 2) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Best case</span><strong>{{ fmt_num(evaluation.best_case.delta_profit, 2) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Worst case</span><strong>{{ fmt_num(evaluation.worst_case.delta_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Base case</span><strong>{{ fmt_num(base_case.delta_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Best case</span><strong>{{ fmt_num(best_case.delta_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Worst case</span><strong>{{ fmt_num(worst_case.delta_profit, 2) }}</strong></article>
 </section>
 
 <section class="page-grid mt-4">
@@ -47,13 +56,13 @@
     <p class="section-kicker">Рекомендация</p>
     <h2 class="h2">Итог по аукциону</h2>
     <div class="risk-block mt-3">
-      <strong>{{ evaluation.decision_summary.recommended_bid_reason or evaluation.explanation }}</strong>
-      <div class="mt-2">Направление торгов: {{ evaluation.decision_summary.auction_direction }}</div>
+      <strong>{{ decision.recommended_bid_reason or evaluation.explanation }}</strong>
+      <div class="mt-2">Направление торгов: {{ decision.auction_direction or '—' }}</div>
       <div class="mt-2">Профиль лота: {{ evaluation.lot_profile }}. Роль цены: {{ evaluation.price_role }}.</div>
-      <div class="mt-2">Предельный уровень: {{ fmt_num(evaluation.decision_summary.hard_limit, 2) }}. Основная цена: {{ fmt_num(evaluation.optimal_purchase_price or evaluation.recommended_bid_or_tariff or evaluation.recommended_bid, 2) }}.</div>
-      <div class="mt-2">Expected profit: {{ fmt_num(evaluation.expected_profit_after_purchase or evaluation.expected_delta_profit, 2) }}. Risk-adjusted: {{ fmt_num(evaluation.risk_adjusted_profit, 2) }}.</div>
-      <div class="mt-2">Recommended opening bid: {{ fmt_num(evaluation.decision_summary.recommended_opening_bid, 2) }}. Recommended counter bid: {{ fmt_num(evaluation.decision_summary.recommended_counter_bid, 2) }}.</div>
-      <div class="mt-2">All-Pay advice: {{ evaluation.decision_summary.allpay_trigger_policy }}</div>
+      <div class="mt-2">Предельный уровень: {{ fmt_num(decision.hard_limit, 2) }}. Основная цена: {{ fmt_num(evaluation.optimal_purchase_price or evaluation.recommended_bid_or_tariff or evaluation.recommended_bid, 2) }}.</div>
+      <div class="mt-2">Expected profit: {{ fmt_num(evaluation.expected_profit_after_purchase or evaluation.expected_profit or evaluation.expected_delta_profit, 2) }}. Risk-adjusted: {{ fmt_num(evaluation.risk_adjusted_profit, 2) }}.</div>
+      <div class="mt-2">Recommended opening bid: {{ fmt_num(opening_bid, 2) }}. Recommended counter bid: {{ fmt_num(counter_bid, 2) }}.</div>
+      <div class="mt-2">All-Pay advice: {{ decision.allpay_trigger_policy if decision.allpay_trigger_policy is defined else '—' }}</div>
       <div class="mt-2">Wind uncertainty penalty: {{ fmt_num(evaluation.wind_uncertainty_penalty, 2) }}.</div>
     </div>
     <div class="pill-row mt-3">
@@ -80,7 +89,7 @@
     <div class="table-wrap mt-3">
       <table class="table">
         <tbody>
-          <tr><th>Stage</th><td>{{ evaluation.analysis_stage }}</td></tr>
+          <tr><th>Stage</th><td>{{ evaluation.analysis_stage if evaluation.analysis_stage is defined else (decision.analysis_stage if decision.analysis_stage is defined else 'pre_auction_lot_valuation') }}</td></tr>
           <tr><th>System fit</th><td>{{ fmt_num(evaluation.system_check.system_fit_score, 2) }}</td></tr>
           <tr><th>Topology feasibility</th><td>{{ evaluation.topology_feasibility }}</td></tr>
           <tr><th>Синергия</th><td>{{ fmt_num(evaluation.metrics.synergy.score, 2) }}</td></tr>
@@ -101,7 +110,7 @@
     <div class="table-wrap mt-3">
       <table class="table">
         <tbody>
-          {% for row in evaluation.financial_breakdown.ui_rows %}
+          {% for row in financial_rows %}
           <tr>
             <th>{{ row.label }}</th>
             <td class="num">{{ fmt_num(row.value, 2) }}</td>
@@ -117,16 +126,16 @@
     <h2 class="h2">Диапазон результатов</h2>
     <div class="stack gap-3 mt-3">
       <div class="alt-row">
-        <strong>Best case: {{ fmt_num(evaluation.best_case.delta_profit, 2) }}</strong>
-        <div class="table-secondary">{{ (evaluation.best_case.notes or [])|join('; ') or 'Без дополнительных замечаний.' }}</div>
+        <strong>Best case: {{ fmt_num(best_case.delta_profit, 2) }}</strong>
+        <div class="table-secondary">{{ (best_case.notes or [])|join('; ') or best_case.explanation or 'Без дополнительных замечаний.' }}</div>
       </div>
       <div class="alt-row">
-        <strong>Base case: {{ fmt_num(evaluation.base_case.delta_profit, 2) }}</strong>
-        <div class="table-secondary">{{ (evaluation.base_case.notes or [])|join('; ') or 'Без дополнительных замечаний.' }}</div>
+        <strong>Base case: {{ fmt_num(base_case.delta_profit, 2) }}</strong>
+        <div class="table-secondary">{{ (base_case.notes or [])|join('; ') or base_case.explanation or 'Без дополнительных замечаний.' }}</div>
       </div>
       <div class="alt-row">
-        <strong>Worst case: {{ fmt_num(evaluation.worst_case.delta_profit, 2) }}</strong>
-        <div class="table-secondary">{{ (evaluation.worst_case.notes or [])|join('; ') or 'Без дополнительных замечаний.' }}</div>
+        <strong>Worst case: {{ fmt_num(worst_case.delta_profit, 2) }}</strong>
+        <div class="table-secondary">{{ (worst_case.notes or [])|join('; ') or worst_case.explanation or 'Без дополнительных замечаний.' }}</div>
       </div>
     </div>
     {% if evaluation.wind_posterior %}
@@ -216,8 +225,8 @@
     <p class="section-kicker">Допущения модели</p>
     <h2 class="h2">Что ещё калибруется</h2>
     <div class="stack gap-2 mt-3">
-      <div><strong>Остаток бюджета после целевой ставки:</strong> {{ fmt_num(evaluation.decision_summary.remaining_budget_after_recommended_bid, 2) }}</div>
-      <div><strong>Чистая прибыль после целевой ставки:</strong> {{ fmt_num(evaluation.decision_summary.net_profit_at_recommended_bid, 2) }}</div>
+      <div><strong>Остаток бюджета после целевой ставки:</strong> {{ fmt_num(decision.remaining_budget_after_recommended_bid if decision.remaining_budget_after_recommended_bid is defined else decision.budget_remaining, 2) }}</div>
+      <div><strong>Чистая прибыль после целевой ставки:</strong> {{ fmt_num(decision.net_profit_at_recommended_bid if decision.net_profit_at_recommended_bid is defined else decision.expected_profit, 2) }}</div>
     </div>
     <ul class="stack gap-2 mt-3">
       {% for item in (evaluation.metrics.bids.valuation_model.assumptions or []) %}

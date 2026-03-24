@@ -1179,6 +1179,11 @@
         return;
       }
       renderForecastDiagnostics(out, 'Прогноз загружен', data.summary || {});
+      renderWeatherAnalysis(
+        document.getElementById('activeForecastWeatherAnalysis'),
+        data.summary?.weather_analysis || null
+      );
+      setSelectedForecast(Number(data.item?.id || 0));
       window.setTimeout(() => window.location.reload(), 700);
     });
 

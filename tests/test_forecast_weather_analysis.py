@@ -191,3 +191,38 @@ def test_forecast_page_and_script_expose_weather_analysis_ui(client):
     assert "function renderWeatherCharts(target, analysis)" in js
     assert "function renderWeatherTables(target, analysis)" in js
     assert "function renderWeatherInsights(target, analysis)" in js
+
+
+def test_upload_forecast_switches_active_forecast_to_latest(client, app):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Weather active switch")
+
+    first = client.post(
+        "/api/forecast/upload",
+        data={
+            "session_id": str(session_id),
+            "name": "First weather forecast",
+            "file": (io.BytesIO(_canonical_csv()), "first_weather.csv"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert first.status_code == 200
+    first_id = int(first.get_json()["item"]["id"])
+
+    second = client.post(
+        "/api/forecast/upload",
+        data={
+            "session_id": str(session_id),
+            "name": "Second weather forecast",
+            "file": (io.BytesIO(_canonical_csv()), "second_weather.csv"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert second.status_code == 200
+    second_id = int(second.get_json()["item"]["id"])
+    assert second_id != first_id
+
+    with app.app_context():
+        session = db.session.get(GameSession, session_id)
+        assert session is not None
+        assert int(session.selected_forecast_id or 0) == second_id
