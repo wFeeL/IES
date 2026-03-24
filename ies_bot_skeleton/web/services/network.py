@@ -6,6 +6,9 @@ from typing import Any, Dict, List
 from ...domain.ies2026 import EnergyObject, validate_network
 from ..models import ObjectInstance
 
+# Backward-compatibility export for modules that imported this from web.services.network.
+MAIN_CODES = {"main_substation"}
+
 
 @dataclass
 class ValidationIssue:

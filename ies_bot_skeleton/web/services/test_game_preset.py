@@ -17,6 +17,8 @@ TEST_GAME_BUNDLED_FORECAST_NAME = "Встроенный прогноз откл�
 TEST_GAME_FORECAST_SOURCE_LABEL = "Встроенный прогноз отключён"
 TEST_GAME_UPLOAD_FORECAST_DEFAULT_NAME = "Боевой прогноз 2026"
 TEST_GAME_OBJECT_CODES: tuple[str, ...] = ()
+# Legacy import expects this mapping to exist. Keep it empty while test game is disabled.
+LOT_KIND_TO_OBJECT_CODE: Dict[str, str] = {}
 
 
 def is_test_game_ruleset(ruleset: Ruleset | None) -> bool:
