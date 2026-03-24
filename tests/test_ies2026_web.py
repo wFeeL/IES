@@ -65,7 +65,7 @@ def test_strategy_selection_and_post_auction_plan_export_work(client):
     assert strategy_switch.status_code in (302, 303)
 
     session_payload = client.get(f"/api/sessions/{session_id}").get_json()["item"]
-    assert session_payload["selected_strategy"] == "storage"
+    assert session_payload["selected_strategy"] == "unified"
 
     json_plan = client.get(f"/api/sessions/{session_id}/post-auction-plan")
     assert json_plan.status_code == 200
@@ -73,6 +73,7 @@ def test_strategy_selection_and_post_auction_plan_export_work(client):
     assert "topology_candidates" in plan_item
     assert "market_plan" in plan_item
     assert "installation_priority" in plan_item
+    assert plan_item["game"]["analysis_stage"] == "post_auction_system_planning"
 
     yaml_plan = client.get(f"/api/sessions/{session_id}/post-auction-plan.yaml")
     assert yaml_plan.status_code == 200
@@ -80,6 +81,83 @@ def test_strategy_selection_and_post_auction_plan_export_work(client):
     assert "market_plan:" in yaml_text
     assert "installation_priority:" in yaml_text
     assert "tick_model:" in yaml_text
+    assert "stage_note:" in yaml_text
+
+
+def test_main_user_flow_hides_strategy_selector_and_uses_unified_optimizer(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Unified UI")
+
+    dashboard_html = client.get("/dashboard").get_data(as_text=True)
+    session_html = client.get(f"/sessions/{session_id}").get_data(as_text=True)
+
+    assert "sessionStrategySelect" not in dashboard_html
+    assert "/strategy-selection" not in session_html
+    assert "Единый оптимизатор" in dashboard_html
+    assert "Единый оптимизатор" in session_html
+
+
+def test_strategy_endpoint_returns_unified_catalog_with_groups(client):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Unified catalog")
+
+    type_rows = client.get("/api/object-types").get_json()["items"]
+    type_map = {row["code"]: int(row["id"]) for row in type_rows}
+    for idx, code in enumerate(("wind", "solar", "house", "office"), start=1):
+        resp = client.post(
+            "/api/lots",
+            json={
+                "session_id": session_id,
+                "name": f"Catalog lot {idx}",
+                "scope": "normal",
+                "base_bid": 6.0 + idx,
+                "current_bid": 6.0 + idx,
+                "items": [{"object_type_id": type_map[code], "quantity": 1}],
+            },
+        )
+        assert resp.status_code == 200
+
+    response = client.get(f"/api/sessions/{session_id}/strategy?top_n=10&force=1")
+    assert response.status_code == 200
+    item = response.get_json()["item"]
+
+    assert item["strategy"] == "unified"
+    assert item["analysis_mode"] == "unified_optimizer"
+    assert "best_singles" in item and "best_pairs" in item and "best_groups" in item
+    assert item["best_groups"]
+    profits = [float(row["risk_adjusted_profit"]) for row in item["best_groups"]]
+    assert profits == sorted(profits, reverse=True)
+    first_group = item["best_groups"][0]
+    assert "optimal_purchase_price_total" in first_group
+    assert "expected_profit" in first_group
+    assert "topology_feasibility" in first_group
+    assert "wind_uncertainty_penalty" in first_group
+
+
+def test_lot_detail_shows_stage_split_and_wind_uncertainty(client, app):
+    login(client, "admin", "admin123")
+    session_id = create_session(client, title="Wind detail")
+
+    with app.app_context():
+        wind_type = db.session.query(ObjectType).filter_by(code="wind").one()
+        lot = Lot(
+            session_id=session_id,
+            name="Wind detail lot",
+            scope="global",
+            status="available",
+            base_bid=8.0,
+            current_bid=8.0,
+        )
+        db.session.add(lot)
+        db.session.flush()
+        db.session.add(LotItem(lot_id=lot.id, object_type_id=wind_type.id, quantity=1))
+        db.session.commit()
+        lot_id = int(lot.id)
+
+    html = client.get(f"/lots/item/{lot_id}").get_data(as_text=True)
+    assert "Stage A" in html
+    assert "Wind uncertainty penalty" in html
+    assert "post-auction" in html.lower()
 
 
 def test_special_case_allpay_only_applies_when_explicitly_triggered(client):

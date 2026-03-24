@@ -186,6 +186,8 @@ def apply_auction_action(
         if bid_amount is None:
             evaluation = evaluate_lot(session=session, lot=lot, persist=False)
             amount = _event_bid_level_amount(evaluation, bid_level_norm)
+            if amount <= 0.0:
+                amount = float(lot.current_bid or lot.base_bid or 0.0)
         else:
             amount = float(bid_amount or 0.0)
 

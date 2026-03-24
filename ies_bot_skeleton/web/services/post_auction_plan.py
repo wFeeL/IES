@@ -147,10 +147,12 @@ def build_post_auction_plan(session: GameSession) -> Dict[str, Any]:
         "game": {
             "ruleset": str(getattr(getattr(session, "ruleset", None), "code", "ies_2026")),
             "horizon_ticks": int((config.get("time") or {}).get("horizon_ticks", 48) or 48),
-            "selected_strategy": str(getattr(session, "selected_strategy", "balanced") or "balanced"),
+            "selected_strategy": "unified",
+            "analysis_stage": str((config.get("analysis") or {}).get("planning_stage", "post_auction_system_planning")),
+            "stage_note": "Stage B starts after the auction and must not be confused with pre-auction lot valuation.",
             "selected_forecast": dict(analysis_ctx.get("forecast_context") or {}),
             "assumptions_versions": {
-                "engine": "ies2026_domain_v2",
+                "engine": "ies2026_unified_lot_optimizer_v2",
                 "market_model": str((config.get("market") or {}).get("market_model", "aggregate_exchange_with_gp_fallback")),
                 "network_model": "tree_validator_with_candidate_shortlist",
             },

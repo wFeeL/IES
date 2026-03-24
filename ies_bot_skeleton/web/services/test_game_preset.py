@@ -16,11 +16,12 @@ TEST_GAME_RULESET_NAME = "Тестовая игра ИЭС 2026"
 TEST_GAME_START_PACK_CODE = "test_game_default_2026"
 TEST_GAME_START_PACK_NAME = "Стартовый пакет тестовой игры 2026"
 TEST_GAME_START_PACK_DESCRIPTION = (
-    "Главная подстанция, мини-подстанция нагрузки и базовый дом по правилам ИЭС 2026."
+    "Главная подстанция, мини-подстанция нагрузки, базовый дом и демонстрационная СЭС "
+    "по правилам ИЭС 2026."
 )
 
 TEST_GAME_DEFAULT_SESSION_TITLE = "Тестовая игра"
-TEST_GAME_BUNDLED_FORECAST_NAME = "Прогноз игры"
+TEST_GAME_BUNDLED_FORECAST_NAME = "Прогноз тестовой игры"
 TEST_GAME_FORECAST_SOURCE_LABEL = "Встроенный прогноз ИЭС 2026"
 TEST_GAME_UPLOAD_FORECAST_DEFAULT_NAME = "Прогноз игры"
 
@@ -249,6 +250,42 @@ def load_test_game_lot_payloads() -> List[Dict[str, Any]]:
                 "suggested_bid": round(total_bid * rng.uniform(0.94, 1.08), 2),
             }
         )
+    for payload in payloads:
+        if str(payload.get("lot_id") or "") != "L03":
+            continue
+        payload.update(
+            {
+                "title": "Солнечный накопитель",
+                "note": "Солнечная панель + накопитель из расширенного тестового пула.",
+                "scope": "normal",
+                "items": [
+                    {
+                        "object_type_code": "solar",
+                        "quantity": 1,
+                        "overrides": {
+                            "connection_point": "B",
+                            "district": "local_gen_2",
+                            "generation_mw": 3.2,
+                            "contract_rub_per_tick": 2.0,
+                        },
+                    },
+                    {
+                        "object_type_code": "storage",
+                        "quantity": 1,
+                        "overrides": {
+                            "connection_point": "B",
+                            "district": "local_gen_2",
+                            "capacity_mw_tick": 16.0,
+                            "charge_rate_mw_tick": 4.0,
+                            "discharge_rate_mw_tick": 4.0,
+                            "contract_rub_per_tick": 3.0,
+                        },
+                    },
+                ],
+                "suggested_bid": 13.0,
+            }
+        )
+        break
     return payloads
 
 

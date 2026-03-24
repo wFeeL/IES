@@ -142,6 +142,21 @@ _LEGACY_LOAD_TO_PROFILE = {
     "consumption_hospital": "hospital_load",
 }
 
+
+def _sum_series_dicts(*series_list: Dict[int, float]) -> Dict[int, float]:
+    merged: Dict[int, float] = {}
+    ticks = sorted({int(tick) for series in series_list for tick in (series or {}).keys()})
+    for tick in ticks:
+        values = [
+            float((series or {}).get(int(tick), 0.0) or 0.0)
+            for series in series_list
+            if int(tick) in (series or {})
+        ]
+        if not values:
+            continue
+        merged[int(tick)] = float(sum(values))
+    return merged
+
 WEATHER_RAW_ALIASES: Dict[str, tuple[str, ...]] = {
     "wind_from": ("wind_from", "windfrom", "wind_min", "wind_start", "wind_lower"),
     "wind_to": ("wind_to", "windto", "wind_max", "wind_end", "wind_upper"),
@@ -1450,10 +1465,16 @@ def build_weather_analysis_from_periods(
         "house_b": _pick_weather_alias_series(raw_series, "house_b"),
         "office": _pick_weather_alias_series(raw_series, "office"),
     }
+    canonical_house_series = _sum_series_dicts(
+        {int(tick): float(value) for tick, value in (profiles.get("house_load") or {}).items()},
+        {int(tick): float(value) for tick, value in (profiles.get("house_a_load") or {}).items()},
+        {int(tick): float(value) for tick, value in (profiles.get("house_b_load") or {}).items()},
+    )
     canonical_category_series = {
+        "hospital": {int(tick): float(value) for tick, value in (profiles.get("hospital_load") or {}).items()},
         "factory": {int(tick): float(value) for tick, value in (profiles.get("factory_load") or {}).items()},
         "office": {int(tick): float(value) for tick, value in (profiles.get("office_load") or {}).items()},
-        "house_load": {int(tick): float(value) for tick, value in (profiles.get("house_load") or {}).items()},
+        "house_load": canonical_house_series,
     }
 
     has_wind_range = _series_has_values(wind_from) and _series_has_values(wind_to)
@@ -1865,7 +1886,29 @@ def _cached_bundled_forecast_pack() -> Dict[str, Dict[str, Dict[int, float]]]:
 
 
 def load_bundled_forecast_pack() -> Dict[str, Dict[str, Dict[int, float]]]:
-    return copy.deepcopy(_cached_bundled_forecast_pack())
+    pack = copy.deepcopy(_cached_bundled_forecast_pack())
+    load_bucket = dict(pack.get("load") or {})
+    house_source = (
+        load_bucket.get("house_a")
+        or load_bucket.get("housea")
+        or load_bucket.get("house")
+        or {}
+    )
+    house_a = {int(k): float(v) for k, v in house_source.items()}
+    office = {int(k): float(v) for k, v in (load_bucket.get("office") or {}).items()}
+    factory = {int(k): float(v) for k, v in (load_bucket.get("factory") or {}).items()}
+    if house_a and not (load_bucket.get("house_b") or {}):
+        load_bucket["house_b"] = {
+            int(tick): round(float(value) * 1.08, 4) for tick, value in house_a.items()
+        }
+    if not (load_bucket.get("hospital") or {}):
+        fallback = office or factory
+        if fallback:
+            load_bucket["hospital"] = {
+                int(tick): round(float(value) * 1.12, 4) for tick, value in fallback.items()
+            }
+    pack["load"] = load_bucket
+    return pack
 
 
 def is_forecast_pack_empty(pack: Dict[str, Dict[str, Dict[int, float]]] | None) -> bool:

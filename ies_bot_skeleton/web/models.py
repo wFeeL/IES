@@ -565,6 +565,7 @@ class AuctionEvent(db.Model):
     lot = db.relationship("Lot", back_populates="auction_events")
 
     def to_dict(self) -> Dict[str, Any]:
+        details = dict(self.details_json or {})
         return {
             "id": int(self.id),
             "session_id": int(self.session_id),
@@ -575,7 +576,8 @@ class AuctionEvent(db.Model):
             "amount": float(self.amount or 0.0),
             "outcome": str(self.outcome or "none"),
             "budget_effect": float(self.budget_effect or 0.0),
-            "details": dict(self.details_json or {}),
+            "details": details,
+            "details_json": details,
             "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

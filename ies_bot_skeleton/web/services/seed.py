@@ -56,6 +56,20 @@ START_PACK_TEMPLATE_ITEMS_SEED: List[Dict[str, Any]] = [
     },
 ]
 
+TEST_GAME_START_PACK_TEMPLATE_ITEMS_SEED: List[Dict[str, Any]] = [
+    *START_PACK_TEMPLATE_ITEMS_SEED,
+    {
+        "key": "solar_demo",
+        "parent_key": "main",
+        "object_type_code": "solar",
+        "quantity": 1,
+        "custom_name": "Тестовая СЭС",
+        "district": "gen_demo",
+        "parameters_json": {"connection_point": "A"},
+        "sort_order": 40,
+    },
+]
+
 OBJECT_TYPE_SEED: List[Dict[str, Any]] = [
     {
         "code": "house_a",
@@ -494,7 +508,7 @@ def _ensure_test_game_start_pack_template(type_map: Dict[str, ObjectType]) -> St
         code=TEST_GAME_START_PACK_CODE,
         name=TEST_GAME_START_PACK_NAME,
         description=TEST_GAME_START_PACK_DESCRIPTION,
-        items_seed=START_PACK_TEMPLATE_ITEMS_SEED,
+        items_seed=TEST_GAME_START_PACK_TEMPLATE_ITEMS_SEED,
     )
 
 

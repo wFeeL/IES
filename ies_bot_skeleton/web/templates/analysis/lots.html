@@ -8,9 +8,9 @@
 <section class="card mt-4">
   <div class="section-head">
     <div>
-      <p class="section-kicker">Аукцион 2026</p>
+      <p class="section-kicker">Stage A · Аукцион 2026</p>
       <h1 class="h1">Консолидированная оценка лотов</h1>
-      <p class="muted">Для каждого лота показаны expected delta-profit, предельный break-even тариф, рекомендованный тариф и набор рисков. Старые strategy-переключатели убраны из основного интерфейса.</p>
+      <p class="muted">Для каждого лота показаны `optimal_purchase_price`, `hard_limit`, expected/risk-adjusted profit, topology fit и wind uncertainty. Ручные strategy-переключатели убраны из основного интерфейса.</p>
     </div>
     <div class="actions">
       <a class="btn btn-primary" href="{{ url_for('pages.lots_edit', session_id=session.id) }}">Добавить лот</a>
@@ -83,11 +83,12 @@
 
     <div class="insight-grid mt-3">
       <div class="metric-card"><span class="metric-label">Текущая цена/тариф</span><strong>{{ fmt_num(row.price, 2) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Recommended</span><strong>{{ fmt_num(row.recommended_bid_or_tariff, 2) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Break-even</span><strong>{{ fmt_num(row.break_even_tariff, 2) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Expected delta-profit</span><strong>{{ fmt_num(row.expected_delta_profit, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Optimal purchase price</span><strong>{{ fmt_num(row.optimal_purchase_price or row.recommended_bid_or_tariff, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Hard limit</span><strong>{{ fmt_num(row.hard_limit or row.break_even_tariff, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Expected profit</span><strong>{{ fmt_num(row.expected_profit_after_purchase or row.expected_delta_profit, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Risk-adjusted</span><strong>{{ fmt_num(row.risk_adjusted_profit or row.summary_score, 2) }}</strong></div>
       <div class="metric-card"><span class="metric-label">Base / best / worst</span><strong>{{ fmt_num(row.base_case_delta_profit, 1) }} / {{ fmt_num(row.best_case_delta_profit, 1) }} / {{ fmt_num(row.worst_case_delta_profit, 1) }}</strong></div>
-      <div class="metric-card"><span class="metric-label">Synergy</span><strong>{{ fmt_num(row.synergy_score, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Synergy / wind penalty</span><strong>{{ fmt_num(row.synergy_score, 2) }} / {{ fmt_num(row.wind_uncertainty_penalty, 2) }}</strong></div>
     </div>
 
     <div class="pill-row mt-3">
@@ -100,7 +101,7 @@
       <div class="risk-block">
         <strong>Почему рекомендовано именно так</strong>
         <div class="mt-2">{{ row.recommended_bid_reason or row.decision_reason or 'Объяснение отсутствует.' }}</div>
-        <div class="table-secondary mt-2">Доход потребителей: {{ fmt_num(row.consumer_revenue, 2) }} · рынок: {{ fmt_num(row.market_net, 2) }} · обслуживание: {{ fmt_num(row.service_cost, 2) }} · потери: {{ fmt_num(row.loss_cost, 2) }} · небаланс: {{ fmt_num(row.balancing_penalty, 2) }}</div>
+        <div class="table-secondary mt-2">Price role: {{ row.price_role }} · topology: {{ row.topology_feasibility }} · доход потребителей: {{ fmt_num(row.consumer_revenue, 2) }} · рынок: {{ fmt_num(row.market_net, 2) }} · обслуживание: {{ fmt_num(row.service_cost, 2) }} · потери: {{ fmt_num(row.loss_cost, 2) }} · небаланс: {{ fmt_num(row.balancing_penalty, 2) }}</div>
       </div>
       <div class="risk-block">
         <strong>Монтаж и конфликты</strong>

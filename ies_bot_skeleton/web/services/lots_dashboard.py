@@ -261,9 +261,30 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         ),
         "risk": float(losses.get("risk_total", 0.0) or 0.0),
         "expected_delta_profit": float(evaluation.get("expected_delta_profit", result.get("net_profit", 0.0)) or 0.0),
+        "expected_profit_after_purchase": float(
+            evaluation.get("expected_profit_after_purchase", evaluation.get("expected_delta_profit", result.get("net_profit", 0.0)))
+            or 0.0
+        ),
+        "risk_adjusted_profit": float(
+            evaluation.get("risk_adjusted_profit")
+            or ((evaluation.get("metrics") or {}).get("portfolio_delta") or {}).get("risk_adjusted_profit", 0.0)
+            or evaluation.get("summary_score", 0.0)
+        ),
         "direct_delta_profit": float(evaluation.get("direct_delta_profit", 0.0) or 0.0),
         "enabler_value": float(evaluation.get("enabler_value", 0.0) or 0.0),
         "bundle_synergy_value": float(evaluation.get("bundle_synergy_value", 0.0) or 0.0),
+        "optimal_purchase_price": float(
+            evaluation.get("optimal_purchase_price", decision_summary.get("optimal_purchase_price", 0.0)) or 0.0
+        ),
+        "price_role": str(evaluation.get("price_role") or decision_summary.get("price_role") or ""),
+        "topology_feasibility": str(
+            evaluation.get("topology_feasibility", decision_summary.get("topology_feasibility", system_check.get("status", "neutral")))
+            or "neutral"
+        ),
+        "wind_uncertainty_penalty": float(
+            evaluation.get("wind_uncertainty_penalty", decision_summary.get("wind_uncertainty_penalty", 0.0))
+            or 0.0
+        ),
         "break_even_tariff": float(
             evaluation.get("break_even_tariff", decision_summary.get("break_even_tariff", 0.0)) or 0.0
         ),

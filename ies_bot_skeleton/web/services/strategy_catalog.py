@@ -4,8 +4,9 @@ from typing import Dict, List
 
 from .ui_text import STRATEGY_LABELS
 
-DEFAULT_STRATEGY_CODE = "balanced"
+DEFAULT_STRATEGY_CODE = "unified"
 STRATEGY_ORDER = [
+    "unified",
     "balanced",
     "generation",
     "consumer",
@@ -13,13 +14,17 @@ STRATEGY_ORDER = [
     "eco",
     "risk_averse",
     "aggressive",
-    "unified",
 ]
 STRATEGY_META: Dict[str, Dict[str, str]] = {
+    "unified": {
+        "label": STRATEGY_LABELS["unified"],
+        "summary": "Один основной режим ИЭС 2026: unified lot optimizer ранжирует лоты и комбинации по risk-adjusted profit.",
+        "when_to_use": "Это основной пользовательский режим; переключение профилей стратегии в рабочем потоке больше не требуется.",
+    },
     "balanced": {
         "label": STRATEGY_LABELS["balanced"],
-        "summary": "Основной режим 2026: балансирует delta-profit, topology feasibility, рыночные риски и бюджет второго круга.",
-        "when_to_use": "Используйте как дефолтную стратегию, если нет явного перекоса в генерацию, нагрузку или резерв.",
+        "summary": "Legacy-ярлык для обратной совместимости. В UI он схлопывается в единый оптимизатор 2026.",
+        "when_to_use": "Используется только при чтении старых payload/import данных.",
     },
     "generation": {
         "label": STRATEGY_LABELS["generation"],
@@ -50,11 +55,6 @@ STRATEGY_META: Dict[str, Dict[str, str]] = {
         "label": STRATEGY_LABELS["aggressive"],
         "summary": "Смещает акцент в сторону быстрого захвата положительного delta-profit и допускает более острые bid ceilings.",
         "when_to_use": "Подходит, когда нужно атаковать сильные лоты и команда готова терпеть больший сценарный разброс.",
-    },
-    "unified": {
-        "label": STRATEGY_LABELS["unified"],
-        "summary": "Legacy-compatible unified view без отдельного стратегического акцента.",
-        "when_to_use": "Нужен только для обратной совместимости старых импортов и payload’ов.",
     },
 }
 

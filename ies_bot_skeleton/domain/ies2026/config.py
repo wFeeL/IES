@@ -4,6 +4,12 @@ from typing import Any, Dict
 
 
 DEFAULT_IES2026_CONFIG: Dict[str, Any] = {
+    "analysis": {
+        "auction_stage": "pre_auction_lot_valuation",
+        "planning_stage": "post_auction_system_planning",
+        "primary_ranking_metric": "risk_adjusted_expected_profit",
+        "secondary_ranking_metric": "expected_profit",
+    },
     "time": {"horizon_ticks": 48},
     "auction": {
         "parallel_lots_limit": 3,
@@ -53,6 +59,48 @@ DEFAULT_IES2026_CONFIG: Dict[str, Any] = {
             "cut_out_mps": 25.0,
             "storm_shutdown_enabled": True,
             "hysteresis_hook_enabled": True,
+            "known_constraints": {
+                "power_depends_on_cubic_speed": True,
+                "cut_in_behavior": True,
+                "rated_region": True,
+                "cut_out_behavior": True,
+                "storm_protection": True,
+                "restart_threshold_after_storm": True,
+                "location_dependent_generation": True,
+                "inertia_seconds_max": 30.0,
+                "max_power_mw": 20.0,
+            },
+            "prior": {
+                "cut_in_speed_range": [2.5, 4.2],
+                "rated_speed_range": [9.0, 12.8],
+                "cut_out_speed_range": [22.0, 28.0],
+                "restart_speed_range": [15.0, 22.0],
+                "location_gain_range": [0.82, 1.18],
+                "effective_power_scale_range": [0.78, 1.0],
+                "plateau_shape_range": [0.88, 1.0],
+                "hysteresis_gap_range": [1.5, 5.5],
+                "inertia_tau_range": [6.0, 30.0],
+                "damping_range": [0.0, 0.12],
+                "posterior_sample_limit": 7,
+                "cvar_tail_share": 0.2,
+                "robust_value_weights": {"q25": 0.5, "mean": 0.3, "q10": 0.2},
+            },
+            "shared_calibration_dataset": {
+                "source": "shared_ruleset_prior",
+                "observations": [
+                    {"tick": 0, "wind_speed_mps": 2.0, "observed_output_mw": 0.0},
+                    {"tick": 1, "wind_speed_mps": 3.2, "observed_output_mw": 0.5},
+                    {"tick": 2, "wind_speed_mps": 5.0, "observed_output_mw": 2.2},
+                    {"tick": 3, "wind_speed_mps": 7.0, "observed_output_mw": 6.5},
+                    {"tick": 4, "wind_speed_mps": 9.5, "observed_output_mw": 12.0},
+                    {"tick": 5, "wind_speed_mps": 11.2, "observed_output_mw": 17.5},
+                    {"tick": 6, "wind_speed_mps": 13.5, "observed_output_mw": 18.0},
+                    {"tick": 7, "wind_speed_mps": 24.5, "observed_output_mw": 3.0},
+                    {"tick": 8, "wind_speed_mps": 25.5, "observed_output_mw": 0.0},
+                    {"tick": 9, "wind_speed_mps": 17.0, "observed_output_mw": 0.0},
+                    {"tick": 10, "wind_speed_mps": 14.0, "observed_output_mw": 8.0},
+                ],
+            },
         },
     },
     "storage": {
@@ -83,6 +131,19 @@ DEFAULT_IES2026_CONFIG: Dict[str, Any] = {
         "default_connection_point": "A",
         "connection_loss_pct_by_point": {"A": 0.0, "B": 1.5, "C": 3.0, "D": 4.5},
         "installation_priority": ["global_solar", "global_wind", "local_wind", "local_solar"],
+        "topology_block_penalty": 120.0,
+    },
+    "optimizer": {
+        "risk_adjustment_lambda": 0.18,
+        "scenario_volatility_lambda": 0.12,
+        "market_risk_lambda": 0.08,
+        "loss_risk_lambda": 0.06,
+        "balancing_risk_lambda": 0.08,
+        "wind_uncertainty_lambda": 1.0,
+        "budget_concentration_lambda": 0.05,
+        "main_substation_penalty": 75.0,
+        "bundle_max_group_size": 4,
+        "default_beam_width": 5,
     },
     "objects": {
         "scopes_supported": ["start", "local", "global"],
@@ -169,6 +230,19 @@ def ies2026_config(raw_ruleset: Dict[str, Any] | None) -> Dict[str, Any]:
         float(wind_cfg.get("max_power_mw", max_power_mw) or max_power_mw),
         float(wind_cfg.get("rated_power_mw", 18.0) or 18.0),
     )
+    wind_cfg["max_power_mw"] = min(
+        max_power_mw,
+        float(wind_cfg.get("max_power_mw", max_power_mw) or max_power_mw),
+    )
+    prior_cfg = dict(wind_cfg.get("prior") or {})
+    prior_cfg.setdefault("posterior_sample_limit", 7)
+    prior_cfg.setdefault("cvar_tail_share", 0.2)
+    robust_weights = dict(prior_cfg.get("robust_value_weights") or {})
+    robust_weights.setdefault("q25", 0.5)
+    robust_weights.setdefault("mean", 0.3)
+    robust_weights.setdefault("q10", 0.2)
+    prior_cfg["robust_value_weights"] = robust_weights
+    wind_cfg["prior"] = prior_cfg
     generation_cfg["solar"] = solar_cfg
     generation_cfg["wind"] = wind_cfg
     out["generation"] = generation_cfg
@@ -177,6 +251,10 @@ def ies2026_config(raw_ruleset: Dict[str, Any] | None) -> Dict[str, Any]:
     storage_cfg["charge_rate_mw_tick"] = 15.0
     storage_cfg["discharge_rate_mw_tick"] = 20.0
     out["storage"] = storage_cfg
+    optimizer_cfg = dict(out.get("optimizer") or {})
+    optimizer_cfg.setdefault("bundle_max_group_size", 4)
+    optimizer_cfg.setdefault("default_beam_width", 5)
+    out["optimizer"] = optimizer_cfg
     return out
 
 

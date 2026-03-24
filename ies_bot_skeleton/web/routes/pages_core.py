@@ -159,14 +159,14 @@ def dashboard():
     if request.method == "GET" and not (form.title.data or "").strip():
         form.title.data = TEST_GAME_DEFAULT_SESSION_TITLE
     if request.method == "GET" and not (form.selected_strategy.data or "").strip():
-        form.selected_strategy.data = "balanced"
+        form.selected_strategy.data = "unified"
 
     if form.validate_on_submit():
         row = create_session_record(
             {
                 "title": form.title.data,
                 "ruleset_id": form.ruleset_id.data,
-                "selected_strategy": form.selected_strategy.data,
+                "selected_strategy": "unified",
                 "budget_total": float(form.budget_total.data or default_budget),
                 "allpay_spent": 0.0,
             }
@@ -181,7 +181,7 @@ def dashboard():
         form=form,
         import_form=import_form,
         session_terms=SESSION_TERMS,
-        selected_strategy_meta=strategy_meta(form.selected_strategy.data),
+        selected_strategy_meta=strategy_meta("unified"),
         strategy_catalog=strategy_catalog,
     )
 
@@ -199,7 +199,7 @@ def session_page(session_id: int):
     strategy_form.selected_strategy.choices = [
         (row["code"], row["label"]) for row in strategy_list()
     ]
-    strategy_form.selected_strategy.data = str(session.selected_strategy or "balanced")
+    strategy_form.selected_strategy.data = "unified"
     forecast_form.selected_forecast_id.choices = [(0, TEST_GAME_BUNDLED_FORECAST_NAME)] + [
         (forecast.id, f"{forecast.name} ({forecast.source_file})") for forecast in session.forecasts
     ]
@@ -298,7 +298,7 @@ def session_page(session_id: int):
         recalculate_url=url_for("api.recalculate_session_lots", session_id=session.id),
         strategy_api_url=url_for("api.strategy_snapshot", session_id=session.id),
         strategy_form=strategy_form,
-        selected_strategy_meta=strategy_meta(session.selected_strategy),
+        selected_strategy_meta=strategy_meta("unified"),
         forecast_blocked=forecast_blocked,
         forecast_compatibility_report=forecast_report,
         compatibility_guidance=compatibility_guidance,
@@ -382,20 +382,10 @@ def session_strategy_selection_action(session_id: int):
     session = db.session.get(GameSession, session_id)
     if session is None:
         return _missing_session_redirect()
-    form = StrategySelectionForm()
-    form.selected_strategy.choices = [
-        (row["code"], row["label"]) for row in strategy_list()
-    ]
-    if form.validate_on_submit():
-        update_analysis_settings_for_session(
-            session,
-            {"selected_strategy": form.selected_strategy.data},
-        )
-        db.session.add(session)
-        db.session.commit()
-        flash("Стратегия сессии обновлена", "success")
-    else:
-        flash("Не удалось обновить стратегию", "error")
+    update_analysis_settings_for_session(session, {"selected_strategy": "unified"})
+    db.session.add(session)
+    db.session.commit()
+    flash("Сессия переведена на единый оптимизатор 2026", "success")
     target = (request.form.get("next") or request.referrer or "").strip()
     if target and is_safe_internal_url(target):
         return redirect(target)

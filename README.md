@@ -1,17 +1,19 @@
 # IES Web 2026
 
-Web-first инструмент для моделирования ИЭС 2026: лоты, тарифный аукцион, энергосистема, прогноз, стратегия покупки и post-auction planning.
+Web-first инструмент для моделирования ИЭС 2026: лоты, тарифный аукцион, энергосистема, прогноз, unified lot optimizer и post-auction planning.
 
 ## Что реализовано
 
 - ruleset 2026 на существующей Flask-архитектуре без второго параллельного engine;
 - `25` детерминированно-случайных лотов тестовой игры;
-- стратегии `balanced`, `generation`, `consumer`, `storage`, `eco`, `risk_averse`, `aggressive`;
+- единый `unified lot optimizer` без ручного strategy-switching в основном UX;
 - delta-profit valuation по `48` тактам;
 - consumer fixed tariff per tick, а не `demand * tariff`;
 - anti-dumping cap `1.2 * useful_energy_(t-1) + 10`;
 - market model: exchange sale, GP fallback, GP purchase, balancing penalty;
 - network validator: tree, path to main, no islands, no mixed districts, hospital dual input, factory warning;
+- robust wind valuation: prior/posterior по скрытым thresholds, storm shutdown, hysteresis и inertia;
+- singles / pairs / groups catalog с `optimal_purchase_price`, expected profit и risk-adjusted ranking;
 - post-auction JSON/YAML template для дальнейшего моделирования.
 
 ## Основные модули
@@ -46,6 +48,10 @@ Web-first инструмент для моделирования ИЭС 2026: л
 - network must be a tree without cycles and islands;
 - hospital requires two inputs;
 - factory allows one or two inputs, one input gives warning.
+- Покупка лота блокируется, если активный прогноз несовместим с составом лота.
+- покупка требует явного checkbox-confirmation цены сделки в quick auction.
+- Оценка в quick auction не меняет `current_bid`.
+- Циклы и разрывы до главной подстанции блокируются на write-path.
 
 ## Что параметризовано
 
@@ -53,7 +59,7 @@ Web-first инструмент для моделирования ИЭС 2026: л
 - loss approximation;
 - wind curve calibration hooks;
 - aggregate market clearing approximation;
-- strategy overlays для разных auction profiles.
+- веса robust wind posterior и risk-adjusted ranking.
 
 ## Что ещё требует калибровки
 

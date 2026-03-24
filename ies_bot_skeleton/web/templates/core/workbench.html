@@ -53,15 +53,10 @@
     </div>
   </article>
   <article class="card">
-    <p class="section-kicker">Стратегия</p>
+    <p class="section-kicker">Auction Stage</p>
     <h2 class="h2">{{ selected_strategy_meta.label }}</h2>
     <p class="muted mt-2">{{ selected_strategy_meta.summary }}</p>
-    <form method="post" action="{{ url_for('pages.session_strategy_selection_action', session_id=session.id) }}" class="mt-3">
-      {{ strategy_form.hidden_tag() }}
-      {{ strategy_form.selected_strategy(class_='input') }}
-      <input type="hidden" name="next" value="{{ request.full_path }}" />
-      <button class="btn btn-secondary mt-2" type="submit">Обновить стратегию</button>
-    </form>
+    <div class="table-secondary mt-3">Stage A оценивает лоты до проектирования сети. Ручной selector стратегий скрыт: сайт всегда показывает один основной `optimal_purchase_price` и общий каталог `singles/pairs/groups`.</div>
   </article>
 </section>
 
@@ -134,11 +129,11 @@
 <section class="card mt-4" id="strategySnapshotCard" data-strategy-url="{{ strategy_api_url }}" data-remaining-budget="{{ portfolio.remaining_budget }}">
   <div class="section-head">
     <div>
-      <p class="section-kicker">Сценарная справка по комбинациям</p>
-      <h2 class="h2">Лоты, пары, группы, plan B и plan C</h2>
+      <p class="section-kicker">Каталог комбинаций</p>
+      <h2 class="h2">Best singles, pairs, groups и сценарии второго круга</h2>
     </div>
   </div>
-  <div class="muted mt-2" id="strategySnapshotStatus">Загружается стратегический snapshot.</div>
+  <div class="muted mt-2" id="strategySnapshotStatus">Загружается unified catalog комбинаций.</div>
   <div id="strategySnapshotContent" hidden></div>
 </section>
 
@@ -164,7 +159,7 @@
   <article class="action-card">
     <p class="section-kicker">Аукцион</p>
     <strong>Быстрый аукцион</strong>
-    <span class="muted">Используйте live-flow ставок и outcome tracking только после проверки floor/ceiling и strategy snapshot.</span>
+    <span class="muted">Используйте live-flow ставок и outcome tracking только после проверки `optimal_purchase_price`, `hard_limit` и каталога комбинаций.</span>
     <a class="btn btn-secondary mt-3" href="{{ url_for('pages.quick_auction_page', session_id=session.id) }}">Открыть быстрый аукцион</a>
   </article>
   <article class="action-card">
@@ -191,6 +186,7 @@
     </div>
   </div>
   <div class="stack gap-2 mt-3">
+    <div><strong>Stage A vs Stage B:</strong> сначала auction valuation лотов, потом отдельное post-auction planning сети.</div>
     <div><strong>Что внутри:</strong> topology candidates, installation priority, market plan, tick model и critical fixes.</div>
     <div><strong>Зачем нужен:</strong> после аукциона быстро перейти от лотов к проверяемой схеме энергосистемы и 48-тактной модели.</div>
   </div>

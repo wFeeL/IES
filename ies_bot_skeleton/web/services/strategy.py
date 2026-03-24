@@ -77,8 +77,8 @@ def _portfolio_context(session: GameSession, strategy: str) -> Dict[str, Any]:
         if str(lot.status or "") == "bought":
             bought += 1
     return {
-        "analysis_mode": "strategy_profile",
-        "selected_strategy": strategy,
+        "analysis_mode": "unified_optimizer",
+        "selected_strategy": "unified",
         "bought_lots_count": int(bought),
         **budget,
     }
@@ -102,14 +102,14 @@ def _combo_operational_price(combo: ComboEvaluation) -> float:
 
 
 def _objective_key(item: ComboEvaluation) -> Tuple[float, float]:
-    return float(item.utility_score), float(item.risk_adjusted_net_profit)
+    return float(item.risk_adjusted_net_profit), float(item.net_profit_base)
 
 
 def _presentation_key(item: ComboEvaluation) -> Tuple[float, float, float]:
     return (
-        float(item.net_profit_base),
         float(item.risk_adjusted_net_profit),
-        float(item.utility_score),
+        float(item.net_profit_base),
+        -float(item.working_bid or item.total_price),
     )
 
 
@@ -576,6 +576,22 @@ def _combo_to_dict(
     worst_case = dict(scenario_breakdown.get("worst") or {})
     base_case = dict(scenario_breakdown.get("base") or {})
     best_case = dict(scenario_breakdown.get("best") or {})
+    decision_summary = dict(combo.payload.get("decision_summary") or {})
+    system_check = dict((combo.payload.get("metrics") or {}).get("system_check") or {})
+    topology_status = str(
+        combo.payload.get("topology_feasibility")
+        or decision_summary.get("topology_feasibility")
+        or system_check.get("status")
+        or "neutral"
+    )
+    wind_uncertainty_penalty = float(
+        combo.payload.get("wind_uncertainty_penalty")
+        or decision_summary.get("wind_uncertainty_penalty")
+        or 0.0
+    )
+    main_substation_dependency = "ok"
+    if any("главная подстанция" in str(item).lower() for item in system_check.get("critical_blocking_errors") or []):
+        main_substation_dependency = "requires_main_substation"
     return {
         "lot_ids": list(combo.lot_ids),
         "lot_names": [lot_names.get(lot_id, f"Лот {lot_id}") for lot_id in combo.lot_ids],
@@ -583,14 +599,21 @@ def _combo_to_dict(
         "display_title": " + ".join(lot_labels),
         "lots_count": len(combo.lot_ids),
         "total_price": float(combo.total_price),
+        "optimal_purchase_price_total": float(combo.working_bid),
         "total_profit": float(combo.net_profit_base),
+        "expected_profit": float(combo.net_profit_base),
         "risk_adjusted_net_profit": float(combo.risk_adjusted_net_profit),
+        "risk_adjusted_profit": float(combo.risk_adjusted_net_profit),
         "net_profit_base": float(combo.net_profit_base),
         "utility": float(combo.utility_score),
         "utility_score": float(combo.utility_score),
         "risk": float(combo.risk_total),
         "synergy": float(combo.synergy_score),
         "synergy_score": float(combo.synergy_score),
+        "direct_profit": float(
+            ((combo.payload.get("metrics") or {}).get("portfolio_delta") or {}).get("direct_delta_profit", 0.0)
+            or 0.0
+        ),
         "cautious_bid": float(combo.cautious_bid),
         "target_bid": float(combo.target_bid),
         "recommended_bid_safe": float(combo.recommended_bid_safe),
@@ -617,10 +640,15 @@ def _combo_to_dict(
             "remaining_budget": float(remaining_budget),
             "headroom": float(budget_headroom),
         },
+        "topology_status": topology_status,
+        "topology_feasibility": topology_status,
+        "main_substation_dependency": main_substation_dependency,
+        "wind_uncertainty_penalty": wind_uncertainty_penalty,
+        "price_role": str(combo.payload.get("price_role") or decision_summary.get("price_role") or ""),
         "reason": combo.explanation,
         "explanation": combo.explanation,
         "lot_bid_breakdown": list(combo.lot_bid_breakdown),
-        "system_check": dict((combo.payload.get("metrics") or {}).get("system_check") or {}),
+        "system_check": system_check,
     }
 
 
@@ -772,13 +800,14 @@ def _snapshot_sections(
     scenario_title: str,
     scenario_note: str,
 ) -> Dict[str, Any]:
-    actionable_rows = [row for row in rows if float(row.working_bid) > 0.0]
-    actionable_rows.sort(key=_presentation_key, reverse=True)
-    singles = [row for row in actionable_rows if len(row.lot_ids) == 1]
-    pairs = [row for row in actionable_rows if len(row.lot_ids) == 2]
-    groups = [row for row in actionable_rows if len(row.lot_ids) >= 3]
-    best = actionable_rows[0] if actionable_rows else None
-    alternatives = actionable_rows[1:3] if len(actionable_rows) > 1 else []
+    ranked_rows = sorted(list(rows), key=_presentation_key, reverse=True)
+    actionable_rows = [row for row in ranked_rows if float(row.working_bid) > 0.0]
+    singles = [row for row in ranked_rows if len(row.lot_ids) == 1]
+    pairs = [row for row in ranked_rows if len(row.lot_ids) == 2]
+    groups = [row for row in ranked_rows if len(row.lot_ids) >= 3]
+    best_pool = actionable_rows or ranked_rows
+    best = best_pool[0] if best_pool else None
+    alternatives = best_pool[1:3] if len(best_pool) > 1 else []
     return {
         "key": scenario_key,
         "title": scenario_title,
@@ -787,7 +816,12 @@ def _snapshot_sections(
         "note": (
             scenario_note
             if actionable_rows
-            else "В этом сценарии нет комбинаций с положительной рабочей ценой."
+            else (
+                "Положительной рабочей цены нет; каталог показывает лучшие комбинации по "
+                "risk-adjusted profit, включая blocked/conditional варианты с нулевой ставкой."
+                if ranked_rows
+                else "В этом сценарии нет комбинаций для ранжирования."
+            )
         ),
         "best_singles": [
             _combo_to_dict(row, lot_names=lot_names, remaining_budget=remaining_budget)
@@ -856,7 +890,8 @@ def build_strategy_snapshot(
     force: bool = False,
     cache_ttl_seconds: float = 120.0,
 ) -> Dict[str, Any]:
-    selected_strategy = normalize_strategy_code(strategy or getattr(session, "selected_strategy", None))
+    del strategy
+    selected_strategy = "unified"
     _COMBO_FAST_CONTEXT_CACHE.clear()
     analysis_ctx = resolve_analysis_context(
         session, forecast_id=forecast.id if forecast is not None else None
@@ -917,16 +952,16 @@ def build_strategy_snapshot(
         return {
             "session_id": int(session.id),
             "strategy": selected_strategy,
-            "analysis_mode": "strategy_profile",
+            "analysis_mode": "unified_optimizer",
             "strategy_meta": strategy_meta(selected_strategy),
-            "objective": f"strategy_profile:{selected_strategy}",
+            "objective": "unified_optimizer:combination_catalog",
             "snapshot_kind": "what_if_advisory",
             "analysis_depth": analysis_depth,
             "is_advisory": True,
             "is_exact_plan": False,
             "disclaimer": (
-                "Стратегическая справка — это сценарный обзор комбинаций и бюджетных "
-                "состояний, а не точный пошаговый план последовательного аукциона."
+                "Каталог комбинаций — это Stage A сценарный обзор аукционных наборов. "
+                "Точная сеть и монтаж относятся к post-auction planning."
             ),
             "forecast_context": dict(analysis_ctx["forecast_context"]),
             "forecast_compatibility": compatibility,
@@ -1078,16 +1113,16 @@ def build_strategy_snapshot(
     out = {
         "session_id": int(session.id),
         "strategy": selected_strategy,
-        "analysis_mode": "strategy_profile",
+        "analysis_mode": "unified_optimizer",
         "strategy_meta": strategy_meta(selected_strategy),
-        "objective": f"strategy_profile:{selected_strategy}",
+        "objective": "unified_optimizer:combination_catalog",
         "snapshot_kind": "what_if_advisory",
         "analysis_depth": analysis_depth,
         "is_advisory": True,
         "is_exact_plan": False,
         "disclaimer": (
-            "Стратегическая справка — это сценарный обзор комбинаций. Он полезен для "
-            "ориентира, но не равен точному последовательному плану покупок на живом аукционе."
+            "Каталог комбинаций — это Stage A аукционная справка по singles/pairs/groups. "
+            "Он нужен для ставок, а не для подмены post-auction проектирования сети."
         ),
         "fast_ranking_source": "lots_analytics",
         "forecast_context": dict(analysis_ctx["forecast_context"]),
@@ -1138,9 +1173,10 @@ def best_pairs_for_lot(
         rows.append(dict(row))
     rows.sort(
         key=lambda item: (
-            float(item.get("net_profit_base", item.get("total_profit", 0.0)) or 0.0),
+            float(item.get("expected_profit", item.get("net_profit_base", item.get("total_profit", 0.0))) or 0.0),
             float(item.get("risk_adjusted_net_profit", 0.0) or 0.0),
-            float(item.get("utility_score", item.get("utility", 0.0)) or 0.0),
+            float(item.get("utility_score", 0.0) or 0.0),
+            -float(item.get("wind_uncertainty_penalty", 0.0) or 0.0),
         ),
         reverse=True,
     )

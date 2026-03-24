@@ -39,6 +39,12 @@
     <div class="dashboard-shell">
       <aside class="dashboard-sidebar">
         <a class="sidebar-brand" href="{{ url_for('pages.dashboard') }}">
+          <span class="sidebar-brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M4 4h7v7H4z" stroke="currentColor" stroke-width="1.8" />
+              <path d="M5 4h12a2 2 0 0 1 2 2v12" stroke="currentColor" stroke-width="1.8" />
+            </svg>
+          </span>
           <span class="sidebar-brand-text">IES Кабинет</span>
         </a>
         <p class="sidebar-subtitle">Прогноз, оценка лотов, энергосистема и админка в одном интерфейсе.</p>
@@ -63,7 +69,16 @@
           {% endif %}
           <div class="dashboard-top-actions">
             <button type="button" class="btn btn-secondary" id="themeToggle">Тема</button>
-            <span class="user-chip"><span class="user-chip-text"><strong>{{ current_user.username }}</strong><small>{{ current_user.role }}</small></span></span>
+            <span class="user-chip">
+              <span class="user-chip-avatar" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M12 3.5l2 .9" stroke="currentColor" stroke-width="1.8" />
+                  <circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.8" />
+                  <path d="M5 19c1.6-3 4-4.5 7-4.5s5.4 1.5 7 4.5" stroke="currentColor" stroke-width="1.8" />
+                </svg>
+              </span>
+              <span class="user-chip-text"><strong>{{ current_user.username }}</strong><small>{{ current_user.role }}</small></span>
+            </span>
             <form method="post" action="{{ url_for('pages.logout') }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
               <button class="btn btn-ghost btn-danger-outline" type="submit">Выйти</button>
@@ -92,7 +107,8 @@
           {% set dismiss_id = 'network-readiness-' ~ (session.id if session is defined and session else 'global') %}
           <section class="flash-stack" data-dismissible-alert data-alert-id="{{ dismiss_id }}">
             <div class="flash flash-warning">
-              <div><strong>После покупки нужно завершить интеграцию объектов.</strong></div>
+              <div><strong>После покупки объекты нужно подключить и завершить интеграцию.</strong></div>
+              <div class="mt-2">После покупки нужно завершить интеграцию объектов.</div>
               <div class="mt-2">{{ network_readiness.message }}</div>
               {% if session is defined and session %}
               <div class="mt-2"><a class="btn btn-secondary" href="{{ url_for('pages.system_view', session_id=session.id) }}">Перейти в энергосистему</a></div>

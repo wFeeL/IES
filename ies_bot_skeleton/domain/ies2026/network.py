@@ -131,15 +131,22 @@ def _category_conflict(stats: Dict[str, int], category: str) -> bool:
 
 def _infra_depths(objects: Dict[str, EnergyObject]) -> Dict[str, int]:
     depths: Dict[str, int] = {}
+    visiting: set[str] = set()
 
     def depth_for(node_id: str) -> int:
         if node_id in depths:
             return depths[node_id]
+        if node_id in visiting:
+            depths[node_id] = 0
+            return 0
+        visiting.add(node_id)
         node = objects.get(node_id)
         if node is None or _is_main(node) or not node.parent_id:
             depths[node_id] = 0
+            visiting.discard(node_id)
             return 0
         depths[node_id] = 1 + depth_for(str(node.parent_id))
+        visiting.discard(node_id)
         return depths[node_id]
 
     for object_id in objects:
@@ -613,7 +620,11 @@ def validate_network(objects: Iterable[EnergyObject]) -> NetworkValidationReport
         for terminal in valid_connected:
             depth = 0
             cursor = by_id.get(str(terminal.parent_id))
+            seen_nodes: set[str] = set()
             while cursor is not None and cursor.parent_id:
+                if cursor.object_id in seen_nodes:
+                    break
+                seen_nodes.add(cursor.object_id)
                 depth += 1
                 cursor = by_id.get(str(cursor.parent_id))
             max_depth = max(max_depth, depth)
@@ -667,7 +678,11 @@ def loss_fraction_for_object(
             continue
         depth = 0
         cursor = by_id.get(str(terminal.parent_id))
+        seen_nodes: set[str] = set()
         while cursor is not None and cursor.parent_id:
+            if cursor.object_id in seen_nodes:
+                break
+            seen_nodes.add(cursor.object_id)
             depth += 1
             cursor = by_id.get(str(cursor.parent_id))
         loss = base_edge + depth * depth_step

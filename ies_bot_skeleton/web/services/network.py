@@ -115,7 +115,15 @@ def network_validation_summary(objects: List[ObjectInstance]) -> ValidationSumma
         )
     report = validate_network([_energy_object(row) for row in objects if row.is_active])
     issues = [
-        ValidationIssue(code=issue.code, message=issue.message, severity=issue.severity)
+        ValidationIssue(
+            code=issue.code,
+            message=(
+                "Обнаружен цикл в дереве сети."
+                if issue.code == "NETWORK_CYCLE"
+                else issue.message
+            ),
+            severity=issue.severity,
+        )
         for issue in report.issues
     ]
     if not issues:

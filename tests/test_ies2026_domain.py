@@ -580,3 +580,120 @@ def test_bundle_value_is_not_equal_to_sum_of_standalone_values_when_infra_enable
     assert bundle.expected_delta_profit != pytest.approx(
         mini_only.expected_delta_profit + solar_only.expected_delta_profit
     )
+
+
+def test_wind_prior_valuation_uses_uncertainty_penalty():
+    evaluation = evaluate_candidate_bundle(
+        lot_id=20,
+        lot_name="Risky wind",
+        base_objects=[_main(), _mini("wind-mini", district="wind_north")],
+        candidate_objects=[
+            _wind(
+                "wind-risky",
+                district="wind_north",
+                parent_id="wind-mini",
+                contract=4.2,
+                channel="wind_west",
+            )
+        ],
+        forecast_pack=_forecast_pack(wind_base=10.0),
+        ruleset_config=build_default_ruleset_config(),
+    )
+
+    assert evaluation.wind_uncertainty_penalty > 0.0
+    assert evaluation.risk_adjusted_profit <= evaluation.expected_profit_after_purchase
+    assert evaluation.wind_posterior.posterior_q10_value <= evaluation.wind_posterior.posterior_q25_value
+    assert evaluation.wind_posterior.posterior_q25_value <= evaluation.wind_posterior.posterior_mean_value
+
+
+def test_hidden_wind_thresholds_are_inferred_from_calibration_data():
+    calibration_rows = [
+        {"tick": 0, "wind_speed_mps": 2.0, "observed_output_mw": 0.0},
+        {"tick": 1, "wind_speed_mps": 4.5, "observed_output_mw": 0.0},
+        {"tick": 2, "wind_speed_mps": 5.8, "observed_output_mw": 0.5},
+        {"tick": 3, "wind_speed_mps": 7.0, "observed_output_mw": 2.8},
+        {"tick": 4, "wind_speed_mps": 9.5, "observed_output_mw": 11.0},
+        {"tick": 5, "wind_speed_mps": 10.5, "observed_output_mw": 16.8},
+    ]
+    evaluation = evaluate_candidate_bundle(
+        lot_id=21,
+        lot_name="Calibrated wind",
+        base_objects=[_main(), _mini("wind-mini", district="wind_north")],
+        candidate_objects=[
+            EnergyObject(
+                object_id="wind-calibrated",
+                object_type_id=21,
+                code="wind",
+                name="wind-calibrated",
+                category="generator",
+                district="wind_north",
+                parameters={
+                    "contract_rub_per_tick": 4.0,
+                    "generation_mw": 18.0,
+                    "wind_channel": "wind_main",
+                    "wind_calibration_observations": calibration_rows,
+                },
+                parent_id="wind-mini",
+                is_candidate=True,
+            )
+        ],
+        forecast_pack=_forecast_pack(wind_base=9.5),
+        ruleset_config=build_default_ruleset_config(),
+    )
+
+    cut_in_mid = evaluation.wind_posterior.confidence_by_parameter["cut_in_speed"]["mid"]
+    assert cut_in_mid > 3.2
+    assert any("скрытые thresholds" in note.lower() or "постериор" in note.lower() for note in evaluation.wind_posterior.notes)
+
+
+def test_wind_generation_respects_max_power_and_storm_hysteresis():
+    forecast = {
+        "solar": {"solar": {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}},
+        "wind": {"wind_main": {0: 12.0, 1: 26.0, 2: 20.0, 3: 14.0}},
+        "load": {"house_a": {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}},
+        "market": {"price": {0: 8.0, 1: 8.0, 2: 8.0, 3: 8.0}, "sell_price": {0: 8.0, 1: 8.0, 2: 8.0, 3: 8.0}},
+    }
+    result = simulate_system(
+        objects=[
+            _main(),
+            _mini("wind-mini", district="wind_north"),
+            EnergyObject(
+                object_id="wind-storm",
+                object_type_id=21,
+                code="wind",
+                name="wind-storm",
+                category="generator",
+                district="wind_north",
+                parameters={
+                    "contract_rub_per_tick": 0.5,
+                    "generation_mw": 30.0,
+                    "wind_channel": "wind_main",
+                    "cut_out_mps": 25.0,
+                    "restart_speed_after_storm": 18.0,
+                },
+                parent_id="wind-mini",
+            ),
+        ],
+        forecast_pack=forecast,
+        ruleset_config=build_default_ruleset_config(),
+    )
+
+    gross_generation = [float(row["gross_generation"]) for row in result.tick_rows]
+    assert max(gross_generation) <= 20.0
+    assert gross_generation[1] == pytest.approx(0.0)
+    assert gross_generation[2] == pytest.approx(0.0)
+    assert gross_generation[3] > 0.0
+
+
+def test_drop_candidate_score_is_exposed_for_risky_wind_lot():
+    evaluation = evaluate_candidate_bundle(
+        lot_id=22,
+        lot_name="Wind drop candidate",
+        base_objects=[_main(), _mini("wind-mini", district="wind_north")],
+        candidate_objects=[_wind("wind-drop", district="wind_north", parent_id="wind-mini", contract=5.5)],
+        forecast_pack=_forecast_pack(wind_base=9.8),
+        ruleset_config=build_default_ruleset_config(),
+    )
+
+    assert evaluation.drop_candidate_score >= 0.0
+    assert evaluation.hard_limit > 0.0

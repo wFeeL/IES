@@ -16,8 +16,8 @@ def test_dashboard_uses_session_terms_and_unified_analysis_help(client):
 
     assert "Создать сессию" in html
     assert "Как читается оценка" in html
-    assert "Открыть сессию" in html
-    assert "Единый анализ" in html
+    assert "Открыть рабочую панель" in html
+    assert "Единый оптимизатор" in html
     assert f"/sessions/{session_id}" in html
 
 
@@ -62,17 +62,17 @@ def test_admin_edit_forms_hide_raw_json_and_show_typed_sections(client):
     assert "JSON параметров по умолчанию" not in object_type_html
     assert "JSON редактируемых полей" not in object_type_html
     assert "JSON правил" not in object_type_html
-    assert "Разрешить редактирование этого параметра" in object_type_html
-    assert "Ограничения и логика" in object_type_html
+    assert "Новый тип объекта" in object_type_html
+    assert 'id="objectTypeForm"' in object_type_html
+    assert "window.IES_OBJECT_TYPE_FORM" in object_type_html
 
     ruleset_resp = client.get("/admin/rulesets/new")
     assert ruleset_resp.status_code == 200
     ruleset_html = ruleset_resp.get_data(as_text=True)
     assert "JSON конфигурации" not in ruleset_html
     assert "JSON настроек модели" not in ruleset_html
-    assert "Профили стратегий" in ruleset_html
-    assert "Сценарии" in ruleset_html
-    assert "Рынок" in ruleset_html
+    assert "Новый набор правил" in ruleset_html
+    assert ruleset_html.count('class="admin-section"') >= 1
 
 
 def test_system_and_lot_edit_pages_hide_unwanted_analysis_noise(client):
@@ -101,17 +101,15 @@ def test_workbench_focuses_on_forecast_portfolio_and_export_actions(client):
 
     assert "Бюджет и портфель" in html
     assert "Активный прогноз" in html
-    assert "Пересчитать все лоты" in html
     assert f"/api/sessions/{session_id}/export.json" in html
     assert f"/api/sessions/{session_id}/evaluations.csv" in html
     assert f"/evaluation/{session_id}" not in html
     assert f"/recommend/{session_id}" not in html
     assert "Контур работы" not in html
     assert "Продуктовый контур" not in html
-    assert "Рабочая таблица принятия решений" in html
-    assert 'value="bid_desc" selected' in html
-    assert ">Ставки</th>" in html
-    assert 'class="grid cols-4 gap-3 mt-3 lots-filter-grid"' in html
+    assert "Каталог комбинаций" in html
+    assert "Best singles, pairs, groups" in html
+    assert 'id="strategySnapshotCard"' in html
 
 
 def test_dashboard_imports_session_via_ssr_form(client):
@@ -245,12 +243,11 @@ def test_layout_contract_for_compact_lots_and_quick_auction_tables(client):
     )
 
     lots_html = client.get(f"/lots/{session_id}").get_data(as_text=True)
-    assert ('class="lot-bid-reason text-clamp-2"' in lots_html) or (
-        'class="lot-bid-meta"' in lots_html
-    )
-    assert 'class="row-actions row-actions-inline"' in lots_html
     assert 'class="grid cols-4 gap-3 mt-3 lots-filter-grid"' in lots_html
-    assert 'class="col-text lot-metric-cell"' in lots_html
+    assert 'class="insight-grid mt-3"' in lots_html
+    assert "Optimal purchase price" in lots_html
+    assert 'class="grid cols-4 gap-3 mt-3 lots-filter-grid"' in lots_html
+    assert "Открыть анализ" in lots_html
 
     quick_html = client.get(f"/quick-auction/{session_id}").get_data(as_text=True)
     assert 'class="col-text qa-name-cell"' in quick_html
@@ -259,10 +256,8 @@ def test_layout_contract_for_compact_lots_and_quick_auction_tables(client):
 
     css = client.get("/static/css/tailwind.css").get_data(as_text=True)
     assert "grid-template-columns: 206px minmax(0, 1fr);" in css
-    assert ".table-lots,\n.table-auction-ranking" in css
     assert ".qa-row-actions" in css
-    assert ".table-lots .row-actions.row-actions-inline" in css
-    assert ".table-lots col.lot-status-col {\n  width: 16rem;" in css
+    assert ".metric-card" in css
 
 
 def test_forecast_page_shows_compatibility_block(client):

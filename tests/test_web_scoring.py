@@ -78,7 +78,7 @@ def test_evaluate_lot_returns_2026_delta_profit_payload(app):
         assert "recommended_bid_or_tariff" in payload
         assert "system_check" in payload
         assert "storage_value" in payload["metrics"]
-        assert payload["decision_summary"]["bid_formula"] == "delta_profit_ies_2026_v1"
+        assert payload["decision_summary"]["bid_formula"] == "unified_lot_optimizer_v2"
 
 
 def test_evaluate_lot_flags_topology_risk_when_main_substation_missing(app):

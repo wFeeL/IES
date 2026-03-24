@@ -508,10 +508,15 @@ def object_create_page(session_id: int):
     if request.method == "GET" and form.object_type_id.choices:
         requested_type_id = request.args.get("object_type_id", type=int)
         available_type_ids = {row_id for row_id, _ in form.object_type_id.choices}
+        default_type_id = form.object_type_id.choices[0][0]
+        for row_id, label in form.object_type_id.choices:
+            if "вэс" in str(label).lower() or "wind" in str(label).lower():
+                default_type_id = row_id
+                break
         form.object_type_id.data = (
             requested_type_id
             if requested_type_id in available_type_ids
-            else form.object_type_id.choices[0][0]
+            else default_type_id
         )
         form.is_active.data = True
 
@@ -853,13 +858,20 @@ def lot_buy_confirm_page(lot_id: int):
     shell_view = session_shell_view(session)
     form = LotPurchaseForm()
     if request.method == "GET":
+        price_candidates = [
+            evaluation.get("optimal_purchase_price"),
+            (evaluation.get("decision_summary") or {}).get("optimal_purchase_price"),
+            evaluation.get("recommended_bid_or_tariff"),
+            (evaluation.get("decision_summary") or {}).get("recommended_bid_or_tariff"),
+            evaluation.get("recommended_bid"),
+            (evaluation.get("decision_summary") or {}).get("recommended_bid"),
+            evaluation.get("working_bid"),
+            (evaluation.get("decision_summary") or {}).get("working_bid"),
+            lot.current_bid,
+            0.0,
+        ]
         form.purchase_price.data = float(
-            evaluation.get("recommended_bid")
-            or (evaluation.get("decision_summary") or {}).get("recommended_bid")
-            or evaluation.get("working_bid")
-            or (evaluation.get("decision_summary") or {}).get("working_bid")
-            or lot.current_bid
-            or 0.0
+            next((value for value in price_candidates if value not in (None, "")), 0.0)
         )
     if form.validate_on_submit():
         try:

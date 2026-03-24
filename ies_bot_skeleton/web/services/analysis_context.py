@@ -14,14 +14,14 @@ from .test_game_preset import TEST_GAME_BUNDLED_FORECAST_NAME, TEST_GAME_FORECAS
 def session_analysis_settings(session: GameSession) -> Dict[str, Any]:
     start_budget = float(session.budget_total or 0.0)
     return {
-        "selected_strategy": normalize_strategy_code(getattr(session, "selected_strategy", None)),
+        "selected_strategy": "unified",
         "selected_forecast_id": (
             int(session.selected_forecast_id) if session.selected_forecast_id else None
         ),
         "start_budget": start_budget,
         "budget_total": start_budget,
         "allpay_spent": float(getattr(session, "allpay_spent", 0.0) or 0.0),
-        "analysis_mode": "strategy_profiles",
+        "analysis_mode": "unified_optimizer",
     }
 
 
@@ -57,7 +57,7 @@ def update_session_analysis_settings(
         session.allpay_spent = max(0.0, float(payload.get("allpay_spent", 0.0) or 0.0))
 
     if "selected_strategy" in payload:
-        session.selected_strategy = normalize_strategy_code(payload.get("selected_strategy"))
+        session.selected_strategy = "unified"
 
     return session_analysis_settings(session)
 
@@ -69,13 +69,15 @@ def resolve_analysis_context(
 ) -> Dict[str, Any]:
     selected_forecast = resolve_forecast_for_session(session, forecast_id=forecast_id)
     if selected_forecast is not None:
-        summary = summarize_forecast_for_session(session=session, forecast=selected_forecast)
+        summary = dict(summarize_forecast_for_session(session=session, forecast=selected_forecast))
+        summary["source_kind"] = "selected_forecast"
         source = "selected_forecast"
         source_label = "Пользовательский прогноз"
         forecast_name = selected_forecast.name
         forecast_pk = int(selected_forecast.id)
     else:
-        summary = bundled_forecast_summary_for_session(session)
+        summary = dict(bundled_forecast_summary_for_session(session))
+        summary["source_kind"] = "bundled_forecast"
         source = "bundled_forecast"
         source_label = TEST_GAME_FORECAST_SOURCE_LABEL
         forecast_name = summary.get("name") or TEST_GAME_BUNDLED_FORECAST_NAME

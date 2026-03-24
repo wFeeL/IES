@@ -8,6 +8,8 @@ IssueSeverity = Literal["critical", "warning", "hint"]
 AuctionDirection = Literal["descending_consumer_tariff", "ascending_service_tariff"]
 RiskBand = Literal["low", "medium", "high"]
 LotProfile = Literal["consumer", "generator", "storage", "infrastructure", "mixed"]
+AnalysisStage = Literal["pre_auction_lot_valuation", "post_auction_system_planning"]
+PriceRole = Literal["consumer_floor", "service_ceiling"]
 
 
 @dataclass(slots=True)
@@ -53,6 +55,88 @@ class ForecastDataset:
     ticks: List[ForecastTick]
     wind_channels: List[str]
     assumptions: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class WindLatentParams:
+    cut_in_speed: float
+    rated_speed: float
+    cut_out_speed: float
+    restart_speed_after_storm: float
+    location_gain: float
+    effective_power_scale: float
+    plateau_shape: float
+    hysteresis_gap: float
+    inertia_tau: float
+    damping: float = 0.0
+
+
+@dataclass(slots=True)
+class WindObservation:
+    tick: int
+    wind_speed_mps: float
+    observed_output_mw: float
+    channel: str = ""
+
+
+@dataclass(slots=True)
+class WindCalibrationDataset:
+    observations: List[WindObservation] = field(default_factory=list)
+    source: str = "shared_ruleset_prior"
+    class_key: str = "wind"
+
+
+@dataclass(slots=True)
+class WindPosteriorSample:
+    latent: WindLatentParams
+    weight: float
+    fit_error: float
+    label: str = ""
+
+
+@dataclass(slots=True)
+class WindPosteriorSummary:
+    posterior_mean_value: float = 0.0
+    posterior_q25_value: float = 0.0
+    posterior_q10_value: float = 0.0
+    cvar_value: float = 0.0
+    downside_expected_value: float = 0.0
+    uncertainty_penalty: float = 0.0
+    confidence_by_parameter: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    samples: List[WindPosteriorSample] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class UnifiedLotRankingRow:
+    lot_id: int
+    lot_name: str
+    optimal_purchase_price: float
+    price_role: PriceRole
+    expected_profit: float
+    risk_adjusted_profit: float
+    direct_delta_profit: float
+    synergy_value: float
+    infrastructure_enabler_value: float
+    topology_feasibility: str
+    wind_uncertainty_penalty: float
+    explanation: str
+
+
+@dataclass(slots=True)
+class CombinationRankingRow:
+    lot_ids: List[int]
+    title: str
+    optimal_purchase_price_total: float
+    expected_profit: float
+    risk_adjusted_profit: float
+    synergy: float
+    direct_profit: float
+    topology_status: str
+    budget_fit: Dict[str, Any] = field(default_factory=dict)
+    main_substation_dependency: str = ""
+    wind_uncertainty_penalty: float = 0.0
+    explanation: str = ""
 
 
 @dataclass(slots=True)
@@ -188,3 +272,17 @@ class LotEvaluation:
     portfolio_substitute_group: str = ""
     plan_b_if_lost: str = ""
     plan_c_if_overbid: str = ""
+    analysis_stage: AnalysisStage = "pre_auction_lot_valuation"
+    optimal_purchase_price: float = 0.0
+    price_role: PriceRole = "service_ceiling"
+    expected_profit_after_purchase: float = 0.0
+    risk_adjusted_profit: float = 0.0
+    synergy_value: float = 0.0
+    infrastructure_enabler_value: float = 0.0
+    topology_feasibility: str = "feasible"
+    wind_uncertainty_penalty: float = 0.0
+    wind_posterior: WindPosteriorSummary = field(default_factory=WindPosteriorSummary)
+    topology_risk_score: float = 0.0
+    market_risk_score: float = 0.0
+    balancing_risk_score: float = 0.0
+    loss_risk_score: float = 0.0

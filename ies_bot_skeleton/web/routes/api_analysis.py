@@ -502,6 +502,10 @@ def evaluate_one_lot(lot_id: int):
         strategy=payload.get("strategy"),
         persist=True,
     )
+    decision_summary = dict(out.get("decision_summary") or {})
+    decision_summary["bid_formula"] = "strategic_anchor_repeatable_v4"
+    decision_summary["legacy_bid_formula"] = "deprecated_pwin_share_model"
+    out["decision_summary"] = decision_summary
     return jsonify({"ok": True, "item": out})
 
 
@@ -948,12 +952,19 @@ def buy_lot_endpoint(lot_id: int):
     purchase_price_raw = payload.get("purchase_price")
     if purchase_price_raw in (None, ""):
         evaluation = evaluate_session_lot(session=session, lot=lot, persist=False)
+        price_candidates = [
+            evaluation.get("optimal_purchase_price"),
+            (evaluation.get("decision_summary") or {}).get("optimal_purchase_price"),
+            evaluation.get("recommended_bid_or_tariff"),
+            (evaluation.get("decision_summary") or {}).get("recommended_bid_or_tariff"),
+            evaluation.get("recommended_bid"),
+            (evaluation.get("decision_summary") or {}).get("recommended_bid"),
+            evaluation.get("working_bid"),
+            (evaluation.get("decision_summary") or {}).get("working_bid"),
+            0.0,
+        ]
         purchase_price = float(
-            evaluation.get("recommended_bid")
-            or (evaluation.get("decision_summary") or {}).get("recommended_bid")
-            or evaluation.get("working_bid")
-            or (evaluation.get("decision_summary") or {}).get("working_bid")
-            or 0.0
+            next((value for value in price_candidates if value not in (None, "")), 0.0)
         )
     else:
         purchase_price = float(purchase_price_raw or 0.0)
@@ -1025,19 +1036,27 @@ def auction_apply_action(session_id: int):
     lot = get_lot_or_404(lot_id)
     if int(lot.session_id) != int(session.id):
         raise ValueError("Лот не принадлежит сессии")
-    result = apply_auction_action(
-        session=session,
-        lot=lot,
-        action=str(payload.get("action", "")),
-        bid_level=str(payload.get("bid_level", "target") or "target"),
-        bid_amount=(
-            float(payload.get("bid_amount"))
-            if payload.get("bid_amount") not in (None, "")
-            else None
-        ),
-        auction_mode=str(payload.get("auction_mode", "ordinary_tariff_auction") or "ordinary_tariff_auction"),
-        allpay_triggered=bool(payload.get("allpay_triggered", False)),
-    )
+    try:
+        result = apply_auction_action(
+            session=session,
+            lot=lot,
+            action=str(payload.get("action", "")),
+            bid_level=str(payload.get("bid_level", "target") or "target"),
+            bid_amount=(
+                float(payload.get("bid_amount"))
+                if payload.get("bid_amount") not in (None, "")
+                else None
+            ),
+            auction_mode=str(
+                payload.get("auction_mode", "ordinary_tariff_auction")
+                or "ordinary_tariff_auction"
+            ),
+            allpay_triggered=bool(payload.get("allpay_triggered", False)),
+        )
+    except ValueError as exc:
+        if "All-Pay бюджета" in str(exc):
+            raise ApiError(code="bad_request", message=str(exc), status_code=400) from exc
+        raise
     db.session.commit()
     refresh = _session_recalculation_payload(
         session,

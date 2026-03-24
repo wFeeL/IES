@@ -10,7 +10,7 @@ SESSION_TERMS = {
 }
 
 STRATEGY_LABELS: Dict[str, str] = {
-    "unified": "Единый анализ",
+    "unified": "Единый оптимизатор",
     "generation": "Фокус на генерации",
     "consumer": "Фокус на потребителях",
     "balanced": "Сбалансированная стратегия",
@@ -84,9 +84,8 @@ FORECAST_SERVICE_LOAD_KEYS = {"class3", "consumer", "load"}
 
 
 def strategy_label(code: str | None) -> str:
-    if not code:
-        return "Единый анализ"
-    return STRATEGY_LABELS.get(code, "Единый анализ")
+    del code
+    return "Единый оптимизатор"
 
 
 def category_label(code: str | None) -> str:

@@ -68,6 +68,7 @@ def dataset_from_pack(
     balancing_series = market_bucket.get("balancing_penalty_price") or market_bucket.get(
         "balancing_penalty"
     ) or {}
+    scenario_bucket = dict(data.get("scenarios") or {})
 
     wind_channels = sorted(str(key) for key in wind_bucket.keys() if str(key).strip())
     if not wind_channels and wind_bucket.get("wind"):
@@ -125,6 +126,7 @@ def dataset_from_pack(
                 "load": list(LOAD_ALIASES.keys()),
                 "discovered_ticks": discovered_ticks,
             },
+            "forecast_scenarios": sorted(str(key) for key in scenario_bucket.keys() if str(key).strip()),
         },
     )
 

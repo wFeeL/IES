@@ -41,8 +41,8 @@
           <tr><th>Лот</th><td>{{ lot.name }}</td></tr>
           <tr><th>Текущая цена/тариф</th><td>{{ fmt_num(lot.current_bid, 2) }}</td></tr>
           <tr><th>Остаток бюджета до покупки</th><td>{{ fmt_num(portfolio.remaining_budget, 1) }}</td></tr>
-          <tr><th>Recommended tariff</th><td>{{ fmt_num(evaluation.recommended_bid_or_tariff or evaluation.recommended_bid, 2) }}</td></tr>
-          <tr><th>Break-even tariff</th><td>{{ fmt_num(evaluation.break_even_tariff or evaluation.max_bid or evaluation.decision_summary.max_bid, 2) }}</td></tr>
+          <tr><th>Optimal purchase price</th><td>{{ fmt_num(evaluation.optimal_purchase_price or evaluation.recommended_bid_or_tariff or evaluation.recommended_bid, 2) }}</td></tr>
+          <tr><th>Hard limit</th><td>{{ fmt_num(evaluation.hard_limit or evaluation.break_even_tariff or evaluation.max_bid or evaluation.decision_summary.max_bid, 2) }}</td></tr>
           <tr><th>Expected delta-profit</th><td>{{ fmt_num(evaluation.expected_delta_profit or evaluation.financial_breakdown.result.net_profit, 2) }}</td></tr>
           <tr><th>Base case</th><td>{{ fmt_num(base_case.delta_profit, 2) }}</td></tr>
           <tr><th>Best / worst case</th><td>{{ fmt_num(best_case.delta_profit, 2) }} / {{ fmt_num(worst_case.delta_profit, 2) }}</td></tr>

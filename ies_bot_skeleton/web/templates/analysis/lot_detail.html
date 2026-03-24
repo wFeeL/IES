@@ -11,10 +11,11 @@
 <section class="card mt-4">
   <div class="section-head">
     <div>
-      <p class="section-kicker">Лот #{{ lot.id }}</p>
+      <p class="section-kicker">Stage A · Лот #{{ lot.id }}</p>
       <h1 class="h1">{{ lot.name }}</h1>
       <p class="muted mt-2">{{ lot_scope_label(lot.scope) }} · {{ lot_status_label(lot.status) }} · текущая цена {{ fmt_num(lot.current_bid, 2) }}</p>
       <p class="muted">Состав: {{ lot_summary.structure }}</p>
+      <p class="muted">Auction valuation идёт до точного проектирования сети: здесь считается robust expected delta-profit, а не прибыль уже смонтированной системы.</p>
     </div>
     <div class="actions">
       {% if lot.status == 'available' and not forecast_blocked %}
@@ -32,9 +33,10 @@
 </section>
 
 <section class="kpi-grid mt-4">
-  <article class="kpi-card"><span class="metric-label">Expected delta-profit</span><strong>{{ fmt_num(evaluation.expected_delta_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Optimal purchase price</span><strong>{{ fmt_num(evaluation.optimal_purchase_price or evaluation.recommended_bid_or_tariff, 2) }}</strong></article>
   <article class="kpi-card"><span class="metric-label">{{ 'Hard floor' if evaluation.decision_summary.floor_or_ceiling_type == 'floor' else 'Hard ceiling' }}</span><strong>{{ fmt_num(evaluation.decision_summary.hard_limit, 2) }}</strong></article>
-  <article class="kpi-card"><span class="metric-label">Целевая ставка</span><strong>{{ fmt_num(evaluation.decision_summary.recommended_bid_or_tariff or evaluation.recommended_bid, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Expected profit</span><strong>{{ fmt_num(evaluation.expected_profit_after_purchase or evaluation.expected_delta_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Risk-adjusted profit</span><strong>{{ fmt_num(evaluation.risk_adjusted_profit, 2) }}</strong></article>
   <article class="kpi-card"><span class="metric-label">Base case</span><strong>{{ fmt_num(evaluation.base_case.delta_profit, 2) }}</strong></article>
   <article class="kpi-card"><span class="metric-label">Best case</span><strong>{{ fmt_num(evaluation.best_case.delta_profit, 2) }}</strong></article>
   <article class="kpi-card"><span class="metric-label">Worst case</span><strong>{{ fmt_num(evaluation.worst_case.delta_profit, 2) }}</strong></article>
@@ -47,10 +49,12 @@
     <div class="risk-block mt-3">
       <strong>{{ evaluation.decision_summary.recommended_bid_reason or evaluation.explanation }}</strong>
       <div class="mt-2">Направление торгов: {{ evaluation.decision_summary.auction_direction }}</div>
-      <div class="mt-2">Профиль лота: {{ evaluation.lot_profile }}. Floor/Ceiling: {{ evaluation.decision_summary.floor_or_ceiling_type }}.</div>
-      <div class="mt-2">Предельный уровень: {{ fmt_num(evaluation.decision_summary.hard_limit, 2) }}. Рекомендуемая ставка: {{ fmt_num(evaluation.recommended_bid_or_tariff or evaluation.recommended_bid, 2) }}.</div>
+      <div class="mt-2">Профиль лота: {{ evaluation.lot_profile }}. Роль цены: {{ evaluation.price_role }}.</div>
+      <div class="mt-2">Предельный уровень: {{ fmt_num(evaluation.decision_summary.hard_limit, 2) }}. Основная цена: {{ fmt_num(evaluation.optimal_purchase_price or evaluation.recommended_bid_or_tariff or evaluation.recommended_bid, 2) }}.</div>
+      <div class="mt-2">Expected profit: {{ fmt_num(evaluation.expected_profit_after_purchase or evaluation.expected_delta_profit, 2) }}. Risk-adjusted: {{ fmt_num(evaluation.risk_adjusted_profit, 2) }}.</div>
       <div class="mt-2">Recommended opening bid: {{ fmt_num(evaluation.decision_summary.recommended_opening_bid, 2) }}. Recommended counter bid: {{ fmt_num(evaluation.decision_summary.recommended_counter_bid, 2) }}.</div>
       <div class="mt-2">All-Pay advice: {{ evaluation.decision_summary.allpay_trigger_policy }}</div>
+      <div class="mt-2">Wind uncertainty penalty: {{ fmt_num(evaluation.wind_uncertainty_penalty, 2) }}.</div>
     </div>
     <div class="pill-row mt-3">
       <span class="pill risk-pill risk-pill-{{ evaluation.topology_risk }}">Topology: {{ evaluation.topology_risk }}</span>
@@ -76,7 +80,9 @@
     <div class="table-wrap mt-3">
       <table class="table">
         <tbody>
+          <tr><th>Stage</th><td>{{ evaluation.analysis_stage }}</td></tr>
           <tr><th>System fit</th><td>{{ fmt_num(evaluation.system_check.system_fit_score, 2) }}</td></tr>
+          <tr><th>Topology feasibility</th><td>{{ evaluation.topology_feasibility }}</td></tr>
           <tr><th>Синергия</th><td>{{ fmt_num(evaluation.metrics.synergy.score, 2) }}</td></tr>
           <tr><th>Standalone delta-profit</th><td>{{ fmt_num(evaluation.metrics.synergy.standalone_expected_net_profit, 2) }}</td></tr>
           <tr><th>Marginal delta-profit</th><td>{{ fmt_num(evaluation.metrics.synergy.marginal_expected_net_profit, 2) }}</td></tr>
@@ -91,7 +97,7 @@
 <section class="page-grid mt-4">
   <article class="card">
     <p class="section-kicker">Разложение экономики</p>
-    <h2 class="h2">Из чего складывается ценность лота</h2>
+    <h2 class="h2">Декомпозиция расчёта</h2>
     <div class="table-wrap mt-3">
       <table class="table">
         <tbody>
@@ -123,14 +129,26 @@
         <div class="table-secondary">{{ (evaluation.worst_case.notes or [])|join('; ') or 'Без дополнительных замечаний.' }}</div>
       </div>
     </div>
+    {% if evaluation.wind_posterior %}
+    <div class="table-wrap mt-3">
+      <table class="table">
+        <tbody>
+          <tr><th>Wind posterior mean</th><td>{{ fmt_num(evaluation.wind_posterior.posterior_mean_value, 2) }}</td></tr>
+          <tr><th>Wind posterior q25</th><td>{{ fmt_num(evaluation.wind_posterior.posterior_q25_value, 2) }}</td></tr>
+          <tr><th>Wind posterior q10</th><td>{{ fmt_num(evaluation.wind_posterior.posterior_q10_value, 2) }}</td></tr>
+          <tr><th>Wind CVaR</th><td>{{ fmt_num(evaluation.wind_posterior.cvar_value, 2) }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
   </article>
 </section>
 
 <section class="card mt-4" id="lotPairsCard" data-strategy-url="{{ strategy_api_url }}" data-lot-id="{{ lot.id }}">
   <div class="section-head">
     <div>
-      <p class="section-kicker">Синергия с этим лотом</p>
-      <h2 class="h2">Лучшие пары</h2>
+      <p class="section-kicker">Unified catalog</p>
+      <h2 class="h2">Лучшие пары с этим лотом</h2>
     </div>
   </div>
   <div class="table-wrap mt-3">
@@ -154,8 +172,8 @@
 
 <section class="page-grid mt-4">
   <article class="card">
-    <p class="section-kicker">Монтажные требования</p>
-    <h2 class="h2">Что обязательно проверить в сети</h2>
+    <p class="section-kicker">Stage B</p>
+    <h2 class="h2">Что обязательно проверить в сети после аукциона</h2>
     {% if evaluation.system_check.critical_blocking_errors or evaluation.system_check.warnings or evaluation.system_check.optimization_hints %}
     <div class="stack gap-3 mt-3">
       {% if evaluation.system_check.critical_blocking_errors %}

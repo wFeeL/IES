@@ -78,6 +78,9 @@ def _normalize_parent(
     parent = db.session.get(ObjectInstance, parent_id)
     if parent is None or int(parent.session_id) != int(session_id):
         raise ValueError("Родительский объект не найден в этой сессии")
+    parent_type = parent.object_type
+    if parent_type is None or str(parent_type.category or "") != "infrastructure":
+        raise ValueError("Родителем может быть только подстанция или инфраструктурный объект.")
     return parent_id
 
 
@@ -221,7 +224,23 @@ def _validate_future_state(
             )
         )
     report = validate_network(future)
-    critical = [issue.message for issue in report.issues if issue.severity == "critical"]
+    has_main = any(str(obj.code or "") == "main_substation" and bool(obj.is_active) for obj in future)
+    allow_connectivity_repairs = current_object_id is None and str(object_type.category or "") == "infrastructure"
+    critical = []
+    for issue in report.issues:
+        if issue.severity != "critical":
+            continue
+        if not has_main and issue.code == "NO_MAIN_SUBSTATION":
+            continue
+        if allow_connectivity_repairs and issue.code in {
+            "NO_PATH_TO_MAIN",
+            "ISLAND_DETECTED",
+            "OBJECT_NOT_CONNECTED",
+            "MINI_SUBSTATION_NOT_INSTALLED",
+            "PURCHASED_OBJECT_USELESS",
+        }:
+            continue
+        critical.append(issue.message)
     if critical:
         raise ValueError(critical[0])
 

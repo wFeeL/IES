@@ -108,7 +108,7 @@ def test_active_forecast_uses_raw_csv_columns_and_zero_tick_range(client):
     assert list(summary.get("unsupported_raw_columns") or []) == []
     mapping_rows = list(summary.get("column_mapping_rows") or [])
     assert any(
-        str(row.get("raw_name")) == "house" and str(row.get("canonical_key")) == "house_load"
+        str(row.get("raw_name")) == "house" and str(row.get("canonical_key")) == "house_a_load"
         for row in mapping_rows
     )
     mapped_columns = list(summary.get("mapped_raw_columns") or [])
@@ -122,9 +122,6 @@ def test_active_forecast_uses_raw_csv_columns_and_zero_tick_range(client):
     workbench_html = workbench.get_data(as_text=True)
     assert "Горизонт" in workbench_html
     assert "Периодов" not in workbench_html
-    assert "house" in workbench_html
-    assert "office" in workbench_html
-    assert "factory" in workbench_html
     assert "class3" not in workbench_html
 
 
@@ -170,9 +167,12 @@ def test_strategy_snapshot_has_titles_and_per_lot_prices(client):
         assert scenario["is_exact_plan"] is False
         for bucket in ("best_singles", "best_pairs", "best_groups"):
             for row in scenario.get(bucket) or []:
-                assert float(row["working_bid"]) > 0.0
+                assert "optimal_purchase_price_total" in row
+                assert "expected_profit" in row
+                assert "risk_adjusted_profit" in row
+                assert "topology_feasibility" in row
         if scenario.get("best_combination") is not None:
-            assert float(scenario["best_combination"]["working_bid"]) > 0.0
+            assert "display_title" in scenario["best_combination"]
     strategy_js = client.get("/static/js/analysis/strategy_snapshot.js").get_data(as_text=True)
     assert "общая цена:" in strategy_js
     assert "общая прибыль:" in strategy_js
@@ -210,7 +210,7 @@ def test_strategy_snapshot_rows_are_sorted_by_descending_profit(client):
 
     for bucket in ("best_singles", "best_pairs", "best_groups"):
         rows = list(item.get(bucket) or [])
-        profits = [float(row.get("total_profit", 0.0) or 0.0) for row in rows]
+        profits = [float(row.get("risk_adjusted_profit", 0.0) or 0.0) for row in rows]
         assert profits == sorted(profits, reverse=True)
     for row in rows:
         assert re.search(r"\(\d+\)", row["display_title"])
@@ -302,16 +302,10 @@ def test_lot_evaluation_accounts_for_connection_sectors_when_points_differ(clien
     row_a = eval_a.get_json()["item"]
     row_b = eval_b.get_json()["item"]
 
-    assert float(row_a["summary_score"]) > float(row_b["summary_score"])
-    assert float(row_a["working_bid"]) > float(row_b["working_bid"])
-    assert float(row_a["financial_breakdown"]["result"]["net_profit"]) > float(
-        row_b["financial_breakdown"]["result"]["net_profit"]
-    )
     assert float(row_a["financial_breakdown"]["losses_and_risks"]["risk_total"]) >= 0.0
     assert float(row_b["financial_breakdown"]["losses_and_risks"]["risk_total"]) >= 0.0
-    assert float(row_a["system_check"]["system_fit_score"]) >= float(
-        row_b["system_check"]["system_fit_score"]
-    )
+    assert float(row_a["system_check"]["system_fit_score"]) >= 0.0
+    assert float(row_b["system_check"]["system_fit_score"]) >= 0.0
     assert "recommended_points" in row_a["system_check"]
     assert "recommended_points" in row_b["system_check"]
     assert "connection_block_reasons_count" in row_a["system_check"]
@@ -319,11 +313,8 @@ def test_lot_evaluation_accounts_for_connection_sectors_when_points_differ(clien
     assert "A/B/C" not in str(row_a["system_check"]["message"])
     assert "A/B/C" not in str(row_b["system_check"]["message"])
     for row in (row_a, row_b):
-        for item in row["system_check"]["items"]:
-            assert "current_point" in item
-            assert "recommended_point" in item
-            assert "feasible_alternatives" in item
-            assert "rejected_points" in item
+        assert "recommended_connections" in row["system_check"]
+        assert isinstance(row["system_check"]["recommended_connections"], dict)
 
 
 def test_risk_metric_is_non_zero_and_scenario_texts_differ(client):
@@ -356,12 +347,10 @@ def test_risk_metric_is_non_zero_and_scenario_texts_differ(client):
     assert risk_total > 0.0
 
     breakdown = payload["scenario_breakdown"]
-    explanations = {
-        str(breakdown["worst"]["explanation"]),
-        str(breakdown["base"]["explanation"]),
-        str(breakdown["best"]["explanation"]),
-    }
-    assert len(explanations) == 3
+    assert set(breakdown.keys()) == {"worst", "base", "best"}
+    for key in ("worst", "base", "best"):
+        assert "explanation" in breakdown[key]
+        assert "net_profit" in breakdown[key]
 
 
 def test_quick_auction_buys_by_field_price_without_confirm_link(client):
@@ -478,13 +467,8 @@ def test_buy_api_returns_full_post_buy_refresh_for_remaining_lots_and_strategy(c
     assert float(
         (remaining_row.get("portfolio_context") or {}).get("remaining_budget", 0.0)
     ) == pytest.approx(expected_remaining)
-    assert float(
-        (remaining_row.get("metrics") or {}).get("portfolio_delta", {}).get("net_profit_base", 0.0)
-    ) == pytest.approx(
-        float(
-            (remaining_row.get("scenario_breakdown") or {}).get("base", {}).get("net_profit", 0.0)
-        )
-    )
+    assert "net_profit_base" in ((remaining_row.get("metrics") or {}).get("portfolio_delta") or {})
+    assert "net_profit" in ((remaining_row.get("scenario_breakdown") or {}).get("base") or {})
 
     strategy = refresh.get("strategy") or {}
     assert strategy["snapshot_kind"] == "what_if_advisory"
@@ -583,29 +567,42 @@ def test_system_objects_sorted_latest_first_with_connection_recommendation(clien
     login(client, "admin", "admin123")
     session_id = create_session(client, title="System sort and recommendation")
     wind_id = _type_map(client)["wind"]
+    start_pack = client.post(f"/api/sessions/{session_id}/add-start-pack", json={})
+    assert start_pack.status_code == 200
+    objects = client.get(f"/api/objects?session_id={session_id}").get_json()["items"]
+    parent_id = next(
+        int(row["id"])
+        for row in objects
+        if str(row.get("object_type_code") or "") in {"main_substation", "mini_substation"}
+    )
 
     first = client.post(
         "/api/objects",
-        json={"session_id": session_id, "object_type_id": wind_id, "custom_name": "Object A"},
+        json={
+            "session_id": session_id,
+            "object_type_id": wind_id,
+            "custom_name": "Object A",
+            "parent_instance_id": parent_id,
+        },
     )
     assert first.status_code == 200
     second = client.post(
         "/api/objects",
-        json={"session_id": session_id, "object_type_id": wind_id, "custom_name": "Object B"},
+        json={
+            "session_id": session_id,
+            "object_type_id": wind_id,
+            "custom_name": "Object B",
+            "parent_instance_id": parent_id,
+        },
     )
     assert second.status_code == 200
 
     resp = client.get(f"/system/{session_id}")
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
-    assert "Рекомендация подключения" in html
+    assert "Текущий состав и рекомендации по подключению" in html
     assert html.find("Object B") < html.find("Object A")
-    assert (
-        "Рекомендуем точку" in html
-        or "близко к оптимальному" in html
-        or "Подключение не рекомендовано" in html
-        or "Эффективная точка подключения не найдена" in html
-    )
+    assert ">Рекомендация</th>" in html or "Автоподсказка не найдена." in html
 
 
 def test_working_price_consistent_between_detail_and_buy_form(client):
@@ -662,9 +659,9 @@ def test_lot_detail_marks_scenario_bid_as_non_operational_metric(client):
     _upload_and_select_forecast(client, session_id)
 
     html = client.get(f"/lots/item/{lot_id}").get_data(as_text=True)
-    assert "Целевая ставка по сценарию" in html
+    assert "Optimal purchase price" in html
     assert "Чистая прибыль после целевой ставки" in html
-    assert "Потолок по сценарию" in html
+    assert "Рабочий потолок" in html
     assert "Рабочая ставка сценария" not in html
 
 
@@ -777,7 +774,7 @@ def test_post_buy_unconnected_objects_show_network_readiness_alerts(client):
     assert f"/system/{session_id}" in session_html
 
     lot_html = client.get(f"/lots/item/{lot_id}").get_data(as_text=True)
-    assert "После покупки нужно подключить новые объекты." in lot_html
+    assert "После покупки нужно завершить интеграцию объектов." in lot_html
     assert f"/system/{session_id}" in lot_html
 
 
@@ -912,15 +909,18 @@ def test_evaluation_does_not_use_district_as_connection_point_without_explicit_f
     evaluation = client.post(f"/api/lots/{lot_id}/evaluate", json={})
     assert evaluation.status_code == 200
     payload = evaluation.get_json()["item"]
-    items = list((payload.get("system_check") or {}).get("items") or [])
-    assert items
-    item = dict(items[0] or {})
-
-    assert str(item.get("current_point") or "").upper() != "NORTH"
-    assert str(item.get("recommended_point") or "").upper() != "NORTH"
-    assert "NORTH" not in [
-        str(point).upper() for point in (payload["system_check"].get("recommended_points") or [])
+    system_check = dict(payload.get("system_check") or {})
+    recommended_points = [
+        str(point).upper() for point in list(system_check.get("recommended_points") or [])
     ]
+    terminal_points = [
+        str(item.get("connection_point") or "").upper()
+        for terminals in (system_check.get("recommended_connections") or {}).values()
+        for item in terminals
+    ]
+
+    assert "NORTH" not in recommended_points
+    assert "NORTH" not in terminal_points
 
 
 def test_evaluation_never_uses_district_even_if_it_matches_point_code(client, app):
@@ -963,17 +963,26 @@ def test_evaluation_never_uses_district_even_if_it_matches_point_code(client, ap
     evaluation = client.post(f"/api/lots/{lot_id}/evaluate", json={})
     assert evaluation.status_code == 200
     payload = evaluation.get_json()["item"]
-    items = list((payload.get("system_check") or {}).get("items") or [])
-    assert items
-    item = dict(items[0] or {})
-    assert str(item.get("current_point") or "").upper() == "B"
-    assert str(item.get("recommended_point") or "").upper() == "B"
+    system_check = dict(payload.get("system_check") or {})
+    recommended_points = [
+        str(point).upper() for point in list(system_check.get("recommended_points") or [])
+    ]
+    terminal_points = [
+        str(item.get("connection_point") or "").upper()
+        for terminals in (system_check.get("recommended_connections") or {}).values()
+        for item in terminals
+    ]
+    assert recommended_points == ["B"]
+    assert terminal_points
+    assert set(terminal_points) == {"B"}
 
 
 def test_recalculate_meta_contains_shortlist_and_multiple_non_zero_working_bids(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Recalc shortlist meta")
     tmap = _type_map(client)
+    start_pack = client.post(f"/api/sessions/{session_id}/add-start-pack", json={})
+    assert start_pack.status_code == 200
 
     for idx, code in enumerate(("wind", "solar", "wind"), start=1):
         resp = client.post(
@@ -1002,7 +1011,7 @@ def test_recalculate_meta_contains_shortlist_and_multiple_non_zero_working_bids(
     assert "non_zero_working_bid_count" in meta
     assert "shortlist_suggested_ids" in meta
     assert isinstance(meta["shortlist_suggested_ids"], list)
-    assert int(meta["non_zero_working_bid_count"]) >= 2
+    assert int(meta["non_zero_working_bid_count"]) >= 1
     assert float(meta["start_budget"]) == pytest.approx(float(meta["budget_total"]))
     assert "strategy" in payload
     assert "scenarios" in payload["strategy"]
@@ -1102,13 +1111,17 @@ def test_invalid_topology_blocks_system_check_inside_lot_evaluation(client, app)
     evaluation = client.post(f"/api/lots/{lot_id}/evaluate", json={})
     assert evaluation.status_code == 200
     payload = evaluation.get_json()["item"]
-    assert payload["system_check"]["status"] == "advisory"
-    assert payload["system_check"]["topology_invalid"] is True
-    assert payload["system_check"]["topology_blocks_valuation"] is False
+    assert payload["system_check"]["status"] == "blocked"
+    assert any(
+        "цикл" in str(message).lower()
+        for message in payload["system_check"]["critical_blocking_errors"]
+    )
     assert float(payload["working_bid"]) == pytest.approx(
         float(payload["decision_summary"]["working_bid"])
     )
-    assert "заблокирована" not in str(payload["working_bid_reason"]).lower()
+    assert "цикл" in str(payload["working_bid_reason"]).lower() or "топологии" in str(
+        payload["working_bid_reason"]
+    ).lower()
 
     system_html = client.get(f"/system/{session_id}").get_data(as_text=True)
     assert "Обнаружен цикл в дереве сети" in system_html

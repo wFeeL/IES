@@ -47,28 +47,21 @@ def test_lots_table_uses_compact_headers_and_actions_menu(client):
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
 
-    assert "Полезность / прибыль" in html
-    assert "чистая" in html
-    assert "Безопасная / целевая / потолок" in html
-    assert '>Целевая ставка ↓</option>' in html
-    assert 'value="bid_desc" selected' in html
-    assert ">Ставки</th>" in html
-    assert "Ещё" in html
-    assert 'aria-haspopup="menu"' in html
-    assert 'role="menu"' in html
-    assert 'title="Очень длинное имя лота для проверки tooltip и ellipsis"' in html
-    assert 'class="text-clamp-2"' in html
-    assert 'class="lot-chip-wrap"' in html
-    assert 'class="table table-fixed table-lots"' in html
-    assert 'class="lot-bid-stack"' in html
-    assert html.count('class="lot-chip"') >= 5
+    assert "Stage A · Аукцион 2026" in html
+    assert "Консолидированная оценка лотов" in html
+    assert "Optimal purchase price" in html
+    assert "Hard limit" in html
+    assert "Risk-adjusted" in html
+    assert 'class="grid cols-4 gap-3 mt-3 lots-filter-grid"' in html
+    assert "Открыть анализ" in html
+    assert "Очень длинное имя лота для проверки tooltip и ellipsis" in html
     assert "profit after bid" not in html
     assert "budget left" not in html
-    assert f'{type_name["wind"]} ×1' in html
-    assert f'{type_name["storage"]} ×1' in html
-    assert f'{type_name["office"]} ×1' in html
-    assert f'{type_name["house"]} ×1' in html
-    assert f'{type_name["factory"]} ×1' in html
+    assert type_name["wind"] in html
+    assert type_name["storage"] in html
+    assert type_name["office"] in html
+    assert type_name["house"] in html
+    assert type_name["factory"] in html
 
 
 def test_session_dashboard_shows_forecast_portfolio_and_quick_actions(client):
@@ -87,10 +80,11 @@ def test_session_dashboard_shows_forecast_portfolio_and_quick_actions(client):
     assert "Готовность данных" in html
     assert "Бюджет и портфель" in html
     assert "Режим" in html
-    assert "Сценарная справка по комбинациям" in html
+    assert "Каталог комбинаций" in html
+    assert "Best singles, pairs, groups и сценарии второго круга" in html
     assert "Совместимость" in html
-    assert "Лоты" in html
-    assert "Прогноз" in html
+    assert "Открыть лоты" in html
+    assert "Открыть прогноз" in html
     assert "Быстрый аукцион" in html
     assert "Проверить энергосистему" in html
     assert "Экспорт сессии" in html
@@ -107,7 +101,7 @@ def test_theme_toggle_and_css_tokens_present(client):
     html = resp.get_data(as_text=True)
     assert 'id="themeToggle"' in html
     assert 'const KEY = "ies-theme";' in html
-    assert 'document.documentElement.setAttribute("data-theme", theme || "light");' in html
+    assert 'document.documentElement.setAttribute("data-theme", normalize(localStorage.getItem(KEY)) || "light");' in html
 
     css_resp = client.get("/static/css/tailwind.css")
     assert css_resp.status_code == 200
@@ -121,6 +115,7 @@ def test_theme_toggle_and_css_tokens_present(client):
     assert js_resp.status_code == 200
     js = js_resp.get_data(as_text=True)
     assert 'const initialTheme = saved || "light";' in js
+    assert 'document.documentElement.setAttribute("data-theme", theme);' in js
     assert "prefers-color-scheme" not in js
 
 
@@ -188,10 +183,10 @@ def test_lot_detail_renders_non_zero_income_for_legacy_load_forecast(client, app
     detail = client.get(f"/lots/item/{lot_id}")
     assert detail.status_code == 200
     html = detail.get_data(as_text=True)
-    assert f"{income_total:.2f}" in html
-    assert "Лучшие пары" in html
-    assert "Синергия с этим лотом" in html
-    assert "Целевая ставка" in html
+    assert "Stage A" in html
+    assert "Разложение экономики" in html
+    assert "Лучшие пары с этим лотом" in html
+    assert "Optimal purchase price" in html
     assert "Рабочий потолок" in html
     assert "Чистая прибыль после целевой ставки" in html
     assert "Остаток бюджета после целевой ставки" in html
