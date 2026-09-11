@@ -328,6 +328,12 @@ def _aggregate_storage(
     }
 
 
+def _default_connection_point(config: Dict[str, Any]) -> str:
+    """Connection point used when an object does not name one itself."""
+    network_cfg = dict((config or {}).get("network") or {})
+    return str(network_cfg.get("default_connection_point") or "A").strip().upper() or "A"
+
+
 def _clone_objects(objects: Iterable[EnergyObject]) -> List[EnergyObject]:
     return [deepcopy(obj) for obj in ensure_terminals(objects)]
 
@@ -1208,7 +1214,7 @@ def _simulate(
     wind_valuator: WindAuctionValuator | None = None,
 ) -> SimulationResult:
     scenario = scenario_coefficients(config, scenario_label)
-    topology = validate_network(objects)
+    topology = validate_network(objects, _default_connection_point(config))
     for obj in objects:
         topology.loss_fraction_by_object[obj.object_id] = loss_fraction_for_object(
             obj=obj,
@@ -1572,6 +1578,7 @@ class UnifiedLotOptimizer:
         planned_objects, planning = plan_network(
             existing_objects=base_only,
             candidate_objects=candidate_objects,
+            default_point=_default_connection_point(self.config),
         )
         robust_results: Dict[str, Tuple[SimulationResult, SimulationResult]] = {}
         scenarios: Dict[str, ScenarioReport] = {}

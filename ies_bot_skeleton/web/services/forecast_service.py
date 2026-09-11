@@ -419,6 +419,29 @@ def _basic_series_stats(series: Dict[int, float]) -> Optional[Dict[str, float]]:
 
 
 
+def _column_mapping_rows(forecast: Forecast) -> List[Dict[str, Any]]:
+    """Which raw CSV column became which canonical series."""
+    column_map = forecast.column_map_json or {}
+    pairs: List[tuple] = []
+    if column_map.get("tick"):
+        pairs.append(("tick", column_map["tick"]))
+    for group in ("factors", "profiles"):
+        for canonical_key, raw_name in (column_map.get(group) or {}).items():
+            if raw_name:
+                pairs.append((canonical_key, raw_name))
+    return [
+        {"raw_name": str(raw_name), "canonical_key": str(canonical_key)}
+        for canonical_key, raw_name in pairs
+    ]
+
+
+def _unsupported_raw_columns(forecast: Forecast) -> List[str]:
+    """Headers the parser saw but could not place."""
+    headers = list((forecast.normalization_map_json or {}).get("headers") or [])
+    mapped = {row["raw_name"] for row in _column_mapping_rows(forecast)}
+    return [str(header) for header in headers if str(header) not in mapped]
+
+
 def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
     factors, profiles, ticks = _canonical_rows(list(forecast.periods))
     compatibility = dict(forecast.compatibility_report_json or {})
@@ -449,9 +472,9 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
                 *((forecast.column_map_json or {}).get("profiles") or {}).values(),
             ] if value
         ],
-        "unsupported_raw_columns": [],
-        "column_mapping_rows": [],
-        "mapped_raw_columns": [],
+        "unsupported_raw_columns": _unsupported_raw_columns(forecast),
+        "column_mapping_rows": _column_mapping_rows(forecast),
+        "mapped_raw_columns": [row["raw_name"] for row in _column_mapping_rows(forecast)],
         "mapped_raw_stats_display": [],
         "mapped_tick_range_label": f"{ticks[0]}-{ticks[-1]}" if ticks else "—",
         "consumer_averages": {LOAD_FROM_PROFILE[k]: _basic_series_stats(v)["avg"] for k, v in profiles.items() if k in LOAD_FROM_PROFILE and _basic_series_stats(v)},

@@ -161,7 +161,10 @@ def _system_check(evaluation) -> Dict[str, Any]:
         "recommended_points": sorted({t.connection_point for rows in evaluation.topology.recommended_connections.values() for t in rows if getattr(t, "connection_point", None)}),
         "recommended_connections": {
             str(key): [
-                str(getattr(row, "connection_point", "") or "")
+                {
+                    "connection_point": str(getattr(row, "connection_point", "") or ""),
+                    "object_id": str(getattr(row, "object_id", "") or ""),
+                }
                 for row in rows
                 if getattr(row, "connection_point", None)
             ]

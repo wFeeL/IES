@@ -38,7 +38,9 @@ def _point_from_payload(payload: Dict[str, object], fallback: str = "A") -> str:
     return (point or fallback).upper()
 
 
-def _terminals_from_parameters(obj: EnergyObject) -> List[ConnectionTerminal]:
+def _terminals_from_parameters(
+    obj: EnergyObject, default_point: str = "A"
+) -> List[ConnectionTerminal]:
     params = dict(obj.parameters or {})
     raw_inputs = list(params.get("connection_inputs") or [])
     prepared: List[ConnectionTerminal] = []
@@ -51,7 +53,7 @@ def _terminals_from_parameters(obj: EnergyObject) -> List[ConnectionTerminal]:
                 label=str(item.get("label") or f"Ввод {idx}"),
                 required=bool(item.get("required", True)),
                 parent_id=str(item.get("parent_instance_id") or "").strip() or None,
-                connection_point=_point_from_payload(item, "A"),
+                connection_point=_point_from_payload(item, default_point),
                 load_share=float(item.get("load_share", 1.0) or 1.0),
             )
         )
@@ -63,7 +65,7 @@ def _terminals_from_parameters(obj: EnergyObject) -> List[ConnectionTerminal]:
         return prepared
 
     parent_id = str(obj.parent_id or "").strip() or None
-    connection_point = _point_from_payload(params, "A")
+    connection_point = _point_from_payload(params, default_point)
     code = _norm(obj.code)
     if code == "hospital":
         return [
@@ -103,11 +105,13 @@ def _terminals_from_parameters(obj: EnergyObject) -> List[ConnectionTerminal]:
     return [ConnectionTerminal("input", "Подключение", True, parent_id, connection_point, 1.0)]
 
 
-def ensure_terminals(objects: Iterable[EnergyObject]) -> List[EnergyObject]:
+def ensure_terminals(
+    objects: Iterable[EnergyObject], default_point: str = "A"
+) -> List[EnergyObject]:
     prepared = []
     for source in objects:
         obj = deepcopy(source)
-        obj.terminals = list(obj.terminals or _terminals_from_parameters(obj))
+        obj.terminals = list(obj.terminals or _terminals_from_parameters(obj, default_point))
         prepared.append(obj)
     return prepared
 
@@ -262,8 +266,9 @@ def _plan_network_once(
     existing_objects: Iterable[EnergyObject],
     candidate_objects: Iterable[EnergyObject],
     mode: str,
+    default_point: str = "A",
 ) -> Tuple[List[EnergyObject], NetworkValidationReport]:
-    objects = ensure_terminals([*existing_objects, *candidate_objects])
+    objects = ensure_terminals([*existing_objects, *candidate_objects], default_point)
     by_id = {obj.object_id: obj for obj in objects}
     infra_nodes = [obj for obj in objects if _is_infrastructure(obj) and obj.is_active]
     available_ports: Dict[str, int] = {}
@@ -328,6 +333,7 @@ def plan_network_candidates(
     *,
     existing_objects: Iterable[EnergyObject],
     candidate_objects: Iterable[EnergyObject],
+    default_point: str = "A",
 ) -> List[Tuple[List[EnergyObject], NetworkValidationReport]]:
     candidates: List[Tuple[List[EnergyObject], NetworkValidationReport]] = []
     fingerprints: set[Tuple[Tuple[str, str, str], ...]] = set()
@@ -336,6 +342,7 @@ def plan_network_candidates(
             existing_objects=existing_objects,
             candidate_objects=candidate_objects,
             mode=mode,
+            default_point=default_point,
         )
         fingerprint = tuple(
             sorted(
@@ -369,13 +376,18 @@ def plan_network(
     *,
     existing_objects: Iterable[EnergyObject],
     candidate_objects: Iterable[EnergyObject],
+    default_point: str = "A",
 ) -> Tuple[List[EnergyObject], NetworkValidationReport]:
     candidates = plan_network_candidates(
         existing_objects=existing_objects,
         candidate_objects=candidate_objects,
+        default_point=default_point,
     )
     if not candidates:
-        return ensure_terminals([*existing_objects, *candidate_objects]), NetworkValidationReport()
+        return (
+            ensure_terminals([*existing_objects, *candidate_objects], default_point),
+            NetworkValidationReport(),
+        )
     ordered = sorted(
         candidates,
         key=lambda item: (
@@ -398,8 +410,10 @@ def plan_network(
     return selected_objects, selected_report
 
 
-def validate_network(objects: Iterable[EnergyObject]) -> NetworkValidationReport:
-    prepared = ensure_terminals(objects)
+def validate_network(
+    objects: Iterable[EnergyObject], default_point: str = "A"
+) -> NetworkValidationReport:
+    prepared = ensure_terminals(objects, default_point)
     report = NetworkValidationReport()
     active = [obj for obj in prepared if obj.is_active]
     by_id = {obj.object_id: obj for obj in active}
@@ -669,7 +683,12 @@ def loss_fraction_for_object(
     by_id = {item.object_id: item for item in objects if item.is_active}
 
     terminal_losses: List[float] = []
-    terminals = list(obj.terminals or _terminals_from_parameters(obj))
+    terminals = list(
+        obj.terminals
+        or _terminals_from_parameters(
+            obj, str(network_cfg.get("default_connection_point") or "A").strip().upper()
+        )
+    )
     if not terminals:
         return 0.0
     for terminal in terminals:
