@@ -19,3 +19,4 @@ ies_web.db
 # macOS / Finder metadata
 ._*
 __MACOSX/
+.idea/
