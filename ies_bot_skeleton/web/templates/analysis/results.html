@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Результаты {{ session.id }} | IES{% endblock %}
+{% block page_title %}Результаты сессии #{{ session.id }}{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Unified optimizer · Stage A</p>
+      <h1 class="h1">Лучшие одиночки, пары и группы лотов</h1>
+      <p class="muted">Раздел показывает итоговый ranking по risk-adjusted profit и expected profit. Это аукционная справка для покупки лотов, а не замена post-auction сборке энергосистемы.</p>
+    </div>
+    <div class="actions">
+      <a class="btn btn-secondary" href="{{ url_for('pages.lots_page', session_id=session.id) }}">К лотам</a>
+      <a class="btn btn-primary" href="{{ url_for('pages.system_view', session_id=session.id) }}">К сборке энергосистемы</a>
+    </div>
+  </div>
+</section>
+
+{% if forecast_blocked %}
+<section class="card mt-4">
+  <div class="risk-block">
+    <strong>Расчёт результатов заблокирован прогнозом.</strong>
+    <div class="mt-2">{{ compatibility_guidance.primary_message }}</div>
+    <ul class="stack gap-1 mt-2">
+      {% for item in compatibility_guidance.actions %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    <div class="actions mt-3">
+      <a class="btn btn-primary" href="{{ compatibility_guidance.forecast_url }}">Перейти к прогнозам</a>
+    </div>
+  </div>
+</section>
+{% else %}
+<section class="page-grid mt-4">
+  <article class="card">
+    <p class="section-kicker">Лучшая комбинация</p>
+    <h2 class="h2">{{ snapshot.best_combination.display_title if snapshot and snapshot.best_combination else 'Нет данных' }}</h2>
+    {% if snapshot and snapshot.best_combination %}
+    <div class="insight-grid mt-3">
+      <div class="metric-card"><span class="metric-label">Optimal purchase price</span><strong>{{ fmt_num(snapshot.best_combination.optimal_purchase_price_total, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Expected profit</span><strong>{{ fmt_num(snapshot.best_combination.expected_profit, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Risk-adjusted profit</span><strong>{{ fmt_num(snapshot.best_combination.risk_adjusted_profit, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Topology</span><strong>{{ snapshot.best_combination.topology_status or '—' }}</strong></div>
+    </div>
+    <div class="risk-block mt-3">
+      <strong>Объяснение</strong>
+      <div class="mt-2">{{ snapshot.best_combination.explanation or 'Причина не указана.' }}</div>
+    </div>
+    {% else %}
+    <div class="empty-state mt-3">Пока нет комбинаций для показа.</div>
+    {% endif %}
+  </article>
+
+  <article class="card">
+    <p class="section-kicker">Plan B / Plan C</p>
+    <h2 class="h2">Запасные сценарии</h2>
+    <div class="stack gap-3 mt-3">
+      <div>
+        <strong>Plan B</strong>
+        {% if snapshot and snapshot.plan_b %}
+        <div class="table-secondary">{{ snapshot.plan_b.display_title }}</div>
+        <div>{{ fmt_num(snapshot.plan_b.expected_profit, 2) }} expected profit · {{ fmt_num(snapshot.plan_b.optimal_purchase_price_total, 2) }} price</div>
+        {% else %}
+        <div class="muted">Нет.</div>
+        {% endif %}
+      </div>
+      <div>
+        <strong>Plan C</strong>
+        {% if snapshot and snapshot.plan_c %}
+        <div class="table-secondary">{{ snapshot.plan_c.display_title }}</div>
+        <div>{{ fmt_num(snapshot.plan_c.expected_profit, 2) }} expected profit · {{ fmt_num(snapshot.plan_c.optimal_purchase_price_total, 2) }} price</div>
+        {% else %}
+        <div class="muted">Нет.</div>
+        {% endif %}
+      </div>
+    </div>
+  </article>
+</section>
+
+{% macro render_combo_table(title, rows) -%}
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Каталог комбинаций</p>
+      <h2 class="h2">{{ title }}</h2>
+    </div>
+  </div>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Комбинация</th>
+          <th>Цена покупки</th>
+          <th>Expected profit</th>
+          <th>Risk-adjusted</th>
+          <th>Synergy</th>
+          <th>Topology</th>
+          <th>Budget fit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            <strong>{{ row.display_title }}</strong>
+            <div class="table-secondary">{{ row.explanation }}</div>
+          </td>
+          <td>{{ fmt_num(row.optimal_purchase_price_total, 2) }}</td>
+          <td>{{ fmt_num(row.expected_profit, 2) }}</td>
+          <td>{{ fmt_num(row.risk_adjusted_profit, 2) }}</td>
+          <td>{{ fmt_num(row.synergy, 2) }}</td>
+          <td>{{ row.topology_status or '—' }}</td>
+          <td>
+            {% if row.budget_fit and row.budget_fit.is_affordable %}
+            <span class="status-badge status-fresh">OK</span>
+            {% else %}
+            <span class="status-badge status-stale">Limit</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="muted">Нет комбинаций.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{%- endmacro %}
+
+{{ render_combo_table('Best singles', snapshot.best_singles if snapshot else []) }}
+{{ render_combo_table('Best pairs', snapshot.best_pairs if snapshot else []) }}
+{{ render_combo_table('Best groups', snapshot.best_groups if snapshot else []) }}
+
+{% if snapshot and snapshot.scenarios %}
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Scenario view</p>
+      <h2 class="h2">Сценарии второго круга</h2>
+    </div>
+  </div>
+  <div class="page-grid mt-3">
+    {% for key, scenario in snapshot.scenarios.items() %}
+    <article class="card">
+      <p class="section-kicker">{{ scenario.title }}</p>
+      <div class="muted">{{ scenario.note }}</div>
+      {% if scenario.best_combination %}
+      <div class="mt-3"><strong>{{ scenario.best_combination.display_title }}</strong></div>
+      <div class="table-secondary mt-1">Price {{ fmt_num(scenario.best_combination.optimal_purchase_price_total, 2) }} · Profit {{ fmt_num(scenario.best_combination.expected_profit, 2) }}</div>
+      {% else %}
+      <div class="empty-state mt-3">Нет комбинации.</div>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

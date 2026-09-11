@@ -30,6 +30,56 @@ PROFILE_FROM_LOAD = {
 }
 LOAD_FROM_PROFILE = {value: key for key, value in PROFILE_FROM_LOAD.items()}
 
+FACTOR_ALIASES = {
+    "wind_factor": (
+        "wind_factor",
+        "wind",
+        "wind_main",
+        "wind_speed",
+        "ветер",
+        "скорость_ветра",
+        "скоростьветра",
+    ),
+    "solar_factor": (
+        "solar_factor",
+        "illumination",
+        "solar",
+        "sun",
+        "солнце",
+        "освещенность",
+        "освещённость",
+        "инсоляция",
+    ),
+    "market_price_buy": (
+        "market_price_buy",
+        "market_price",
+        "price_buy",
+        "price",
+        "цена_покупки",
+        "ценапокупки",
+        "рыночная_цена",
+        "рыночнаяцена",
+        "цена_рынка",
+        "ценарынка",
+    ),
+    "market_price_sell": (
+        "market_price_sell",
+        "sell_price",
+        "price_sell",
+        "цена_продажи",
+        "ценапродажи",
+    ),
+    "balancing_penalty_price": (
+        "balancing_penalty_price",
+        "balancing_penalty",
+        "imbalance_penalty",
+        "штраф_балансировки",
+        "штрафбалансировки",
+        "штраф_дисбаланса",
+        "штрафдисбаланса",
+    ),
+}
+
 
 class ForecastParseError(ValueError):
     pass
@@ -82,7 +132,11 @@ def _read_csv(content: bytes) -> Tuple[List[str], List[Dict[str, str]]]:
     delimiter = _detect_delimiter(text[:4096])
     reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
     headers = list(reader.fieldnames or [])
-    rows = [dict(row) for row in reader]
+    rows = [
+        dict(row)
+        for row in reader
+        if any(str(value or "").strip() for value in (row or {}).values())
+    ]
     return headers, rows
 
 
@@ -108,6 +162,32 @@ def _canonical_profile_key(raw_key: str) -> Optional[str]:
         "load_houseb": "house_b_load",
         "load_house_b": "house_b_load",
         "load_hospital": "hospital_load",
+        "factoryload": "factory_load",
+        "officeload": "office_load",
+        "houseaload": "house_a_load",
+        "housebload": "house_b_load",
+        "hospitalload": "hospital_load",
+        "factorys": "factory_load",
+        "offices": "office_load",
+        "hospitals": "hospital_load",
+        "завод": "factory_load",
+        "заводы": "factory_load",
+        "фабрика": "factory_load",
+        "фабрики": "factory_load",
+        "офис": "office_load",
+        "офисы": "office_load",
+        "дом": "house_a_load",
+        "дома": "house_a_load",
+        "домаа": "house_a_load",
+        "домаa": "house_a_load",
+        "дом_a": "house_a_load",
+        "houseа": "house_a_load",
+        "домаб": "house_b_load",
+        "домаb": "house_b_load",
+        "дом_b": "house_b_load",
+        "houseб": "house_b_load",
+        "больница": "hospital_load",
+        "больницы": "hospital_load",
     }
     return mapping.get(key)
 
@@ -116,14 +196,14 @@ def _canonical_profile_key(raw_key: str) -> Optional[str]:
 def _guess_columns(headers: Iterable[str]) -> Dict[str, Any]:
     guessed: Dict[str, Any] = {"tick": None, "factors": {}, "profiles": {}}
     normalized = {_norm(header): header for header in headers}
-    guessed["tick"] = normalized.get("tick") or normalized.get("time") or normalized.get("t")
-    for canonical, aliases in {
-        "wind_factor": ["wind_factor", "wind", "wind_main", "wind_speed"],
-        "solar_factor": ["solar_factor", "illumination", "solar", "sun"],
-        "market_price_buy": ["market_price_buy", "market_price", "price_buy", "price"],
-        "market_price_sell": ["market_price_sell", "sell_price", "price_sell"],
-        "balancing_penalty_price": ["balancing_penalty_price", "balancing_penalty", "imbalance_penalty"],
-    }.items():
+    guessed["tick"] = (
+        normalized.get("tick")
+        or normalized.get("time")
+        or normalized.get("t")
+        or normalized.get("такт")
+        or normalized.get("время")
+    )
+    for canonical, aliases in FACTOR_ALIASES.items():
         for alias in aliases:
             if _norm(alias) in normalized:
                 guessed["factors"][canonical] = normalized[_norm(alias)]
@@ -217,22 +297,37 @@ def parse_and_store_forecast(
     resolved = _resolved_column_map(guessed, column_map)
     diagnostics_errors: List[str] = []
     diagnostics_warnings: List[str] = []
+    ruleset_cfg = dict((session.ruleset.config_json or {}) if session.ruleset is not None else {})
+    horizon = int(((ruleset_cfg.get("time") or {}).get("horizon_ticks", 48)) or 48)
 
     tick_col = resolved.get("tick")
-    if not tick_col:
-        diagnostics_errors.append("Не найден столбец tick")
     if not rows:
         diagnostics_errors.append("CSV пустой")
+    synthetic_tick = not bool(tick_col)
+    rows_for_parse = list(rows)
+    if synthetic_tick and rows_for_parse:
+        if len(rows_for_parse) > horizon:
+            diagnostics_warnings.append(
+                f"Столбец tick не найден; использованы первые {horizon} строк из {len(rows_for_parse)}."
+            )
+            rows_for_parse = rows_for_parse[:horizon]
+        else:
+            diagnostics_warnings.append(
+                f"Столбец tick не найден; использованы порядковые номера строк 0..{len(rows_for_parse) - 1}."
+            )
     if diagnostics_errors:
         raise ForecastParseError("; ".join(diagnostics_errors))
 
     periods: List[ForecastPeriod] = []
-    for row_idx, row in enumerate(rows, start=2):
-        tick_raw = row.get(tick_col)
-        tick = _parse_float(tick_raw)
-        if tick is None:
-            diagnostics_errors.append(f"Строка {row_idx}: некорректный tick '{tick_raw}'")
-            continue
+    for row_idx, row in enumerate(rows_for_parse, start=2):
+        if synthetic_tick:
+            tick = float(row_idx - 2)
+        else:
+            tick_raw = row.get(tick_col)
+            tick = _parse_float(tick_raw)
+            if tick is None:
+                diagnostics_errors.append(f"Строка {row_idx}: некорректный tick '{tick_raw}'")
+                continue
         factors_json: Dict[str, float] = {}
         profiles_json: Dict[str, float] = {}
         for key, source in dict(resolved.get("factors") or {}).items():
