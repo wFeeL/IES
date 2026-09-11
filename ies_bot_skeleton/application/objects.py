@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from ..domain.ies2026 import EnergyObject, validate_network
 from ..web.extensions import db

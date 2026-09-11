@@ -20,7 +20,7 @@ from .evaluation import (
     evaluate_lot_bundle,
     prepare_fast_scoring_context,
 )
-from .strategy_catalog import normalize_strategy_code, strategy_meta
+from .strategy_catalog import strategy_meta
 
 
 @dataclass(frozen=True)

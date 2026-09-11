@@ -9,7 +9,11 @@ from ies_bot_skeleton.web.app import create_app
 from ies_bot_skeleton.web.extensions import db
 from ies_bot_skeleton.web.models import Forecast, GameSession, Ruleset, StartPackTemplate
 from ies_bot_skeleton.web.services.seed import ensure_seed_data
-from ies_bot_skeleton.web.services.test_game_preset import load_test_game_lot_payloads
+from ies_bot_skeleton.web.services.test_game_preset import (
+    TEST_GAME_DEFAULT_SESSION_TITLE,
+    TEST_GAME_UPLOAD_FORECAST_DEFAULT_NAME,
+    load_test_game_lot_payloads,
+)
 from tests.web_helpers import ruleset_id_by_code
 
 
@@ -51,7 +55,7 @@ def _h48_csv_house_factory_market() -> bytes:
     return ("\n".join(rows) + "\n").encode("utf-8")
 
 
-def test_default_session_bootstraps_test_game_preset(client, app):
+def test_default_session_starts_empty_on_the_production_ruleset(client, app):
     _login(client, "admin", "admin123")
 
     create_session_resp = client.post(
@@ -66,36 +70,36 @@ def test_default_session_bootstraps_test_game_preset(client, app):
     with app.app_context():
         session = db.session.get(GameSession, session_id)
         assert session is not None
-        assert session.title == "Тестовая игра"
+        assert session.title == TEST_GAME_DEFAULT_SESSION_TITLE
         assert session.selected_forecast_id is None
         ruleset = db.session.get(Ruleset, session.ruleset_id)
         assert ruleset is not None
-        assert ruleset.code == "ies_test_game_2026"
+        assert ruleset.code == "ies_2026"
         assert db.session.query(Forecast).filter_by(session_id=session_id).count() == 0
 
+    # Nothing is pre-seeded any more: the analyst brings their own objects,
+    # lots and forecast.
     objects_resp = client.get(f"/api/objects?session_id={session_id}")
     assert objects_resp.status_code == 200
-    assert len(objects_resp.get_json()["items"]) == 4
+    assert objects_resp.get_json()["items"] == []
 
     lots_resp = client.get(f"/api/lots?session_id={session_id}")
     assert lots_resp.status_code == 200
-    assert len(lots_resp.get_json()["items"]) == 25
+    assert lots_resp.get_json()["items"] == []
 
     add_start_pack_resp = client.post(f"/api/sessions/{session_id}/add-start-pack", json={})
-    assert add_start_pack_resp.status_code == 400
-    assert add_start_pack_resp.get_json()["ok"] is False
+    assert add_start_pack_resp.status_code == 200
+    assert add_start_pack_resp.get_json()["ok"] is True
 
 
-def test_test_game_standard_lots_include_extended_generated_pool():
-    payloads = load_test_game_lot_payloads()
-
-    assert len(payloads) == 25
-    assert len({str(item.get("title") or "").strip() for item in payloads}) == 25
-    assert sum(1 for item in payloads if str(item.get("lot_id") or "").startswith("G")) == 20
-    assert any(len(item.get("items") or []) >= 3 for item in payloads)
+def test_test_game_lot_pool_is_empty_while_the_preset_is_disabled():
+    assert load_test_game_lot_payloads() == []
 
 
-def test_failed_test_game_bootstrap_rolls_back_session_creation(client, app):
+def test_session_creation_no_longer_depends_on_start_pack_templates(client, app):
+    # Session creation used to bootstrap the test game and roll back when the
+    # start pack was missing. Production sessions start empty, so deactivating
+    # every template must not stop a session from being created.
     _login(client, "admin", "admin123")
 
     with app.app_context():
@@ -111,11 +115,11 @@ def test_failed_test_game_bootstrap_rolls_back_session_creation(client, app):
             "selected_strategy": "balanced",
         },
     )
-    assert create_session_resp.status_code == 400
-    assert create_session_resp.get_json()["ok"] is False
+    assert create_session_resp.status_code == 200
+    assert create_session_resp.get_json()["ok"] is True
 
     with app.app_context():
-        assert db.session.query(GameSession).count() == before
+        assert db.session.query(GameSession).count() == before + 1
 
 
 def test_create_session_rejects_selected_forecast_id(client, app):
@@ -185,7 +189,7 @@ def test_explicit_generic_ruleset_session_stays_empty(client):
     assert lots_resp.get_json()["items"] == []
 
 
-def test_forecast_upload_uses_test_game_default_name(client):
+def test_forecast_upload_falls_back_to_the_default_name(client):
     _login(client, "admin", "admin123")
     ruleset_id = ruleset_id_by_code(client, "ies_2026")
     create_session_resp = client.post(
@@ -208,7 +212,7 @@ def test_forecast_upload_uses_test_game_default_name(client):
         content_type="multipart/form-data",
     )
     assert upload_resp.status_code == 200
-    assert upload_resp.get_json()["item"]["name"] == "Прогноз игры"
+    assert upload_resp.get_json()["item"]["name"] == TEST_GAME_UPLOAD_FORECAST_DEFAULT_NAME
 
 
 def test_admin_end_to_end_flow(client, app):

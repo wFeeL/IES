@@ -363,6 +363,13 @@ def _payload_from_evaluation(
     }
 
     budget_remaining = float(budget.get("remaining_budget", 0.0) or 0.0)
+    # Bid ladder, each rung derived from the model rather than a tuning factor:
+    # safe_bid is the most you can pay and still break even in the worst case,
+    # target_bid is the optimal price, hard_cap is the break-even limit, and
+    # budget_adjusted_bid is the target clipped by what is left to spend.
+    safe_bid = max(0.0, float(evaluation.worst_case.delta_profit))
+    target_bid = optimal_purchase_price
+    budget_adjusted_bid = min(optimal_purchase_price, budget_remaining)
     financial_breakdown = _financial_breakdown(
         evaluation,
         budget_remaining=budget_remaining,
@@ -387,6 +394,16 @@ def _payload_from_evaluation(
             "remaining_budget_after_max_bid": financial_breakdown["result"][
                 "remaining_budget_after_max_bid"
             ],
+            "recommended_bid": round(optimal_purchase_price, 4),
+            "recommended_bid_safe": round(safe_bid, 4),
+            "recommended_bid_balanced": round(target_bid, 4),
+            "recommended_bid_aggressive": round(hard_limit, 4),
+            "cautious_bid": round(safe_bid, 4),
+            "target_bid": round(target_bid, 4),
+            "budget_adjusted_bid": round(budget_adjusted_bid, 4),
+            "hard_ceiling_bid": round(hard_limit, 4),
+            "hard_cap": round(hard_limit, 4),
+            "max_bid": round(hard_limit, 4),
         }
     )
 
@@ -425,6 +442,13 @@ def _payload_from_evaluation(
         "working_bid_source": "optimal_purchase_price",
         "working_bid_reason": str(evaluation.explanation),
         "recommended_bid": round(optimal_purchase_price, 4),
+        "recommended_bid_soft": round(optimal_purchase_price, 4),
+        "recommended_bid_hard": round(hard_limit, 4),
+        "safe_bid": round(safe_bid, 4),
+        "target_bid": round(target_bid, 4),
+        "budget_adjusted_bid": round(budget_adjusted_bid, 4),
+        "hard_ceiling_bid": round(hard_limit, 4),
+        "hard_cap": round(hard_limit, 4),
         "max_bid": round(hard_limit, 4),
         "reasons": [str(evaluation.explanation), *list(getattr(evaluation, "synergy_notes", []) or [])],
         "budget_preservation_note": BUDGET_PRESERVATION_NOTE,
