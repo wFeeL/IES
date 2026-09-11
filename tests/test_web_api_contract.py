@@ -9,6 +9,8 @@ from ies_bot_skeleton.web.extensions import db
 from ies_bot_skeleton.web.models import EvaluationResult, GameSession
 from ies_bot_skeleton.web.services.seed import ensure_seed_data
 
+from ies_bot_skeleton.web.services.evaluation import VALUATION_MODEL
+
 from tests.web_helpers import create_session, login, ruleset_id_by_code, upload_forecast
 
 
@@ -613,34 +615,46 @@ def test_analytics_structure_items_are_sector_agnostic_in_presentation(client):
     assert f'{by_code["office"]["name"]} ×1' in str(row.get("structure") or "")
 
 
-def test_test_game_solar_storage_profit_is_not_inflated_anymore(client):
+def test_solar_storage_profit_is_not_inflated(client):
     login(client, "admin", "admin123")
-    test_game_ruleset = ruleset_id_by_code(client, "ies_test_game_2026")
+    ruleset_id = ruleset_id_by_code(client, "ies_2026")
     create_resp = client.post(
         "/api/sessions",
         json={
-            "title": "Test game profitability",
-            "ruleset_id": test_game_ruleset,
+            "title": "Solar storage profitability",
+            "ruleset_id": ruleset_id,
             "selected_strategy": "balanced",
             "budget_total": 200.0,
         },
     )
     assert create_resp.status_code == 200
     session_id = int(create_resp.get_json()["item"]["id"])
+    upload_forecast(client, session_id)
 
-    lots_resp = client.get(f"/api/lots?session_id={session_id}")
-    assert lots_resp.status_code == 200
-    lots = lots_resp.get_json()["items"]
-    solar_lot = next((row for row in lots if row.get("name") == "Солнечный накопитель"), None)
-    assert solar_lot is not None
+    lot_resp = client.post(
+        "/api/lots",
+        json={
+            "session_id": session_id,
+            "name": "Солнечный накопитель",
+            "scope": "normal",
+            "base_bid": 30.0,
+            "current_bid": 30.0,
+            "items": [
+                {"object_type_id": _type_id_by_code(client, "solar"), "quantity": 1},
+                {"object_type_id": _type_id_by_code(client, "storage"), "quantity": 1},
+            ],
+        },
+    )
+    assert lot_resp.status_code == 200
+    lot_id = int(lot_resp.get_json()["item"]["id"])
 
-    eval_resp = client.post(f'/api/lots/{int(solar_lot["id"])}/evaluate', json={})
+    eval_resp = client.post(f"/api/lots/{lot_id}/evaluate", json={})
     assert eval_resp.status_code == 200
     payload = eval_resp.get_json()["item"]
     net_profit = float(payload["financial_breakdown"]["result"]["net_profit"])
 
     assert net_profit < 1000.0
-    assert payload["metrics"]["bids"]["valuation_model"]["model"] == "valuation_model_v3"
+    assert payload["metrics"]["bids"]["valuation_model"]["model"] == VALUATION_MODEL
 
 
 def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client):
@@ -746,7 +760,7 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     )
     assert "ui_rows" in item["financial_breakdown"]
     assert "valuation_model" in item["metrics"]["bids"]
-    assert item["metrics"]["bids"]["valuation_model"]["model"] == "valuation_model_v3"
+    assert item["metrics"]["bids"]["valuation_model"]["model"] == VALUATION_MODEL
     assert "system_check" in item
 
     analytics_resp = client.get(f"/api/sessions/{session_id}/lots/analytics")

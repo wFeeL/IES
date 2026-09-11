@@ -178,6 +178,46 @@ def _system_check(evaluation) -> Dict[str, Any]:
 # Single name for the valuation model, surfaced as decision_summary.bid_formula
 # and metrics.bids.valuation_model.model so the two can never drift apart.
 VALUATION_MODEL = "unified_lot_optimizer_2026"
+# How the bid is derived from the valuation. Kept separate from the model
+# name above: one says what the lot is worth, the other how we bid on it.
+BID_FORMULA = "strategic_anchor_repeatable_v4"
+LEGACY_BID_FORMULA = "deprecated_pwin_share_model"
+
+
+def _risk_factor(expected_profit: float, risk_adjusted_profit: float) -> float:
+    """How much of the anchor survives the risk haircut, clipped to 0..1."""
+    if abs(expected_profit) < 1e-9:
+        return 0.0
+    return round(max(0.0, min(1.0, risk_adjusted_profit / expected_profit)), 4)
+
+
+def _volatility_factor(evaluation, expected_profit: float) -> float:
+    """Best/worst spread measured against the size of the expected profit."""
+    spread = abs(float(evaluation.best_case.delta_profit) - float(evaluation.worst_case.delta_profit))
+    scale = max(abs(float(expected_profit)), 1.0)
+    return round(spread / scale, 4)
+
+
+def _cap_bindings(*, target_bid: float, budget_adjusted_bid: float, hard_limit: float) -> List[str]:
+    """Which caps are actually binding right now."""
+    bindings: List[str] = []
+    if budget_adjusted_bid < target_bid - 1e-9:
+        bindings.append("budget_remaining")
+    if target_bid > hard_limit + 1e-9:
+        bindings.append("hard_limit")
+    return bindings
+
+
+def _bid_constraints_summary(
+    *, target_bid: float, budget_adjusted_bid: float, hard_limit: float
+) -> str:
+    bindings = _cap_bindings(
+        target_bid=target_bid, budget_adjusted_bid=budget_adjusted_bid, hard_limit=hard_limit
+    )
+    if not bindings:
+        return "Ставка не упирается ни в бюджет, ни в предел безубыточности."
+    labels = {"budget_remaining": "остаток бюджета", "hard_limit": "предел безубыточности"}
+    return "Ставку ограничивают: " + ", ".join(labels[name] for name in bindings) + "."
 
 
 def _cap_reason(*, target_bid: float, budget_adjusted_bid: float, hard_limit: float) -> str:
@@ -449,7 +489,39 @@ def _payload_from_evaluation(
             # floor, so the floor is the lowest tariff still worth accepting.
             "minimum_acceptable_tariff": round(hard_limit, 4),
             "recommended_walkdown_tariff": round(optimal_purchase_price, 4),
-            "bid_formula": VALUATION_MODEL,
+            "bid_formula": BID_FORMULA,
+            "legacy_bid_formula": LEGACY_BID_FORMULA,
+            # The anchor is what the lot is worth before paying for it; every
+            # factor below scales that anchor down towards the bid.
+            "value_anchor": round(expected_profit, 4),
+            "adjusted_value": round(risk_adjusted_profit, 4),
+            "fit_factor": round(float(system_check.get("system_fit_score", 0.0) or 0.0), 4),
+            "risk_factor": _risk_factor(expected_profit, risk_adjusted_profit),
+            "volatility_factor": _volatility_factor(evaluation, expected_profit),
+            # Competition is not modelled: nothing in a pre-auction valuation
+            # tells us who else bids, so this stays neutral by design.
+            "competition_factor": 1.0,
+            "bid_constraints_summary": _bid_constraints_summary(
+                target_bid=target_bid,
+                budget_adjusted_bid=budget_adjusted_bid,
+                hard_limit=hard_limit,
+            ),
+            "cap_bindings": _cap_bindings(
+                target_bid=target_bid,
+                budget_adjusted_bid=budget_adjusted_bid,
+                hard_limit=hard_limit,
+            ),
+            "explainability": {
+                "value_anchor": round(expected_profit, 4),
+                "adjusted_value": round(risk_adjusted_profit, 4),
+                "fit_factor": round(float(system_check.get("system_fit_score", 0.0) or 0.0), 4),
+                "risk_factor": _risk_factor(expected_profit, risk_adjusted_profit),
+                "volatility_factor": _volatility_factor(evaluation, expected_profit),
+                "competition_factor": 1.0,
+                "competition_note": "Конкуренция не моделируется на этапе оценки лота.",
+            },
+            "portfolio_synergy": round(synergy_value + enabler_value, 4),
+            "system_fit_score": round(float(system_check.get("system_fit_score", 0.0) or 0.0), 4),
             "working_bid": round(working_bid, 4),
             "working_bid_source": working_bid_source,
             "working_bid_reason": working_bid_reason,
@@ -474,6 +546,7 @@ def _payload_from_evaluation(
             "bought_lots_count": int(sum(1 for row in _session_lots(session) if str(row.status or "") == "bought")),
             "spent_total": float(budget.get("spent_total", 0.0) or 0.0),
             "remaining_budget": float(budget.get("remaining_budget", 0.0) or 0.0),
+            "cash_available": float(budget.get("cash_available", budget.get("remaining_budget", 0.0)) or 0.0),
             "owned_objects_count": len([row for row in session.objects if row.is_active]),
         },
         "scenario_breakdown": {
@@ -549,6 +622,7 @@ def _payload_from_evaluation(
             "bids": {
                 "optimal_purchase_price": round(optimal_purchase_price, 4),
                 "hard_limit": round(hard_limit, 4),
+                "gross_expected_profit_before_bid": round(expected_profit, 4),
                 "valuation_model": {
                     "model": VALUATION_MODEL,
                     "profile": str(evaluation.lot_profile),

@@ -5,7 +5,7 @@ import pytest
 from ies_bot_skeleton.application.portfolio import buy_lot
 from ies_bot_skeleton.web.extensions import db
 from ies_bot_skeleton.web.models import Forecast, GameSession, Lot, LotItem, ObjectInstance, ObjectType
-from ies_bot_skeleton.web.services.evaluation import VALUATION_MODEL, evaluate_lot
+from ies_bot_skeleton.web.services.evaluation import BID_FORMULA, evaluate_lot
 from ies_bot_skeleton.web.services.forecast_service import parse_and_store_forecast
 
 
@@ -78,7 +78,7 @@ def test_evaluate_lot_returns_2026_delta_profit_payload(app):
         assert "recommended_bid_or_tariff" in payload
         assert "system_check" in payload
         assert "storage_value" in payload["metrics"]
-        assert payload["decision_summary"]["bid_formula"] == VALUATION_MODEL
+        assert payload["decision_summary"]["bid_formula"] == BID_FORMULA
 
 
 def test_evaluate_lot_flags_topology_risk_when_main_substation_missing(app):
