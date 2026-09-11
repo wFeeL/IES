@@ -169,6 +169,106 @@ def _risk_total(evaluation) -> float:
     return float(totals.loss_cost + totals.balancing_penalty + totals.unmet_load_penalty)
 
 
+def _financial_breakdown(
+    evaluation,
+    *,
+    budget_remaining: float,
+    current_price: float,
+    recommended_bid: float,
+    max_bid: float,
+    gross_profit_before_bid: float,
+    utility_total: float,
+) -> Dict[str, Any]:
+    """Money view of the lot, in the shape templates and analytics read.
+
+    Two different things live here on purpose. `income`, `expenses` and
+    `losses_and_risks` decompose the simulated base scenario, so they answer
+    "where does the money come from". `result` answers "what do I get for the
+    price", so it works off the delta profit the lot adds and the bid paid for
+    it. Mixing them in one number would be wrong; they are kept apart.
+
+    Field names follow the engine's own profit formula (see
+    domain/ies2026/engine.py): consumer_revenue already equals
+    fixed_tariff_revenue, and market_revenue already sums exchange and
+    guaranteed sales, so neither is added twice.
+    """
+    totals = evaluation.base_case.totals
+
+    object_income = float(totals.consumer_revenue)
+    market_income = float(totals.market_revenue)
+    eco_value = float(totals.flexibility_credit + totals.reserve_credit)
+    income_total = object_income + market_income + eco_value
+
+    contract_costs = float(totals.service_cost)
+    market_purchase = float(totals.market_purchase_cost)
+    fuel_and_taxes = 0.0
+    expenses_total = contract_costs + market_purchase + fuel_and_taxes + float(current_price)
+
+    network_losses = float(totals.loss_cost)
+    penalties = float(totals.balancing_penalty + totals.unmet_load_penalty)
+    risk_total = _risk_total(evaluation)
+
+    net_profit = float(gross_profit_before_bid) - float(current_price)
+    net_profit_at_recommended_bid = float(gross_profit_before_bid) - float(recommended_bid)
+    net_profit_at_max_bid = float(gross_profit_before_bid) - float(max_bid)
+    roi = net_profit / float(current_price) if float(current_price) > 0.0 else 0.0
+    payback_ratio = (
+        float(gross_profit_before_bid) / float(current_price)
+        if float(current_price) > 0.0
+        else None
+    )
+
+    return {
+        "income": {
+            "object_income": round(object_income, 4),
+            "market_income": round(market_income, 4),
+            "eco_value": round(eco_value, 4),
+            "total": round(income_total, 4),
+        },
+        "expenses": {
+            "entry_price": round(float(current_price), 4),
+            "contract_costs": round(contract_costs, 4),
+            "fuel_and_taxes": round(fuel_and_taxes, 4),
+            "market_purchase": round(market_purchase, 4),
+            "total": round(expenses_total, 4),
+        },
+        "losses_and_risks": {
+            "network_losses": round(network_losses, 4),
+            "penalties": round(penalties, 4),
+            "risk_total": round(risk_total, 4),
+            "flags": list(evaluation.base_case.notes or []),
+            "total": round(risk_total, 4),
+        },
+        "result": {
+            "utility_total": round(float(utility_total), 4),
+            "net_profit": round(net_profit, 4),
+            "net_profit_at_current_price": round(net_profit, 4),
+            "gross_profit_before_bid": round(float(gross_profit_before_bid), 4),
+            "net_profit_at_recommended_bid": round(net_profit_at_recommended_bid, 4),
+            "net_profit_at_max_bid": round(net_profit_at_max_bid, 4),
+            "remaining_budget_after_recommended_bid": round(
+                float(budget_remaining) - float(recommended_bid), 4
+            ),
+            "remaining_budget_after_max_bid": round(
+                float(budget_remaining) - float(max_bid), 4
+            ),
+            "roi": round(roi, 4),
+            "payback_ratio": round(payback_ratio, 4) if payback_ratio is not None else None,
+        },
+        "ui_rows": [
+            {"label": "Доход от объектов", "value": round(object_income, 4)},
+            {"label": "Доход с рынка", "value": round(market_income, 4)},
+            {"label": "Эко-ценность", "value": round(eco_value, 4)},
+            {"label": "Стоимость обслуживания", "value": round(-contract_costs, 4)},
+            {"label": "Закупка на рынке", "value": round(-market_purchase, 4)},
+            {"label": "Сетевые потери", "value": round(-network_losses, 4)},
+            {"label": "Штрафы", "value": round(-penalties, 4)},
+            {"label": "Цена входа", "value": round(-float(current_price), 4)},
+            {"label": "Чистая прибыль по текущей цене", "value": round(net_profit, 4)},
+        ],
+    }
+
+
 
 def _risk_adjusted_profit(evaluation) -> float:
     spread = abs(float(evaluation.best_case.delta_profit) - float(evaluation.worst_case.delta_profit))
@@ -227,6 +327,7 @@ def _payload_from_evaluation(
     forecast_context: Dict[str, Any],
     compatibility: Dict[str, Any],
     candidate_objects: Sequence[EnergyObject],
+    current_price: float = 0.0,
 ) -> Dict[str, Any]:
     budget = budget_snapshot(session)
     expected_profit = float(getattr(evaluation, "expected_profit_after_purchase", 0.0) or evaluation.expected_delta_profit or 0.0)
@@ -261,7 +362,36 @@ def _payload_from_evaluation(
         "budget_preservation_note": BUDGET_PRESERVATION_NOTE,
     }
 
+    budget_remaining = float(budget.get("remaining_budget", 0.0) or 0.0)
+    financial_breakdown = _financial_breakdown(
+        evaluation,
+        budget_remaining=budget_remaining,
+        current_price=float(current_price or 0.0),
+        recommended_bid=optimal_purchase_price,
+        max_bid=hard_limit,
+        gross_profit_before_bid=expected_profit,
+        utility_total=risk_adjusted_profit,
+    )
+    # Analytics rows and the lot templates read these off decision_summary
+    # first and fall back to financial_breakdown, so both must agree.
+    decision_summary.update(
+        {
+            "gross_expected_profit_before_bid": round(expected_profit, 4),
+            "net_profit_at_recommended_bid": financial_breakdown["result"][
+                "net_profit_at_recommended_bid"
+            ],
+            "net_profit_at_max_bid": financial_breakdown["result"]["net_profit_at_max_bid"],
+            "remaining_budget_after_recommended_bid": financial_breakdown["result"][
+                "remaining_budget_after_recommended_bid"
+            ],
+            "remaining_budget_after_max_bid": financial_breakdown["result"][
+                "remaining_budget_after_max_bid"
+            ],
+        }
+    )
+
     payload = {
+        "financial_breakdown": financial_breakdown,
         "summary_score": round(risk_adjusted_profit, 4),
         "forecast_context": dict(forecast_context or {}),
         "portfolio_context": {
@@ -435,6 +565,7 @@ def evaluate_lot_bundle(
         forecast_context=forecast_context,
         compatibility=compatibility,
         candidate_objects=candidate_objects,
+        current_price=float(sum(float(lot.current_bid or 0.0) for lot in ordered_lots)),
     )
 
 

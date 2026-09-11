@@ -69,13 +69,20 @@ def full_coverage_forecast_csv(ticks: int = 48) -> bytes:
 
 
 def upload_forecast(
-    client, session_id: int, *, name: str = "Test forecast", ticks: int = 48
+    client,
+    session_id: int,
+    *,
+    name: str = "Test forecast",
+    ticks: int = 48,
+    csrf_token: str | None = None,
 ) -> int:
     """Give the session a real forecast and return its id.
 
     The bundled forecast is switched off on purpose (see
     forecast_service.load_bundled_forecast_pack), so evaluation, strategy and
     purchase all answer 409 until a session owns an uploaded one.
+
+    Pass csrf_token when the app under test runs with CSRF enforcement on.
     """
     resp = client.post(
         "/api/forecast/upload",
@@ -85,6 +92,7 @@ def upload_forecast(
             "file": (io.BytesIO(full_coverage_forecast_csv(ticks)), "forecast.csv"),
         },
         content_type="multipart/form-data",
+        headers={"X-CSRFToken": csrf_token} if csrf_token else None,
     )
     assert resp.status_code == 200, resp.get_data(as_text=True)
     return int(resp.get_json()["item"]["id"])

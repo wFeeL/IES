@@ -1096,7 +1096,7 @@ def test_api_returns_structured_csrf_error_for_recalculate(tmp_path):
             )
             assert session_resp.status_code == 200
             session_id = int(session_resp.get_json()["item"]["id"])
-            upload_forecast(client, session_id)
+            upload_forecast(client, session_id, csrf_token=api_csrf)
 
             wind_id = next(
                 int(row["id"])
