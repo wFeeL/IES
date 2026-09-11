@@ -21,6 +21,6 @@ repos:
     hooks:
       - id: compileall
         name: compileall
-        entry: python3 -B -m compileall -q ies_bot_skeleton tests adapters.py adaptive.py constants.py controllers_balance.py controllers_solar.py controllers_wear.py forecasts.py ies.py main.py models.py state.py utils.py
+        entry: python3 -B -m compileall -q ies_bot_skeleton tests scripts
         language: system
         pass_filenames: false

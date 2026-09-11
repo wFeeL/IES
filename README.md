@@ -1,5 +1,7 @@
 # IES Web 2026
 
+[![CI](https://github.com/wFeeL/IES/actions/workflows/ci.yml/badge.svg)](https://github.com/wFeeL/IES/actions/workflows/ci.yml)
+
 Web-first инструмент для моделирования ИЭС 2026: лоты, тарифный аукцион, энергосистема, прогноз, unified lot optimizer и post-auction planning.
 
 ## Что реализовано
@@ -96,17 +98,21 @@ flask run
 
 ## Тестирование
 
-Быстрая проверка синтаксиса:
+Весь набор, 167 тестов, около 36 секунд:
 
 ```bash
-.venv/bin/python -m compileall -q ies_bot_skeleton tests
+.venv/bin/pytest -q tests
 ```
 
-Целевой 2026-набор:
+Линтер и форматирование, ровно то же гоняет CI:
 
 ```bash
-.venv/bin/pytest -q tests/test_ies2026_domain.py tests/test_ies2026_web.py tests/test_web_scoring.py
+.venv/bin/ruff check .
+.venv/bin/black --check .
 ```
+
+Тесты работают на SQLite в памяти, поэтому ни PostgreSQL, ни переменные
+окружения для прогона не нужны.
 
 ## Документация
 
