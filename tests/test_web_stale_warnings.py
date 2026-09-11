@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.web_helpers import create_session, login
+from tests.web_helpers import create_session, login, upload_forecast
 
 
 def _type_map(client):
@@ -11,6 +11,7 @@ def _type_map(client):
 def test_stale_warning_banner_and_warn_only_behavior(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Stale warnings")
+    upload_forecast(client, session_id)
     assert client.post(f"/api/sessions/{session_id}/add-start-pack", json={}).status_code == 200
 
     tmap = _type_map(client)

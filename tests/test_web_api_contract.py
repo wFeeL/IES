@@ -9,7 +9,7 @@ from ies_bot_skeleton.web.extensions import db
 from ies_bot_skeleton.web.models import EvaluationResult, GameSession
 from ies_bot_skeleton.web.services.seed import ensure_seed_data
 
-from tests.web_helpers import create_session, login, ruleset_id_by_code
+from tests.web_helpers import create_session, login, ruleset_id_by_code, upload_forecast
 
 
 def _type_id_by_code(client, code: str) -> int:
@@ -144,6 +144,7 @@ def test_analyst_cannot_read_admin_api(client):
 def test_object_crud_marks_session_evaluations_stale(client, app):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Object stale")
+    upload_forecast(client, session_id)
     wind_id = _type_id_by_code(client, "wind")
 
     lot_resp = client.post(
@@ -470,6 +471,7 @@ def test_incompatible_forecast_blocks_evaluation_and_strategy(client):
 def test_strategy_endpoint_returns_per_lot_bid_breakdown(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Per lot strategy")
+    upload_forecast(client, session_id)
     wind_id = _type_id_by_code(client, "wind")
 
     for idx, bid in enumerate((80, 85, 90), start=1):
@@ -522,6 +524,7 @@ def test_strategy_endpoint_returns_per_lot_bid_breakdown(client):
 def test_analytics_rows_return_full_structure_items_without_truncation(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Structure items")
+    upload_forecast(client, session_id)
     type_rows = client.get("/api/object-types").get_json()["items"]
     by_code = {row["code"]: row for row in type_rows}
 
@@ -565,6 +568,7 @@ def test_analytics_rows_return_full_structure_items_without_truncation(client):
 def test_analytics_structure_items_are_sector_agnostic_in_presentation(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Structure points")
+    upload_forecast(client, session_id)
     type_rows = client.get("/api/object-types").get_json()["items"]
     by_code = {row["code"]: row for row in type_rows}
 
@@ -653,6 +657,7 @@ def test_evaluate_and_analytics_return_uncapped_and_budget_adjusted_bids(client)
     )
     assert create_resp.status_code == 200
     session_id = int(create_resp.get_json()["item"]["id"])
+    upload_forecast(client, session_id)
     wind_id = _type_id_by_code(client, "wind")
 
     lot_resp = client.post(
@@ -784,6 +789,7 @@ def test_ordinary_lost_bid_does_not_consume_allpay_budget(client):
     )
     assert created.status_code == 200
     session_id = int(created.get_json()["item"]["id"])
+    upload_forecast(client, session_id)
     wind_id = _type_id_by_code(client, "wind")
 
     lot_resp = client.post(
@@ -961,6 +967,7 @@ def test_allpay_flow_bid_won_keeps_allpay_zero_and_purchases_once(client):
     )
     assert created.status_code == 200
     session_id = int(created.get_json()["item"]["id"])
+    upload_forecast(client, session_id)
     wind_id = _type_id_by_code(client, "wind")
 
     lot_resp = client.post(
@@ -1089,6 +1096,7 @@ def test_api_returns_structured_csrf_error_for_recalculate(tmp_path):
             )
             assert session_resp.status_code == 200
             session_id = int(session_resp.get_json()["item"]["id"])
+            upload_forecast(client, session_id)
 
             wind_id = next(
                 int(row["id"])

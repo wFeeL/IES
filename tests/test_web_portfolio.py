@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.web_helpers import create_session, login
+from tests.web_helpers import create_session, login, upload_forecast
 
 
 def _type_map(client):
@@ -13,6 +13,7 @@ def _type_map(client):
 def test_buy_and_undo_lot_updates_budget_and_materializes_objects(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Portfolio buy")
+    upload_forecast(client, session_id)
     type_map = _type_map(client)
 
     created = client.post(
@@ -89,6 +90,7 @@ def test_session_budget_summary_includes_allpay_spend(client):
 def test_bought_generated_objects_have_pending_and_integrated_lifecycle(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Portfolio integration lifecycle")
+    upload_forecast(client, session_id)
     type_map = _type_map(client)
 
     created = client.post(

@@ -3,7 +3,7 @@ from __future__ import annotations
 from ies_bot_skeleton.web.extensions import db
 from ies_bot_skeleton.web.models import GameSession, Lot, LotItem, ObjectType
 
-from tests.web_helpers import create_session, login, ruleset_id_by_code
+from tests.web_helpers import create_session, login, ruleset_id_by_code, upload_forecast
 
 
 def test_session_pages_render_2026_navigation(client, app):
@@ -100,6 +100,7 @@ def test_main_user_flow_hides_strategy_selector_and_uses_unified_optimizer(clien
 def test_strategy_endpoint_returns_unified_catalog_with_groups(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Unified catalog")
+    upload_forecast(client, session_id)
 
     type_rows = client.get("/api/object-types").get_json()["items"]
     type_map = {row["code"]: int(row["id"]) for row in type_rows}

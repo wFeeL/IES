@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from tests.web_helpers import create_session, login
+from tests.web_helpers import create_session, login, upload_forecast
 
 
 def _type_map(client):
@@ -271,6 +271,7 @@ def test_lot_detail_and_edit_flow(client):
 def test_forecast_only_evaluation_uses_bundled_fallback_and_returns_explanation(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Meaningful eval")
+    upload_forecast(client, session_id)
     assert client.post(f"/api/sessions/{session_id}/add-start-pack", json={}).status_code == 200
 
     type_map = _type_map(client)

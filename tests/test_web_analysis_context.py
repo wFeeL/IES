@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 
-from tests.web_helpers import create_session, login
+from tests.web_helpers import create_session, login, upload_forecast
 
 
 def _type_map(client):
@@ -39,9 +39,12 @@ def _h48_csv_house_market() -> bytes:
     return ("\n".join(rows) + "\n").encode("utf-8")
 
 
-def test_evaluation_uses_bundled_forecast_when_session_has_no_selected_forecast(client):
+def test_evaluation_is_blocked_when_session_has_no_selected_forecast(client):
+    # The bundled forecast is switched off on purpose, so deselecting the
+    # uploaded one leaves the session with nothing to evaluate against.
     login(client, "admin", "admin123")
-    session_id = create_session(client, title="Bundled fallback")
+    session_id = create_session(client, title="No selected forecast")
+    upload_forecast(client, session_id)
     assert client.post(f"/api/sessions/{session_id}/add-start-pack", json={}).status_code == 200
     lot_id = _create_lot(client, session_id)
 
@@ -52,13 +55,11 @@ def test_evaluation_uses_bundled_forecast_when_session_has_no_selected_forecast(
     assert settings_resp.status_code == 200
 
     eval_resp = client.post(f"/api/lots/{lot_id}/evaluate", json={})
-    assert eval_resp.status_code == 200
-    item = eval_resp.get_json()["item"]
+    assert eval_resp.status_code == 409
+    error = eval_resp.get_json()["error"]
 
-    assert item["forecast_context"]["source"] == "bundled_forecast"
-    assert item["forecast_context"]["forecast_id"] is None
-    assert item["analysis_context"]["mode"] == "forecast"
-    assert item["forecast_summary"]["name"] == "Прогноз тестовой игры"
+    assert error["code"] == "forecast_incompatible"
+    assert "прогноз" in error["message"].lower()
 
 
 def test_evaluation_uses_selected_forecast_from_session(client):

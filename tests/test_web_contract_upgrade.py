@@ -9,7 +9,7 @@ import pytest
 from ies_bot_skeleton.web.extensions import db
 from ies_bot_skeleton.web.models import GameSession, ObjectInstance
 from ies_bot_skeleton.web.services.formatting import format_number
-from tests.web_helpers import create_session, login
+from tests.web_helpers import create_session, login, upload_forecast
 
 
 def _type_map(client):
@@ -243,6 +243,7 @@ def test_strategy_snapshot_rows_are_sorted_by_descending_profit(client):
 def test_lot_evaluation_accounts_for_connection_sectors_when_points_differ(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Sector-agnostic lots")
+    upload_forecast(client, session_id)
     tmap = _type_map(client)
 
     lot_a = client.post(
@@ -744,6 +745,7 @@ def test_workbench_and_forecast_pages_share_current_budget_snapshot_after_purcha
 def test_post_buy_unconnected_objects_show_network_readiness_alerts(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Network readiness alerts")
+    upload_forecast(client, session_id)
     tmap = _type_map(client)
 
     start_pack = client.post(f"/api/sessions/{session_id}/add-start-pack", json={})
@@ -781,6 +783,7 @@ def test_post_buy_unconnected_objects_show_network_readiness_alerts(client):
 def test_import_export_roundtrip_keeps_bought_lot_links_and_purchase_lifecycle(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Import/export bought linkage")
+    upload_forecast(client, session_id)
     tmap = _type_map(client)
 
     created = client.post(
@@ -846,6 +849,7 @@ def test_import_export_roundtrip_keeps_bought_lot_links_and_purchase_lifecycle(c
 def test_delete_bought_lot_is_blocked_and_does_not_orphan_objects(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Delete bought lot guard")
+    upload_forecast(client, session_id)
     tmap = _type_map(client)
 
     created = client.post(
@@ -884,6 +888,7 @@ def test_delete_bought_lot_is_blocked_and_does_not_orphan_objects(client):
 def test_evaluation_does_not_use_district_as_connection_point_without_explicit_field(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="District vs point")
+    upload_forecast(client, session_id)
     tmap = _type_map(client)
 
     created = client.post(
@@ -926,6 +931,7 @@ def test_evaluation_does_not_use_district_as_connection_point_without_explicit_f
 def test_evaluation_never_uses_district_even_if_it_matches_point_code(client, app):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="District point strict split")
+    upload_forecast(client, session_id)
     tmap = _type_map(client)
 
     with app.app_context():

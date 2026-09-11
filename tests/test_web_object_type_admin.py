@@ -3,7 +3,7 @@ from __future__ import annotations
 from ies_bot_skeleton.web.extensions import db
 from ies_bot_skeleton.web.models import EvaluationResult
 
-from tests.web_helpers import create_session, login
+from tests.web_helpers import create_session, login, upload_forecast
 
 
 def _type_id_by_code(client, code: str) -> int:
@@ -16,6 +16,7 @@ def _type_id_by_code(client, code: str) -> int:
 def test_object_type_update_marks_related_evaluations_stale(client, app):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Stale by type")
+    upload_forecast(client, session_id)
 
     assert client.post(f"/api/sessions/{session_id}/add-start-pack", json={}).status_code == 200
 
