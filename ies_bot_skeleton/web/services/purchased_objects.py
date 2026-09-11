@@ -27,7 +27,12 @@ def integration_state(obj: ObjectInstance) -> str:
         for row in connection_inputs:
             if not isinstance(row, dict):
                 return PENDING_INTEGRATION
-            if bool(row.get("required", True)) and row.get("parent_instance_id") in (None, 0, "0", ""):
+            if bool(row.get("required", True)) and row.get("parent_instance_id") in (
+                None,
+                0,
+                "0",
+                "",
+            ):
                 return PENDING_INTEGRATION
         return INTEGRATED
     if params.get("secondary_parent_instance_id") not in (None, 0, "0", ""):

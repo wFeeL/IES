@@ -4,7 +4,10 @@ import io
 
 from ies_bot_skeleton.web.extensions import db
 from ies_bot_skeleton.web.models import GameSession
-from ies_bot_skeleton.web.services.forecast_service import parse_and_store_forecast, summarize_forecast
+from ies_bot_skeleton.web.services.forecast_service import (
+    parse_and_store_forecast,
+    summarize_forecast,
+)
 from tests.web_helpers import create_session, login
 
 

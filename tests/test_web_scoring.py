@@ -4,13 +4,22 @@ import pytest
 
 from ies_bot_skeleton.application.portfolio import buy_lot
 from ies_bot_skeleton.web.extensions import db
-from ies_bot_skeleton.web.models import Forecast, GameSession, Lot, LotItem, ObjectInstance, ObjectType
+from ies_bot_skeleton.web.models import (
+    Forecast,
+    GameSession,
+    Lot,
+    LotItem,
+    ObjectInstance,
+    ObjectType,
+)
 from ies_bot_skeleton.web.services.evaluation import BID_FORMULA, evaluate_lot
 from ies_bot_skeleton.web.services.forecast_service import parse_and_store_forecast
 
 
 def _forecast_csv() -> bytes:
-    rows = ["tick,illumination,wind_main,wind_west,houseA,office,market_price,sell_price,balancing_penalty_price"]
+    rows = [
+        "tick,illumination,wind_main,wind_west,houseA,office,market_price,sell_price,balancing_penalty_price"
+    ]
     for tick in range(48):
         rows.append(
             ",".join(
@@ -178,7 +187,9 @@ def test_cannot_buy_more_than_one_main_substation(app):
         db.session.flush()
 
         type_map = {row.code: row for row in db.session.query(ObjectType).all()}
-        existing_main = ObjectInstance(session_id=session.id, object_type_id=type_map["main_substation"].id)
+        existing_main = ObjectInstance(
+            session_id=session.id, object_type_id=type_map["main_substation"].id
+        )
         db.session.add(existing_main)
         db.session.flush()
 
@@ -192,7 +203,9 @@ def test_cannot_buy_more_than_one_main_substation(app):
         )
         db.session.add(lot)
         db.session.flush()
-        db.session.add(LotItem(lot_id=lot.id, object_type_id=type_map["main_substation"].id, quantity=1))
+        db.session.add(
+            LotItem(lot_id=lot.id, object_type_id=type_map["main_substation"].id, quantity=1)
+        )
         db.session.commit()
 
         # Buying evaluates first, and evaluation needs a forecast, otherwise the

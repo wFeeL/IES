@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-
 DEFAULT_IES2026_CONFIG: Dict[str, Any] = {
     "analysis": {
         "auction_stage": "pre_auction_lot_valuation",

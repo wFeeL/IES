@@ -514,9 +514,7 @@ def object_create_page(session_id: int):
                 default_type_id = row_id
                 break
         form.object_type_id.data = (
-            requested_type_id
-            if requested_type_id in available_type_ids
-            else default_type_id
+            requested_type_id if requested_type_id in available_type_ids else default_type_id
         )
         form.is_active.data = True
 

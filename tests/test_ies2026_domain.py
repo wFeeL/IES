@@ -74,7 +74,9 @@ def _main(*, ports: int = 8) -> EnergyObject:
     )
 
 
-def _mini(object_id: str, *, district: str, parent_id: str = "main", ports: int = 5) -> EnergyObject:
+def _mini(
+    object_id: str, *, district: str, parent_id: str = "main", ports: int = 5
+) -> EnergyObject:
     return EnergyObject(
         object_id=object_id,
         object_type_id=2,
@@ -293,7 +295,9 @@ def test_storage_value_breakdown_is_non_zero_when_prices_vary():
         lot_id=3,
         lot_name="Накопитель",
         base_objects=base_objects,
-        candidate_objects=[_storage("storage-1", district="gen_west", parent_id="gen-mini", contract=1.5)],
+        candidate_objects=[
+            _storage("storage-1", district="gen_west", parent_id="gen-mini", contract=1.5)
+        ],
         forecast_pack=_forecast_pack(sell_price=9.5, buy_price=9.4),
         ruleset_config=build_default_ruleset_config(),
     )
@@ -410,8 +414,20 @@ def test_infrastructure_can_have_positive_enabler_value():
                 101,
                 "Генераторный пакет",
                 [
-                    _solar("future-solar", district="gen_east", parent_id="", contract=1.0, generation=30.0),
-                    _wind("future-wind", district="gen_east", parent_id="", contract=1.0, channel="wind_west"),
+                    _solar(
+                        "future-solar",
+                        district="gen_east",
+                        parent_id="",
+                        contract=1.0,
+                        generation=30.0,
+                    ),
+                    _wind(
+                        "future-wind",
+                        district="gen_east",
+                        parent_id="",
+                        contract=1.0,
+                        channel="wind_west",
+                    ),
                 ],
             )
         ],
@@ -453,7 +469,8 @@ def test_consumer_fixed_tariff_revenue_is_per_tick_not_per_delivered_mw():
     forecast = _forecast_pack(buy_price=8.1)
     base = [_main(), _mini("load-mini", district="load_north")]
     low_demand = simulate_system(
-        objects=base + [
+        objects=base
+        + [
             _consumer(
                 "house-low",
                 "house_a",
@@ -467,7 +484,8 @@ def test_consumer_fixed_tariff_revenue_is_per_tick_not_per_delivered_mw():
         ruleset_config=config,
     )
     high_demand = simulate_system(
-        objects=base + [
+        objects=base
+        + [
             _consumer(
                 "factory-high",
                 "factory",
@@ -549,7 +567,9 @@ def test_bundle_value_is_not_equal_to_sum_of_standalone_values_when_infra_enable
     config = build_default_ruleset_config()
     base = [_main(ports=2)]
     mini = _mini("bundle-mini", district="gen_east", parent_id="main", ports=4)
-    solar = _solar("bundle-solar", district="gen_east", parent_id="bundle-mini", contract=1.2, generation=20.0)
+    solar = _solar(
+        "bundle-solar", district="gen_east", parent_id="bundle-mini", contract=1.2, generation=20.0
+    )
 
     mini_only = evaluate_candidate_bundle(
         lot_id=10,
@@ -602,8 +622,14 @@ def test_wind_prior_valuation_uses_uncertainty_penalty():
 
     assert evaluation.wind_uncertainty_penalty > 0.0
     assert evaluation.risk_adjusted_profit <= evaluation.expected_profit_after_purchase
-    assert evaluation.wind_posterior.posterior_q10_value <= evaluation.wind_posterior.posterior_q25_value
-    assert evaluation.wind_posterior.posterior_q25_value <= evaluation.wind_posterior.posterior_mean_value
+    assert (
+        evaluation.wind_posterior.posterior_q10_value
+        <= evaluation.wind_posterior.posterior_q25_value
+    )
+    assert (
+        evaluation.wind_posterior.posterior_q25_value
+        <= evaluation.wind_posterior.posterior_mean_value
+    )
 
 
 def test_hidden_wind_thresholds_are_inferred_from_calibration_data():
@@ -643,7 +669,10 @@ def test_hidden_wind_thresholds_are_inferred_from_calibration_data():
 
     cut_in_mid = evaluation.wind_posterior.confidence_by_parameter["cut_in_speed"]["mid"]
     assert cut_in_mid > 3.2
-    assert any("скрытые thresholds" in note.lower() or "постериор" in note.lower() for note in evaluation.wind_posterior.notes)
+    assert any(
+        "скрытые thresholds" in note.lower() or "постериор" in note.lower()
+        for note in evaluation.wind_posterior.notes
+    )
 
 
 def test_wind_generation_respects_max_power_and_storm_hysteresis():
@@ -651,7 +680,10 @@ def test_wind_generation_respects_max_power_and_storm_hysteresis():
         "solar": {"solar": {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}},
         "wind": {"wind_main": {0: 12.0, 1: 26.0, 2: 20.0, 3: 14.0}},
         "load": {"house_a": {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}},
-        "market": {"price": {0: 8.0, 1: 8.0, 2: 8.0, 3: 8.0}, "sell_price": {0: 8.0, 1: 8.0, 2: 8.0, 3: 8.0}},
+        "market": {
+            "price": {0: 8.0, 1: 8.0, 2: 8.0, 3: 8.0},
+            "sell_price": {0: 8.0, 1: 8.0, 2: 8.0, 3: 8.0},
+        },
     }
     result = simulate_system(
         objects=[
@@ -690,7 +722,9 @@ def test_drop_candidate_score_is_exposed_for_risky_wind_lot():
         lot_id=22,
         lot_name="Wind drop candidate",
         base_objects=[_main(), _mini("wind-mini", district="wind_north")],
-        candidate_objects=[_wind("wind-drop", district="wind_north", parent_id="wind-mini", contract=5.5)],
+        candidate_objects=[
+            _wind("wind-drop", district="wind_north", parent_id="wind-mini", contract=5.5)
+        ],
         forecast_pack=_forecast_pack(wind_base=9.8),
         ruleset_config=build_default_ruleset_config(),
     )

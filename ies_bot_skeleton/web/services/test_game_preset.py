@@ -26,9 +26,14 @@ def is_test_game_ruleset(ruleset: Ruleset | None) -> bool:
 
 
 def preferred_default_ruleset() -> Ruleset | None:
-    rows = db.session.query(Ruleset).filter_by(is_active=True).order_by(Ruleset.created_at.desc(), Ruleset.id.desc()).all()
+    rows = (
+        db.session.query(Ruleset)
+        .filter_by(is_active=True)
+        .order_by(Ruleset.created_at.desc(), Ruleset.id.desc())
+        .all()
+    )
     for row in rows:
-        if 'test' in str(row.code or '').lower():
+        if "test" in str(row.code or "").lower():
             continue
         return row
     return rows[0] if rows else None
@@ -49,7 +54,12 @@ def add_lot_payloads_to_session(
     type_map: Dict[str, ObjectType] | None = None,
 ) -> Dict[str, Any]:
     del session, payloads, type_map
-    return {"session_id": None, "lots_created": 0, "lot_items_created": 0, "skipped": ["test_game_disabled"]}
+    return {
+        "session_id": None,
+        "lots_created": 0,
+        "lot_items_created": 0,
+        "skipped": ["test_game_disabled"],
+    }
 
 
 def bootstrap_test_game_session(session: GameSession, *, commit: bool = True) -> Dict[str, Any]:

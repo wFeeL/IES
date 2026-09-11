@@ -1128,9 +1128,10 @@ def test_invalid_topology_blocks_system_check_inside_lot_evaluation(client, app)
     assert float(payload["working_bid"]) == pytest.approx(
         float(payload["decision_summary"]["working_bid"])
     )
-    assert "цикл" in str(payload["working_bid_reason"]).lower() or "топологии" in str(
-        payload["working_bid_reason"]
-    ).lower()
+    assert (
+        "цикл" in str(payload["working_bid_reason"]).lower()
+        or "топологии" in str(payload["working_bid_reason"]).lower()
+    )
 
     system_html = client.get(f"/system/{session_id}").get_data(as_text=True)
     assert "Обнаружен цикл в дереве сети" in system_html

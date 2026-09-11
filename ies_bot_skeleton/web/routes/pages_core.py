@@ -12,7 +12,13 @@ from ...application.context import (
 from ...application.portfolio import portfolio_rows, portfolio_summary
 from ...application.sessions import create_session_record, delete_session_record
 from ..extensions import db
-from ..forms import ConfirmDeleteForm, ForecastSelectionForm, LoginForm, SessionForm, SessionImportForm
+from ..forms import (
+    ConfirmDeleteForm,
+    ForecastSelectionForm,
+    LoginForm,
+    SessionForm,
+    SessionImportForm,
+)
 from ..models import GameSession, ObjectType, Ruleset, User
 from ..services.evaluation import ForecastCompatibilityError
 from ..services.navigation import is_safe_internal_url, safe_next_url
@@ -36,7 +42,6 @@ from .page_support import (
 )
 from .shared import pages_bp
 
-
 NO_FORECAST_LABEL = "Прогноз не выбран"
 
 
@@ -52,7 +57,11 @@ def _missing_session_redirect():
 
 
 def _sorted_active_rulesets() -> List[Ruleset]:
-    rows = [row for row in db.session.query(Ruleset).filter_by(is_active=True).all() if 'test' not in str(row.code or '').lower()]
+    rows = [
+        row
+        for row in db.session.query(Ruleset).filter_by(is_active=True).all()
+        if "test" not in str(row.code or "").lower()
+    ]
     return sorted(rows, key=lambda row: (str(row.name or "").lower(), row.id))
 
 
@@ -177,11 +186,15 @@ def session_page(session_id: int):
         (forecast.id, f"{forecast.name} ({forecast.source_file})") for forecast in session.forecasts
     ]
     if forecast_form.selected_forecast_id.choices:
-        forecast_form.selected_forecast_id.data = int(session.selected_forecast_id or forecast_form.selected_forecast_id.choices[0][0])
+        forecast_form.selected_forecast_id.data = int(
+            session.selected_forecast_id or forecast_form.selected_forecast_id.choices[0][0]
+        )
     else:
         forecast_form.selected_forecast_id.data = None
 
-    forecast_report = dict((analysis_ctx["forecast_summary"] or {}).get("compatibility_report") or {})
+    forecast_report = dict(
+        (analysis_ctx["forecast_summary"] or {}).get("compatibility_report") or {}
+    )
     forecast_blocked = not bool((analysis_ctx["forecast_summary"] or {}).get("is_compatible", True))
     analytics_by_lot: Dict[int, Dict[str, object]] = {}
     if not forecast_blocked:
@@ -233,13 +246,22 @@ def session_page(session_id: int):
     kpis = {
         "lots_total": len(session.lots),
         "bought_total": int(portfolio["bought_lots_count"]),
-        "portfolio_utility": float(sum(float(row.get("utility", 0.0) or 0.0) for row in purchased_rows)),
+        "portfolio_utility": float(
+            sum(float(row.get("utility", 0.0) or 0.0) for row in purchased_rows)
+        ),
         "portfolio_net_profit": float(portfolio["aggregate_net_profit"]),
         "risk_profile": portfolio["risk_profile_label"],
-        "data_status": ("Готово" if len(session.lots) > 0 and len(session.objects) > 0 and not forecast_blocked else "Требует внимания"),
+        "data_status": (
+            "Готово"
+            if len(session.lots) > 0 and len(session.objects) > 0 and not forecast_blocked
+            else "Требует внимания"
+        ),
     }
     ctx = nav(
-        breadcrumb_items=[("Сессии", "pages.dashboard", None), (f"Сессия #{session.id}", None, None)],
+        breadcrumb_items=[
+            ("Сессии", "pages.dashboard", None),
+            (f"Сессия #{session.id}", None, None),
+        ],
         fallback_endpoint="pages.dashboard",
     )
     return render_template(
@@ -257,7 +279,9 @@ def session_page(session_id: int):
         export_json_url=url_for("api.export_session", session_id=session.id),
         export_csv_url=url_for("api.export_evaluations", session_id=session.id),
         post_auction_plan_url=url_for("api.export_post_auction_plan", session_id=session.id),
-        post_auction_plan_yaml_url=url_for("api.export_post_auction_plan_yaml_endpoint", session_id=session.id),
+        post_auction_plan_yaml_url=url_for(
+            "api.export_post_auction_plan_yaml_endpoint", session_id=session.id
+        ),
         recalculate_url=url_for("api.recalculate_session_lots", session_id=session.id),
         strategy_api_url=url_for("api.strategy_snapshot", session_id=session.id),
         selected_strategy_meta=strategy_meta("unified"),
@@ -322,7 +346,9 @@ def session_forecast_selection_action(session_id: int):
     ]
     previous_forecast_id = int(session.selected_forecast_id or 0)
     if form.validate_on_submit():
-        update_analysis_settings_for_session(session, {"selected_forecast_id": form.selected_forecast_id.data or None})
+        update_analysis_settings_for_session(
+            session, {"selected_forecast_id": form.selected_forecast_id.data or None}
+        )
         db.session.add(session)
         db.session.commit()
         if int(session.selected_forecast_id or 0) != previous_forecast_id:
@@ -386,7 +412,9 @@ def results_page(session_id: int):
     if session is None:
         return _missing_session_redirect()
     analysis_ctx = resolve_session_analysis_context(session)
-    forecast_report = dict((analysis_ctx["forecast_summary"] or {}).get("compatibility_report") or {})
+    forecast_report = dict(
+        (analysis_ctx["forecast_summary"] or {}).get("compatibility_report") or {}
+    )
     forecast_blocked = not bool((analysis_ctx["forecast_summary"] or {}).get("is_compatible", True))
     snapshot = None
     if not forecast_blocked:

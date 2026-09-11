@@ -197,7 +197,11 @@ def apply_auction_action(
         cash_available = float(auction_budget_view(session).get("cash_available", 0.0) or 0.0)
         if amount > cash_available + 1e-9:
             raise ValueError("Ставка превышает доступную ликвидность")
-        if bool(allpay_triggered) and _special_allpay_mode(auction_mode) and amount > _allpay_remaining(session) + 1e-9:
+        if (
+            bool(allpay_triggered)
+            and _special_allpay_mode(auction_mode)
+            and amount > _allpay_remaining(session) + 1e-9
+        ):
             raise ValueError("Ставка превышает остаток специального All-Pay бюджета")
 
         event = AuctionEvent(
@@ -271,7 +275,9 @@ def resolve_bid_outcome(
         event.details_json = {
             **dict(event.details_json or {}),
             "allpay_applied": bool(allpay_applied),
-            "allpay_budget_remaining_after": float(_allpay_remaining(session) if allpay_applied else _allpay_remaining(session)),
+            "allpay_budget_remaining_after": float(
+                _allpay_remaining(session) if allpay_applied else _allpay_remaining(session)
+            ),
         }
         if str(lot.status or "") == "available":
             lot.status = "rejected"

@@ -49,11 +49,13 @@ def _topology_preview(session: GameSession) -> List[Dict[str, Any]]:
     objects = _base_objects(session)
     mains = [obj for obj in objects if obj.code == "main_substation"]
     existing = mains[:1]
-    candidates = [obj for obj in objects if obj.object_id not in {row.object_id for row in existing}]
+    candidates = [
+        obj for obj in objects if obj.object_id not in {row.object_id for row in existing}
+    ]
     previews = plan_network_candidates(existing_objects=existing, candidate_objects=candidates)
     out: List[Dict[str, Any]] = []
     for index, (_objects, report) in enumerate(previews, start=1):
-        summary = ((report.topology_candidates or [{}])[0] if report.topology_candidates else {})
+        summary = (report.topology_candidates or [{}])[0] if report.topology_candidates else {}
         out.append(
             {
                 "candidate_id": str(summary.get("candidate_id") or f"net-{index}"),
@@ -86,16 +88,20 @@ def _installation_priority(session: GameSession, config: Dict[str, Any]) -> List
                 "code": code,
                 "name": str(obj.custom_name or obj.object_type.name or f"Объект {obj.id}"),
                 "priority_key": priority_key,
-                "priority_rank": priority_order.index(priority_key)
-                if priority_key in priority_order
-                else len(priority_order) + 1,
+                "priority_rank": (
+                    priority_order.index(priority_key)
+                    if priority_key in priority_order
+                    else len(priority_order) + 1
+                ),
                 "placement_notes": "Порядок влияет на tie-break при проектировании и экспорте шаблона.",
                 "blocked_by_higher_priority": False,
             }
         )
     rows.sort(key=lambda item: (int(item["priority_rank"]), int(item["object_id"])))
     for index, row in enumerate(rows):
-        row["blocked_by_higher_priority"] = bool(index > 0 and row["priority_rank"] > rows[0]["priority_rank"])
+        row["blocked_by_higher_priority"] = bool(
+            index > 0 and row["priority_rank"] > rows[0]["priority_rank"]
+        )
     return rows
 
 
@@ -112,7 +118,9 @@ def build_post_auction_plan(session: GameSession) -> Dict[str, Any]:
     analysis_ctx = resolve_analysis_context(session)
     forecast = analysis_ctx.get("forecast")
     forecast_pack = _forecast_pack_for_session(session, forecast)
-    config = ies2026_config(dict(getattr(getattr(session, "ruleset", None), "config_json", {}) or {}))
+    config = ies2026_config(
+        dict(getattr(getattr(session, "ruleset", None), "config_json", {}) or {})
+    )
     simulation = simulate_system(
         objects=_base_objects(session),
         forecast_pack=forecast_pack,
@@ -148,12 +156,18 @@ def build_post_auction_plan(session: GameSession) -> Dict[str, Any]:
             "ruleset": str(getattr(getattr(session, "ruleset", None), "code", "ies_2026")),
             "horizon_ticks": int((config.get("time") or {}).get("horizon_ticks", 48) or 48),
             "selected_strategy": "unified",
-            "analysis_stage": str((config.get("analysis") or {}).get("planning_stage", "post_auction_system_planning")),
+            "analysis_stage": str(
+                (config.get("analysis") or {}).get("planning_stage", "post_auction_system_planning")
+            ),
             "stage_note": "Stage B starts after the auction and must not be confused with pre-auction lot valuation.",
             "selected_forecast": dict(analysis_ctx.get("forecast_context") or {}),
             "assumptions_versions": {
                 "engine": "ies2026_unified_lot_optimizer_v2",
-                "market_model": str((config.get("market") or {}).get("market_model", "aggregate_exchange_with_gp_fallback")),
+                "market_model": str(
+                    (config.get("market") or {}).get(
+                        "market_model", "aggregate_exchange_with_gp_fallback"
+                    )
+                ),
                 "network_model": "tree_validator_with_candidate_shortlist",
             },
         },
@@ -167,7 +181,9 @@ def build_post_auction_plan(session: GameSession) -> Dict[str, Any]:
                     "recommended_counter_bid": float(
                         ((row.get("decision_summary") or {}).get("recommended_counter_bid") or 0.0)
                     ),
-                    "hard_limit": float(((row.get("decision_summary") or {}).get("hard_limit") or 0.0)),
+                    "hard_limit": float(
+                        ((row.get("decision_summary") or {}).get("hard_limit") or 0.0)
+                    ),
                 }
                 for row in best_available
             ],
@@ -185,18 +201,21 @@ def build_post_auction_plan(session: GameSession) -> Dict[str, Any]:
         },
         "market_plan": {
             "declared_sale_per_tick": [
-                {"tick": bid.tick, "declared_mw": bid.declared_mw}
-                for bid in simulation.market_bids
+                {"tick": bid.tick, "declared_mw": bid.declared_mw} for bid in simulation.market_bids
             ],
             "anti_dumping_cap_per_tick": [
                 {"tick": bid.tick, "cap_mw": bid.anti_dumping_cap_mw}
                 for bid in simulation.market_bids
             ],
             "reserve_policy": "Storage keeps reserve floor and discharges under deficit, anti-dumping support or expensive future buy windows.",
-            "balancing_reserve": round(float(simulation.totals.storage.balancing + simulation.totals.storage.reserve), 4),
+            "balancing_reserve": round(
+                float(simulation.totals.storage.balancing + simulation.totals.storage.reserve), 4
+            ),
             "pricing_policy": {
                 "exchange_band": f"{(config.get('market') or {}).get('exchange_price_min', 2.0)}-{(config.get('market') or {}).get('exchange_price_max', 20.0)}",
-                "gp_low_price_factor": float((config.get("market") or {}).get("low_price_sale_factor", 0.55) or 0.55),
+                "gp_low_price_factor": float(
+                    (config.get("market") or {}).get("low_price_sale_factor", 0.55) or 0.55
+                ),
             },
         },
         "tick_model": tick_rows,
@@ -204,8 +223,14 @@ def build_post_auction_plan(session: GameSession) -> Dict[str, Any]:
             "selected_topology": topology_candidates[0] if topology_candidates else None,
             "selected_market_policy": "aggregate_exchange_with_gp_fallback",
             "selected_storage_policy": "reserve_floor_plus_price_aware_dispatch",
-            "critical_checks": [issue.message for issue in simulation.topology.issues if issue.severity == "critical"],
-            "top_risks": [issue.message for issue in simulation.topology.issues if issue.severity == "warning"][:5],
+            "critical_checks": [
+                issue.message
+                for issue in simulation.topology.issues
+                if issue.severity == "critical"
+            ],
+            "top_risks": [
+                issue.message for issue in simulation.topology.issues if issue.severity == "warning"
+            ][:5],
             "first_fixes": [
                 issue.message
                 for issue in simulation.topology.issues

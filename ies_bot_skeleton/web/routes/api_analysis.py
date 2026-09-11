@@ -1049,8 +1049,7 @@ def auction_apply_action(session_id: int):
                 else None
             ),
             auction_mode=str(
-                payload.get("auction_mode", "ordinary_tariff_auction")
-                or "ordinary_tariff_auction"
+                payload.get("auction_mode", "ordinary_tariff_auction") or "ordinary_tariff_auction"
             ),
             allpay_triggered=bool(payload.get("allpay_triggered", False)),
         )

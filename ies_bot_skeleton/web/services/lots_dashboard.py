@@ -38,7 +38,9 @@ def lot_summary(lot: Lot) -> Dict[str, Any]:
         category = (item.object_type.category if item.object_type else "other") or "other"
         counts[category] = counts.get(category, 0) + qty
         object_name = item.object_type.name if item.object_type is not None else "Неизвестный тип"
-        object_code = item.object_type.code if item.object_type is not None else str(item.object_type_id)
+        object_code = (
+            item.object_type.code if item.object_type is not None else str(item.object_type_id)
+        )
         structure_items.append(
             {
                 "object_type_id": int(item.object_type_id),
@@ -48,7 +50,11 @@ def lot_summary(lot: Lot) -> Dict[str, Any]:
                 "label": f"{object_name} ×{qty}",
             }
         )
-    if counts.get("infrastructure", 0) > 0 and counts.get("generator", 0) > 0 and counts.get("consumer", 0) > 0:
+    if (
+        counts.get("infrastructure", 0) > 0
+        and counts.get("generator", 0) > 0
+        and counts.get("consumer", 0) > 0
+    ):
         composition = "mixed"
     elif counts.get("generator", 0) > 0 and counts.get("consumer", 0) > 0:
         composition = "mixed"
@@ -75,7 +81,11 @@ def lot_summary(lot: Lot) -> Dict[str, Any]:
             "infrastructure": "Инфраструктурный",
             "storage": "Накопительный",
         }.get(composition, "Смешанный"),
-        "structure": ", ".join(item["label"] for item in structure_items) if structure_items else "Пустой лот",
+        "structure": (
+            ", ".join(item["label"] for item in structure_items)
+            if structure_items
+            else "Пустой лот"
+        ),
         "structure_items": structure_items,
     }
 
@@ -107,13 +117,16 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
     expenses = dict(financial.get("expenses") or {})
     decision_summary = dict(evaluation.get("decision_summary") or {})
     recommended_bid_safe = float(
-        decision_summary.get("recommended_bid_safe", decision_summary.get("cautious_bid", 0.0)) or 0.0
+        decision_summary.get("recommended_bid_safe", decision_summary.get("cautious_bid", 0.0))
+        or 0.0
     )
     recommended_bid_balanced = float(
-        decision_summary.get("recommended_bid_balanced", decision_summary.get("target_bid", 0.0)) or 0.0
+        decision_summary.get("recommended_bid_balanced", decision_summary.get("target_bid", 0.0))
+        or 0.0
     )
     recommended_bid_aggressive = float(
-        decision_summary.get("recommended_bid_aggressive", decision_summary.get("target_bid", 0.0)) or 0.0
+        decision_summary.get("recommended_bid_aggressive", decision_summary.get("target_bid", 0.0))
+        or 0.0
     )
     working_bid = float(
         evaluation.get("working_bid")
@@ -122,15 +135,21 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         or 0.0
     )
     recommended_bid = float(
-        decision_summary.get("recommended_bid", working_bid) or recommended_bid_balanced or working_bid
+        decision_summary.get("recommended_bid", working_bid)
+        or recommended_bid_balanced
+        or working_bid
     )
     floor_or_ceiling_type = str(decision_summary.get("floor_or_ceiling_type") or "")
     recommended_opening_bid = float(
-        decision_summary.get("recommended_opening_bid", decision_summary.get("recommended_bid", 0.0))
+        decision_summary.get(
+            "recommended_opening_bid", decision_summary.get("recommended_bid", 0.0)
+        )
         or 0.0
     )
     recommended_counter_bid = float(
-        decision_summary.get("recommended_counter_bid", decision_summary.get("recommended_bid", 0.0))
+        decision_summary.get(
+            "recommended_counter_bid", decision_summary.get("recommended_bid", 0.0)
+        )
         or 0.0
     )
     hard_limit = float(
@@ -151,7 +170,9 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         or 0.0
     )
     system_check = dict(evaluation.get("system_check") or {})
-    zero_bid_reason = str(decision_summary.get("zero_bid_reason") or evaluation.get("zero_bid_reason") or "")
+    zero_bid_reason = str(
+        decision_summary.get("zero_bid_reason") or evaluation.get("zero_bid_reason") or ""
+    )
     cap_reason = str(
         decision_summary.get("cap_reason")
         or evaluation.get("cap_reason")
@@ -185,7 +206,12 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
     elif str(system_check.get("status") or "") in {"blocked", "risky"} and working_bid > 0.0:
         decision_status = "cheap_only"
         decision_status_label = "Только дёшево"
-        decision_reason = working_bid_reason or system_check.get("message") or bid_constraints_summary or cap_reason
+        decision_reason = (
+            working_bid_reason
+            or system_check.get("message")
+            or bid_constraints_summary
+            or cap_reason
+        )
     elif recommended_bid <= max(0.0, max_bid * 0.35):
         decision_status = "cheap_only"
         decision_status_label = "Только дёшево"
@@ -237,16 +263,22 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "summary": summary,
         "evaluation": evaluation,
         "price": float(
-            lot.purchase_price if lot.status == "bought" and lot.purchase_price is not None else lot.current_bid or 0.0
+            lot.purchase_price
+            if lot.status == "bought" and lot.purchase_price is not None
+            else lot.current_bid or 0.0
         ),
         "utility": float(evaluation.get("summary_score", 0.0) or 0.0),
         "net_profit": float(result.get("net_profit", 0.0) or 0.0),
         "gross_profit_before_bid": float(
-            decision_summary.get("gross_expected_profit_before_bid", result.get("gross_profit_before_bid", 0.0)) or 0.0
+            decision_summary.get(
+                "gross_expected_profit_before_bid", result.get("gross_profit_before_bid", 0.0)
+            )
+            or 0.0
         ),
         "net_profit_at_recommended_bid": profitable_at_working_bid,
         "net_profit_at_max_bid": float(
-            decision_summary.get("net_profit_at_max_bid", result.get("net_profit_at_max_bid", 0.0)) or 0.0
+            decision_summary.get("net_profit_at_max_bid", result.get("net_profit_at_max_bid", 0.0))
+            or 0.0
         ),
         "remaining_budget_after_recommended_bid": float(
             decision_summary.get(
@@ -256,41 +288,65 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
             or 0.0
         ),
         "remaining_budget_after_max_bid": float(
-            decision_summary.get("remaining_budget_after_max_bid", result.get("remaining_budget_after_max_bid", 0.0))
+            decision_summary.get(
+                "remaining_budget_after_max_bid", result.get("remaining_budget_after_max_bid", 0.0)
+            )
             or 0.0
         ),
         "risk": float(losses.get("risk_total", 0.0) or 0.0),
-        "expected_delta_profit": float(evaluation.get("expected_delta_profit", result.get("net_profit", 0.0)) or 0.0),
+        "expected_delta_profit": float(
+            evaluation.get("expected_delta_profit", result.get("net_profit", 0.0)) or 0.0
+        ),
         "expected_profit_after_purchase": float(
-            evaluation.get("expected_profit_after_purchase", evaluation.get("expected_delta_profit", result.get("net_profit", 0.0)))
+            evaluation.get(
+                "expected_profit_after_purchase",
+                evaluation.get("expected_delta_profit", result.get("net_profit", 0.0)),
+            )
             or 0.0
         ),
         "risk_adjusted_profit": float(
             evaluation.get("risk_adjusted_profit")
-            or ((evaluation.get("metrics") or {}).get("portfolio_delta") or {}).get("risk_adjusted_profit", 0.0)
+            or ((evaluation.get("metrics") or {}).get("portfolio_delta") or {}).get(
+                "risk_adjusted_profit", 0.0
+            )
             or evaluation.get("summary_score", 0.0)
         ),
         "direct_delta_profit": float(evaluation.get("direct_delta_profit", 0.0) or 0.0),
         "enabler_value": float(evaluation.get("enabler_value", 0.0) or 0.0),
         "bundle_synergy_value": float(evaluation.get("bundle_synergy_value", 0.0) or 0.0),
         "optimal_purchase_price": float(
-            evaluation.get("optimal_purchase_price", decision_summary.get("optimal_purchase_price", 0.0)) or 0.0
+            evaluation.get(
+                "optimal_purchase_price", decision_summary.get("optimal_purchase_price", 0.0)
+            )
+            or 0.0
         ),
         "price_role": str(evaluation.get("price_role") or decision_summary.get("price_role") or ""),
         "topology_feasibility": str(
-            evaluation.get("topology_feasibility", decision_summary.get("topology_feasibility", system_check.get("status", "neutral")))
+            evaluation.get(
+                "topology_feasibility",
+                decision_summary.get("topology_feasibility", system_check.get("status", "neutral")),
+            )
             or "neutral"
         ),
         "wind_uncertainty_penalty": float(
-            evaluation.get("wind_uncertainty_penalty", decision_summary.get("wind_uncertainty_penalty", 0.0))
+            evaluation.get(
+                "wind_uncertainty_penalty", decision_summary.get("wind_uncertainty_penalty", 0.0)
+            )
             or 0.0
         ),
         "break_even_tariff": float(
-            evaluation.get("break_even_tariff", decision_summary.get("break_even_tariff", 0.0)) or 0.0
+            evaluation.get("break_even_tariff", decision_summary.get("break_even_tariff", 0.0))
+            or 0.0
         ),
-        "lot_profile": str(evaluation.get("lot_profile") or decision_summary.get("lot_profile") or summary["composition"]),
+        "lot_profile": str(
+            evaluation.get("lot_profile")
+            or decision_summary.get("lot_profile")
+            or summary["composition"]
+        ),
         "floor_or_ceiling_type": floor_or_ceiling_type,
-        "minimum_acceptable_tariff": float(decision_summary.get("minimum_acceptable_tariff", 0.0) or 0.0),
+        "minimum_acceptable_tariff": float(
+            decision_summary.get("minimum_acceptable_tariff", 0.0) or 0.0
+        ),
         "recommended_walkdown_tariff": float(
             decision_summary.get("recommended_walkdown_tariff", 0.0) or 0.0
         ),
@@ -299,7 +355,9 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "maximum_acceptable_service_tariff": float(
             decision_summary.get("maximum_acceptable_service_tariff", 0.0) or 0.0
         ),
-        "recommended_bid_ceiling": float(decision_summary.get("recommended_bid_ceiling", 0.0) or 0.0),
+        "recommended_bid_ceiling": float(
+            decision_summary.get("recommended_bid_ceiling", 0.0) or 0.0
+        ),
         "soft_ceiling": float(decision_summary.get("soft_ceiling", 0.0) or 0.0),
         "hard_ceiling": float(decision_summary.get("hard_ceiling", 0.0) or 0.0),
         "recommended_bid_or_tariff": float(
@@ -319,7 +377,9 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "portfolio_substitute_group": str(evaluation.get("portfolio_substitute_group") or ""),
         "plan_b_if_lost": str(evaluation.get("plan_b_if_lost") or ""),
         "plan_c_if_overbid": str(evaluation.get("plan_c_if_overbid") or ""),
-        "strategy_score": float(evaluation.get("strategy_score", evaluation.get("summary_score", 0.0)) or 0.0),
+        "strategy_score": float(
+            evaluation.get("strategy_score", evaluation.get("summary_score", 0.0)) or 0.0
+        ),
         "strategy_reason": str(evaluation.get("strategy_reason") or ""),
         "working_bid": float(working_bid),
         "recommended_bid_safe": float(recommended_bid_safe),
@@ -328,7 +388,11 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "recommended_bid": float(recommended_bid),
         "hard_ceiling_bid": float(decision_summary.get("hard_ceiling_bid", 0.0) or 0.0),
         "max_bid": float(max_bid),
-        "working_bid_source": str(evaluation.get("working_bid_source") or decision_summary.get("working_bid_source") or "none"),
+        "working_bid_source": str(
+            evaluation.get("working_bid_source")
+            or decision_summary.get("working_bid_source")
+            or "none"
+        ),
         "working_bid_reason": str(working_bid_reason),
         "working_bid_short_reason": working_bid_reason_short(working_bid_reason),
         "target_bid": float(decision_summary.get("target_bid", recommended_bid_balanced) or 0.0),
@@ -369,7 +433,10 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "best_case_delta_profit": float(best_case.get("delta_profit", 0.0) or 0.0),
         "worst_case_delta_profit": float(worst_case.get("delta_profit", 0.0) or 0.0),
         "scenario_spread": float(
-            abs(float(best_case.get("delta_profit", 0.0) or 0.0) - float(worst_case.get("delta_profit", 0.0) or 0.0))
+            abs(
+                float(best_case.get("delta_profit", 0.0) or 0.0)
+                - float(worst_case.get("delta_profit", 0.0) or 0.0)
+            )
         ),
         "consumer_revenue": float(income.get("consumer_revenue", 0.0) or 0.0),
         "market_net": float(
@@ -390,7 +457,9 @@ def lot_row(lot: Lot, evaluation: Dict[str, Any], summary: Dict[str, Any]) -> Di
         "mounting_requirements": list(evaluation.get("mounting_requirements") or []),
         "conflicts": list(evaluation.get("conflicts") or []),
         "can_recommend": bool(can_recommend),
-        "connection_block_reasons_count": int(system_check.get("connection_block_reasons_count", 0) or 0),
+        "connection_block_reasons_count": int(
+            system_check.get("connection_block_reasons_count", 0) or 0
+        ),
         "status": lot.status,
         "is_stale": bool(evaluation.get("is_stale")),
         "stale_reason": stale_reason_raw,
@@ -482,7 +551,9 @@ def sort_lot_rows(rows: list[Dict[str, Any]], sort_key: str) -> list[Dict[str, A
     if sort_key == "price_asc":
         return sorted(rows, key=lambda row: (row["price"], -float(row.get("utility") or 0.0)))
     if sort_key == "price_desc":
-        return sorted(rows, key=lambda row: (row["price"], float(row.get("utility") or 0.0)), reverse=True)
+        return sorted(
+            rows, key=lambda row: (row["price"], float(row.get("utility") or 0.0)), reverse=True
+        )
     return sorted(
         rows,
         key=lambda row: (

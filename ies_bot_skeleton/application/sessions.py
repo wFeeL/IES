@@ -9,6 +9,8 @@ from ..web.services.test_game_preset import (
     bootstrap_test_game_session,
     preferred_default_ruleset,
 )
+
+
 def load_session_or_none(session_id: int) -> GameSession | None:
     return db.session.get(GameSession, session_id)
 

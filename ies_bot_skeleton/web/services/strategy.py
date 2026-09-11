@@ -590,7 +590,10 @@ def _combo_to_dict(
         or 0.0
     )
     main_substation_dependency = "ok"
-    if any("главная подстанция" in str(item).lower() for item in system_check.get("critical_blocking_errors") or []):
+    if any(
+        "главная подстанция" in str(item).lower()
+        for item in system_check.get("critical_blocking_errors") or []
+    ):
         main_substation_dependency = "requires_main_substation"
     return {
         "lot_ids": list(combo.lot_ids),
@@ -611,7 +614,9 @@ def _combo_to_dict(
         "synergy": float(combo.synergy_score),
         "synergy_score": float(combo.synergy_score),
         "direct_profit": float(
-            ((combo.payload.get("metrics") or {}).get("portfolio_delta") or {}).get("direct_delta_profit", 0.0)
+            ((combo.payload.get("metrics") or {}).get("portfolio_delta") or {}).get(
+                "direct_delta_profit", 0.0
+            )
             or 0.0
         ),
         "cautious_bid": float(combo.cautious_bid),
@@ -644,7 +649,9 @@ def _combo_to_dict(
         "topology_feasibility": topology_status,
         "main_substation_dependency": main_substation_dependency,
         "wind_uncertainty_penalty": wind_uncertainty_penalty,
-        "price_role": str(combo.payload.get("price_role") or decision_summary.get("price_role") or ""),
+        "price_role": str(
+            combo.payload.get("price_role") or decision_summary.get("price_role") or ""
+        ),
         "reason": combo.explanation,
         "explanation": combo.explanation,
         "lot_bid_breakdown": list(combo.lot_bid_breakdown),
@@ -1173,7 +1180,12 @@ def best_pairs_for_lot(
         rows.append(dict(row))
     rows.sort(
         key=lambda item: (
-            float(item.get("expected_profit", item.get("net_profit_base", item.get("total_profit", 0.0))) or 0.0),
+            float(
+                item.get(
+                    "expected_profit", item.get("net_profit_base", item.get("total_profit", 0.0))
+                )
+                or 0.0
+            ),
             float(item.get("risk_adjusted_net_profit", 0.0) or 0.0),
             float(item.get("utility_score", 0.0) or 0.0),
             -float(item.get("wind_uncertainty_penalty", 0.0) or 0.0),

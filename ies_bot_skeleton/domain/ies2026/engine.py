@@ -67,10 +67,7 @@ def _quantile(values: Sequence[float], q: float) -> float:
 
 def _weighted_quantile(values: Sequence[float], weights: Sequence[float], q: float) -> float:
     rows = sorted(
-        (
-            (float(value), max(0.0, float(weight)))
-            for value, weight in zip(values, weights)
-        ),
+        ((float(value), max(0.0, float(weight))) for value, weight in zip(values, weights)),
         key=lambda item: item[0],
     )
     if not rows:
@@ -97,7 +94,9 @@ def _weighted_mean(values: Sequence[float], weights: Sequence[float]) -> float:
     )
 
 
-def _weighted_tail_mean(values: Sequence[float], weights: Sequence[float], tail_share: float) -> float:
+def _weighted_tail_mean(
+    values: Sequence[float], weights: Sequence[float], tail_share: float
+) -> float:
     rows = sorted(
         (
             (float(value), max(0.0, float(weight)))
@@ -185,7 +184,9 @@ def _consumer_demand_multiplier(obj: EnergyObject, config: Dict[str, Any]) -> fl
     key = _consumer_key(obj.code)
     profile = dict(elasticity_cfg.get(key) or {})
     reference_tariff = _as_float(
-        params.get("reference_tariff", profile.get("reference_tariff", _consumer_tariff(obj) or 1.0)),
+        params.get(
+            "reference_tariff", profile.get("reference_tariff", _consumer_tariff(obj) or 1.0)
+        ),
         1.0,
     )
     elasticity = _as_float(params.get("elasticity", profile.get("elasticity", 0.1)), 0.1)
@@ -205,7 +206,9 @@ def _consumer_penalty_rate(obj: EnergyObject, config: Dict[str, Any]) -> float:
     return _as_float(penalties.get(_consumer_key(obj.code), 4.0), 4.0)
 
 
-def _consumer_base_demand(obj: EnergyObject, tick: ForecastTick, scenario: Dict[str, float]) -> float:
+def _consumer_base_demand(
+    obj: EnergyObject, tick: ForecastTick, scenario: Dict[str, float]
+) -> float:
     params = dict(obj.parameters or {})
     key = _consumer_key(obj.code)
     profile_scale = _as_float(params.get("forecast_sensitivity", 1.0), 1.0)
@@ -239,7 +242,9 @@ def _solar_output(
     return max(0.0, min(capacity, capacity * illumination * efficiency))
 
 
-def _wind_speed_for_object(obj: EnergyObject, tick: ForecastTick, scenario: Dict[str, float]) -> float:
+def _wind_speed_for_object(
+    obj: EnergyObject, tick: ForecastTick, scenario: Dict[str, float]
+) -> float:
     params = dict(obj.parameters or {})
     preferred = str(
         params.get("wind_channel")
@@ -281,24 +286,35 @@ def _aggregate_storage(
         if usable <= 0:
             continue
         params = dict(obj.parameters or {})
-        capacity += _as_float(
-            params.get("capacity_mw_tick", storage_cfg.get("capacity_mw_tick", 120.0)),
-            120.0,
-        ) * usable
-        charge += _as_float(
-            params.get(
-                "charge_rate_mw_tick",
-                params.get("charge_rate_mw", storage_cfg.get("charge_rate_mw_tick", 15.0)),
-            ),
-            15.0,
-        ) * usable
-        discharge += _as_float(
-            params.get(
-                "discharge_rate_mw_tick",
-                params.get("discharge_rate_mw", storage_cfg.get("discharge_rate_mw_tick", 20.0)),
-            ),
-            20.0,
-        ) * usable
+        capacity += (
+            _as_float(
+                params.get("capacity_mw_tick", storage_cfg.get("capacity_mw_tick", 120.0)),
+                120.0,
+            )
+            * usable
+        )
+        charge += (
+            _as_float(
+                params.get(
+                    "charge_rate_mw_tick",
+                    params.get("charge_rate_mw", storage_cfg.get("charge_rate_mw_tick", 15.0)),
+                ),
+                15.0,
+            )
+            * usable
+        )
+        discharge += (
+            _as_float(
+                params.get(
+                    "discharge_rate_mw_tick",
+                    params.get(
+                        "discharge_rate_mw", storage_cfg.get("discharge_rate_mw_tick", 20.0)
+                    ),
+                ),
+                20.0,
+            )
+            * usable
+        )
         efficiency += _as_float(
             params.get("roundtrip_efficiency", storage_cfg.get("roundtrip_efficiency", 0.93)),
             0.93,
@@ -343,7 +359,11 @@ def _candidate_tariff_total(objects: Sequence[EnergyObject], direction: AuctionD
     for obj in objects:
         if not obj.is_candidate:
             continue
-        total += _consumer_tariff(obj) if direction == "descending_consumer_tariff" else _service_cost_per_tick(obj)
+        total += (
+            _consumer_tariff(obj)
+            if direction == "descending_consumer_tariff"
+            else _service_cost_per_tick(obj)
+        )
     return total
 
 
@@ -398,7 +418,11 @@ def _wind_target_output(
     start_threshold = latent.cut_in_speed
     if speed < start_threshold:
         return 0.0
-    cap = min(float(max_power), float(rated_power)) * latent.location_gain * latent.effective_power_scale
+    cap = (
+        min(float(max_power), float(rated_power))
+        * latent.location_gain
+        * latent.effective_power_scale
+    )
     cap = min(float(max_power), max(0.0, cap))
     if speed >= latent.rated_speed:
         rated_band = max(1.0, latent.cut_out_speed - latent.rated_speed)
@@ -514,46 +538,74 @@ class WindPriorModel:
         }
         base = {
             "cut_in_speed": _clip(
-                _as_float(params.get("cut_in_mps", self.defaults["cut_in_speed"]), self.defaults["cut_in_speed"]),
+                _as_float(
+                    params.get("cut_in_mps", self.defaults["cut_in_speed"]),
+                    self.defaults["cut_in_speed"],
+                ),
                 *ranges["cut_in_speed"],
             ),
             "rated_speed": _clip(
-                _as_float(params.get("rated_mps", self.defaults["rated_speed"]), self.defaults["rated_speed"]),
+                _as_float(
+                    params.get("rated_mps", self.defaults["rated_speed"]),
+                    self.defaults["rated_speed"],
+                ),
                 *ranges["rated_speed"],
             ),
             "cut_out_speed": _clip(
-                _as_float(params.get("cut_out_mps", self.defaults["cut_out_speed"]), self.defaults["cut_out_speed"]),
+                _as_float(
+                    params.get("cut_out_mps", self.defaults["cut_out_speed"]),
+                    self.defaults["cut_out_speed"],
+                ),
                 *ranges["cut_out_speed"],
             ),
             "restart_speed_after_storm": _clip(
                 _as_float(
-                    params.get("restart_speed_after_storm", self.defaults["restart_speed_after_storm"]),
+                    params.get(
+                        "restart_speed_after_storm", self.defaults["restart_speed_after_storm"]
+                    ),
                     self.defaults["restart_speed_after_storm"],
                 ),
                 *ranges["restart_speed_after_storm"],
             ),
             "location_gain": _clip(
-                _as_float(params.get("location_gain_hint", self.defaults["location_gain"]), self.defaults["location_gain"]),
+                _as_float(
+                    params.get("location_gain_hint", self.defaults["location_gain"]),
+                    self.defaults["location_gain"],
+                ),
                 *ranges["location_gain"],
             ),
             "effective_power_scale": _clip(
-                _as_float(params.get("effective_power_scale", self.defaults["effective_power_scale"]), self.defaults["effective_power_scale"]),
+                _as_float(
+                    params.get("effective_power_scale", self.defaults["effective_power_scale"]),
+                    self.defaults["effective_power_scale"],
+                ),
                 *ranges["effective_power_scale"],
             ),
             "plateau_shape": _clip(
-                _as_float(params.get("plateau_shape", self.defaults["plateau_shape"]), self.defaults["plateau_shape"]),
+                _as_float(
+                    params.get("plateau_shape", self.defaults["plateau_shape"]),
+                    self.defaults["plateau_shape"],
+                ),
                 *ranges["plateau_shape"],
             ),
             "hysteresis_gap": _clip(
-                _as_float(params.get("hysteresis_gap", self.defaults["hysteresis_gap"]), self.defaults["hysteresis_gap"]),
+                _as_float(
+                    params.get("hysteresis_gap", self.defaults["hysteresis_gap"]),
+                    self.defaults["hysteresis_gap"],
+                ),
                 *ranges["hysteresis_gap"],
             ),
             "inertia_tau": _clip(
-                _as_float(params.get("inertia_tau", self.defaults["inertia_tau"]), self.defaults["inertia_tau"]),
+                _as_float(
+                    params.get("inertia_tau", self.defaults["inertia_tau"]),
+                    self.defaults["inertia_tau"],
+                ),
                 *ranges["inertia_tau"],
             ),
             "damping": _clip(
-                _as_float(params.get("damping", self.defaults["damping"]), self.defaults["damping"]),
+                _as_float(
+                    params.get("damping", self.defaults["damping"]), self.defaults["damping"]
+                ),
                 *ranges["damping"],
             ),
         }
@@ -596,9 +648,11 @@ class WindPriorModel:
                     cut_in_speed=base["cut_in_speed"] + span("cut_in_speed") * 0.18,
                     rated_speed=base["rated_speed"] + span("rated_speed") * 0.20,
                     cut_out_speed=base["cut_out_speed"] - span("cut_out_speed") * 0.18,
-                    restart_speed_after_storm=base["restart_speed_after_storm"] - span("restart_speed_after_storm") * 0.15,
+                    restart_speed_after_storm=base["restart_speed_after_storm"]
+                    - span("restart_speed_after_storm") * 0.15,
                     location_gain=base["location_gain"] - span("location_gain") * 0.22,
-                    effective_power_scale=base["effective_power_scale"] - span("effective_power_scale") * 0.20,
+                    effective_power_scale=base["effective_power_scale"]
+                    - span("effective_power_scale") * 0.20,
                     plateau_shape=base["plateau_shape"] - span("plateau_shape") * 0.12,
                     hysteresis_gap=base["hysteresis_gap"] + span("hysteresis_gap") * 0.22,
                     inertia_tau=base["inertia_tau"] + span("inertia_tau") * 0.22,
@@ -612,7 +666,8 @@ class WindPriorModel:
                     rated_speed=base["rated_speed"] + span("rated_speed") * 0.12,
                     cut_out_speed=base["cut_out_speed"] - span("cut_out_speed") * 0.10,
                     location_gain=base["location_gain"] - span("location_gain") * 0.10,
-                    effective_power_scale=base["effective_power_scale"] - span("effective_power_scale") * 0.10,
+                    effective_power_scale=base["effective_power_scale"]
+                    - span("effective_power_scale") * 0.10,
                     plateau_shape=base["plateau_shape"] - span("plateau_shape") * 0.05,
                     hysteresis_gap=base["hysteresis_gap"] + span("hysteresis_gap") * 0.10,
                     inertia_tau=base["inertia_tau"] + span("inertia_tau") * 0.10,
@@ -623,7 +678,8 @@ class WindPriorModel:
             (
                 "base",
                 latent(
-                    effective_power_scale=base["effective_power_scale"] + span("effective_power_scale") * 0.05,
+                    effective_power_scale=base["effective_power_scale"]
+                    + span("effective_power_scale") * 0.05,
                     plateau_shape=base["plateau_shape"] + span("plateau_shape") * 0.02,
                 ),
             ),
@@ -634,7 +690,8 @@ class WindPriorModel:
                     rated_speed=base["rated_speed"] - span("rated_speed") * 0.08,
                     cut_out_speed=base["cut_out_speed"] + span("cut_out_speed") * 0.08,
                     location_gain=base["location_gain"] + span("location_gain") * 0.08,
-                    effective_power_scale=base["effective_power_scale"] + span("effective_power_scale") * 0.08,
+                    effective_power_scale=base["effective_power_scale"]
+                    + span("effective_power_scale") * 0.08,
                     plateau_shape=base["plateau_shape"] + span("plateau_shape") * 0.03,
                     hysteresis_gap=base["hysteresis_gap"] - span("hysteresis_gap") * 0.08,
                     inertia_tau=base["inertia_tau"] - span("inertia_tau") * 0.08,
@@ -648,7 +705,8 @@ class WindPriorModel:
                     rated_speed=base["rated_speed"] - span("rated_speed") * 0.18,
                     cut_out_speed=base["cut_out_speed"] + span("cut_out_speed") * 0.12,
                     location_gain=base["location_gain"] + span("location_gain") * 0.18,
-                    effective_power_scale=base["effective_power_scale"] + span("effective_power_scale") * 0.14,
+                    effective_power_scale=base["effective_power_scale"]
+                    + span("effective_power_scale") * 0.14,
                     plateau_shape=base["plateau_shape"] + span("plateau_shape") * 0.06,
                     hysteresis_gap=base["hysteresis_gap"] - span("hysteresis_gap") * 0.14,
                     inertia_tau=base["inertia_tau"] - span("inertia_tau") * 0.14,
@@ -658,7 +716,8 @@ class WindPriorModel:
             (
                 "storm_recovery",
                 latent(
-                    restart_speed_after_storm=base["restart_speed_after_storm"] + span("restart_speed_after_storm") * 0.18,
+                    restart_speed_after_storm=base["restart_speed_after_storm"]
+                    + span("restart_speed_after_storm") * 0.18,
                     hysteresis_gap=base["hysteresis_gap"] + span("hysteresis_gap") * 0.14,
                     inertia_tau=base["inertia_tau"] + span("inertia_tau") * 0.08,
                 ),
@@ -698,8 +757,12 @@ class WindPosteriorEstimator:
             observations.append(
                 WindObservation(
                     tick=int(row.get("tick", len(observations)) or len(observations)),
-                    wind_speed_mps=_as_float(row.get("wind_speed_mps", row.get("wind_speed", 0.0)), 0.0),
-                    observed_output_mw=_as_float(row.get("observed_output_mw", row.get("output_mw", 0.0)), 0.0),
+                    wind_speed_mps=_as_float(
+                        row.get("wind_speed_mps", row.get("wind_speed", 0.0)), 0.0
+                    ),
+                    observed_output_mw=_as_float(
+                        row.get("observed_output_mw", row.get("output_mw", 0.0)), 0.0
+                    ),
                     channel=str(row.get("channel") or ""),
                 )
             )
@@ -713,9 +776,7 @@ class WindPosteriorEstimator:
         params = dict(obj.parameters or {})
         observations: List[WindObservation] = []
         extra_rows = list(
-            params.get("wind_calibration_observations")
-            or params.get("wind_observations")
-            or []
+            params.get("wind_calibration_observations") or params.get("wind_observations") or []
         )
         for row in extra_rows:
             if not isinstance(row, dict):
@@ -723,8 +784,12 @@ class WindPosteriorEstimator:
             observations.append(
                 WindObservation(
                     tick=int(row.get("tick", len(observations)) or len(observations)),
-                    wind_speed_mps=_as_float(row.get("wind_speed_mps", row.get("wind_speed", 0.0)), 0.0),
-                    observed_output_mw=_as_float(row.get("observed_output_mw", row.get("output_mw", 0.0)), 0.0),
+                    wind_speed_mps=_as_float(
+                        row.get("wind_speed_mps", row.get("wind_speed", 0.0)), 0.0
+                    ),
+                    observed_output_mw=_as_float(
+                        row.get("observed_output_mw", row.get("output_mw", 0.0)), 0.0
+                    ),
                     channel=str(row.get("channel") or ""),
                 )
             )
@@ -805,9 +870,7 @@ class WindPosteriorEstimator:
                 "high": round(plateau_high, 4),
             }
             shutdown_rows = [
-                float(speed)
-                for speed, _output in zero_rows
-                if float(speed) >= plateau_low
+                float(speed) for speed, _output in zero_rows if float(speed) >= plateau_low
             ]
             if shutdown_rows:
                 cut_out_low = min(shutdown_rows)
@@ -909,13 +972,19 @@ class WindPosteriorEstimator:
                     ]
                     or [25.0]
                 )
-                empirical_restart = min(empirical_cut_out - 0.5, max(empirical_cut_in + 4.0, empirical_cut_out - 6.0))
+                empirical_restart = min(
+                    empirical_cut_out - 0.5, max(empirical_cut_in + 4.0, empirical_cut_out - 6.0)
+                )
                 base_latent = prior_family[min(len(prior_family) - 1, len(prior_family) // 2)][1]
                 empirical_latent = WindLatentParams(
                     cut_in_speed=_clip(empirical_cut_in, 2.5, 6.5),
                     rated_speed=_clip(empirical_rated, empirical_cut_in + 1.0, 14.5),
                     cut_out_speed=_clip(empirical_cut_out, empirical_rated + 4.0, 28.0),
-                    restart_speed_after_storm=_clip(empirical_restart, empirical_cut_in + 1.0, max(empirical_cut_in + 1.0, empirical_cut_out - 0.2)),
+                    restart_speed_after_storm=_clip(
+                        empirical_restart,
+                        empirical_cut_in + 1.0,
+                        max(empirical_cut_in + 1.0, empirical_cut_out - 0.2),
+                    ),
                     location_gain=base_latent.location_gain,
                     effective_power_scale=base_latent.effective_power_scale,
                     plateau_shape=base_latent.plateau_shape,
@@ -930,7 +999,9 @@ class WindPosteriorEstimator:
             return summary
         errors: List[float] = []
         object_specific_weight = 0.75 if object_specific.observations else 1.0
-        shared_weight = 0.25 if object_specific.observations and shared_dataset.observations else 0.0
+        shared_weight = (
+            0.25 if object_specific.observations and shared_dataset.observations else 0.0
+        )
         normalizer = max(1e-9, object_specific_weight + shared_weight)
         object_specific_weight /= normalizer
         shared_weight /= normalizer
@@ -1034,7 +1105,9 @@ class WindAuctionValuator:
         self.prior_cfg = dict(self.wind_cfg.get("prior") or {})
         self.max_power = _as_float(self.wind_cfg.get("max_power_mw", 20.0), 20.0)
         self.posterior_estimator = WindPosteriorEstimator(config)
-        self._sample_series_cache: Dict[Tuple[str, str], List[Tuple[WindPosteriorSample, List[float]]]] = {}
+        self._sample_series_cache: Dict[
+            Tuple[str, str], List[Tuple[WindPosteriorSample, List[float]]]
+        ] = {}
         self._series_cache: Dict[Tuple[str, str, str], List[float]] = {}
 
     def posterior_summary(self, obj: EnergyObject) -> WindPosteriorSummary:
@@ -1117,7 +1190,9 @@ class WindAuctionValuator:
                 mean_value = _weighted_mean(values, weights)
                 q25_value = _weighted_quantile(values, weights, 0.25)
                 q10_value = _weighted_quantile(values, weights, 0.10)
-                out.append(q25_value * q25_weight + mean_value * mean_weight + q10_value * q10_weight)
+                out.append(
+                    q25_value * q25_weight + mean_value * mean_weight + q10_value * q10_weight
+                )
         params = dict(obj.parameters or {})
         explicit_cut_out = params.get("cut_out_mps")
         if explicit_cut_out is not None:
@@ -1336,7 +1411,9 @@ def _simulate(
                     net_root += useful
                     totals.storage.arbitrage += useful * sell_price
                     totals.storage.anti_dumping_support += useful * 0.25
-            elif net_root > 0.0 and soc < storage_cfg["capacity"] and future_peak > sell_price * 1.05:
+            elif (
+                net_root > 0.0 and soc < storage_cfg["capacity"] and future_peak > sell_price * 1.05
+            ):
                 charge = min(net_root, storage_cfg["charge"], storage_cfg["capacity"] - soc)
                 if charge > 0:
                     soc += charge * storage_cfg["efficiency"]
@@ -1525,7 +1602,9 @@ class UnifiedLotOptimizer:
                     max(0.0, float(mode_deltas.get("mean", 0.0)) - float(downside_expected_value)),
                     4,
                 ),
-                notes=["Лот не содержит ВЭС; wind posterior fields возвращены для единообразия API."],
+                notes=[
+                    "Лот не содержит ВЭС; wind posterior fields возвращены для единообразия API."
+                ],
             )
         confidence: Dict[str, Dict[str, float]] = {}
         notes: List[str] = []
@@ -1535,7 +1614,9 @@ class UnifiedLotOptimizer:
             sample_rows.extend(list(posterior.samples))
             notes.extend(list(posterior.notes))
             for name, interval in posterior.confidence_by_parameter.items():
-                bucket = confidence.setdefault(name, {"low": 0.0, "mid": 0.0, "high": 0.0, "_count": 0.0})
+                bucket = confidence.setdefault(
+                    name, {"low": 0.0, "mid": 0.0, "high": 0.0, "_count": 0.0}
+                )
                 bucket["low"] += _as_float(interval.get("low", 0.0), 0.0)
                 bucket["mid"] += _as_float(interval.get("mid", 0.0), 0.0)
                 bucket["high"] += _as_float(interval.get("high", 0.0), 0.0)
@@ -1583,22 +1664,35 @@ class UnifiedLotOptimizer:
         robust_results: Dict[str, Tuple[SimulationResult, SimulationResult]] = {}
         scenarios: Dict[str, ScenarioReport] = {}
         for label in ("worst", "base", "best"):
-            baseline = self._simulate_bundle(objects=base_only, scenario_label=label, wind_mode="robust")
-            candidate = self._simulate_bundle(objects=planned_objects, scenario_label=label, wind_mode="robust")
+            baseline = self._simulate_bundle(
+                objects=base_only, scenario_label=label, wind_mode="robust"
+            )
+            candidate = self._simulate_bundle(
+                objects=planned_objects, scenario_label=label, wind_mode="robust"
+            )
             robust_results[label] = (baseline, candidate)
             scenarios[label] = ScenarioReport(
                 label=label,
-                delta_profit=round(candidate.totals.direct_profit - baseline.totals.direct_profit, 4),
+                delta_profit=round(
+                    candidate.totals.direct_profit - baseline.totals.direct_profit, 4
+                ),
                 totals=deepcopy(candidate.totals),
                 notes=list(candidate.notes),
             )
         mode_deltas: Dict[str, float] = {}
         for mode in ("mean", "q25", "q10", "cvar"):
-            baseline = self._simulate_bundle(objects=base_only, scenario_label="base", wind_mode=mode)
-            candidate = self._simulate_bundle(objects=planned_objects, scenario_label="base", wind_mode=mode)
-            mode_deltas[mode] = round(candidate.totals.direct_profit - baseline.totals.direct_profit, 4)
+            baseline = self._simulate_bundle(
+                objects=base_only, scenario_label="base", wind_mode=mode
+            )
+            candidate = self._simulate_bundle(
+                objects=planned_objects, scenario_label="base", wind_mode=mode
+            )
+            mode_deltas[mode] = round(
+                candidate.totals.direct_profit - baseline.totals.direct_profit, 4
+            )
         robust_weights = dict(
-            ((self.config.get("generation") or {}).get("wind") or {}).get("prior", {})
+            ((self.config.get("generation") or {}).get("wind") or {})
+            .get("prior", {})
             .get("robust_value_weights", {})
             or {}
         )
@@ -1638,16 +1732,24 @@ class UnifiedLotOptimizer:
             120.0,
         )
         wind_penalty = max(0.0, float(mode_deltas.get("mean", 0.0)) - float(downside_expected))
-        volatility_penalty = abs(scenarios["best"].delta_profit - scenarios["worst"].delta_profit) * _as_float(
+        volatility_penalty = abs(
+            scenarios["best"].delta_profit - scenarios["worst"].delta_profit
+        ) * _as_float(
             optimizer_cfg.get("scenario_volatility_lambda", 0.12),
             0.12,
         )
         risk_adjusted = (
             expected
             - wind_penalty * _as_float(optimizer_cfg.get("wind_uncertainty_lambda", 1.0), 1.0)
-            - market_spread * abs(expected) * _as_float(optimizer_cfg.get("market_risk_lambda", 0.08), 0.08)
-            - balancing_score * abs(expected) * _as_float(optimizer_cfg.get("balancing_risk_lambda", 0.08), 0.08)
-            - loss_score * abs(expected) * _as_float(optimizer_cfg.get("loss_risk_lambda", 0.06), 0.06)
+            - market_spread
+            * abs(expected)
+            * _as_float(optimizer_cfg.get("market_risk_lambda", 0.08), 0.08)
+            - balancing_score
+            * abs(expected)
+            * _as_float(optimizer_cfg.get("balancing_risk_lambda", 0.08), 0.08)
+            - loss_score
+            * abs(expected)
+            * _as_float(optimizer_cfg.get("loss_risk_lambda", 0.06), 0.06)
             - volatility_penalty
         )
         if topology.blocking:
@@ -1711,7 +1813,9 @@ class UnifiedLotOptimizer:
             with_candidate.config = self.config
             with_candidate.base_objects = [*self.base_objects, *_clone_objects(candidate_objects)]
             gain = float(
-                with_candidate._direct_delta(candidate_objects=follow_up_objects)["risk_adjusted_profit"]
+                with_candidate._direct_delta(candidate_objects=follow_up_objects)[
+                    "risk_adjusted_profit"
+                ]
                 - without_candidate["risk_adjusted_profit"]
             )
             if gain <= 0.0:
@@ -1719,7 +1823,10 @@ class UnifiedLotOptimizer:
             if not without_candidate["topology"].blocking and gain < 2.0:
                 continue
             unlocks.append(
-                (gain, f"Инфраструктура открывает лот «{follow_up_name}» (+{gain:.2f} risk-adjusted).")
+                (
+                    gain,
+                    f"Инфраструктура открывает лот «{follow_up_name}» (+{gain:.2f} risk-adjusted).",
+                )
             )
         unlocks.sort(key=lambda item: item[0], reverse=True)
         selected = unlocks[:3]
@@ -1774,7 +1881,9 @@ class UnifiedLotOptimizer:
         )
         enabler_value, enabler_notes = self._estimate_enabler_value(candidate_objects=candidate)
         expected_profit = round(direct_delta + enabler_value, 4)
-        risk_adjusted_profit = round(float(direct["risk_adjusted_profit"]) + enabler_value * 0.85, 4)
+        risk_adjusted_profit = round(
+            float(direct["risk_adjusted_profit"]) + enabler_value * 0.85, 4
+        )
         current_tariff = _candidate_tariff_total(candidate, direction)
         auction_cfg = dict(self.config.get("auction") or {})
         repeat_increment = _as_float(auction_cfg.get("repeat_increment", 0.1), 0.1)
@@ -1783,7 +1892,9 @@ class UnifiedLotOptimizer:
                 candidate_objects=candidate,
                 current_direct=direct,
             )
-            competitiveness = _as_float(auction_cfg.get("consumer_competitiveness_share", 0.45), 0.45)
+            competitiveness = _as_float(
+                auction_cfg.get("consumer_competitiveness_share", 0.45), 0.45
+            )
             optimal_price = max(
                 break_even,
                 current_tariff - max(0.0, current_tariff - break_even) * competitiveness,
@@ -1808,13 +1919,13 @@ class UnifiedLotOptimizer:
             margin = _as_float(auction_cfg.get("provider_margin_share", 0.18), 0.18)
             optimal_price = max(0.0, break_even * (1.0 - margin))
             aggressive_floor = None
-            opening_bid = max(0.0, min(current_tariff if current_tariff > 0.0 else optimal_price, optimal_price))
+            opening_bid = max(
+                0.0, min(current_tariff if current_tariff > 0.0 else optimal_price, optimal_price)
+            )
             counter_bid = min(break_even, max(optimal_price, opening_bid + repeat_increment))
             hard_limit = break_even
             price_role = "service_ceiling"
-            allpay_policy = (
-                "All-Pay допустим только при явном special-case trigger и в пределах общего лимита 5000."
-            )
+            allpay_policy = "All-Pay допустим только при явном special-case trigger и в пределах общего лимита 5000."
 
         topology_report = direct["topology"]
         scenario_reports = direct["scenarios"]
@@ -1840,11 +1951,17 @@ class UnifiedLotOptimizer:
             f"expected_profit = {expected_profit:.2f}, risk_adjusted_profit = {risk_adjusted_profit:.2f}. "
             f"Wind uncertainty penalty = {wind_uncertainty_penalty:.2f}, topology = {topology_feasibility}."
         )
-        mounting_requirements = [issue.message for issue in topology_report.issues if issue.severity == "critical"]
-        conflicts = [issue.message for issue in topology_report.issues if issue.severity == "warning"]
+        mounting_requirements = [
+            issue.message for issue in topology_report.issues if issue.severity == "critical"
+        ]
+        conflicts = [
+            issue.message for issue in topology_report.issues if issue.severity == "warning"
+        ]
         synergy_notes = list(enabler_notes)
         if bundle_synergy != 0.0:
-            synergy_notes.append(f"Bundle synergy относительно суммы одиночных оценок: {bundle_synergy:.2f}.")
+            synergy_notes.append(
+                f"Bundle synergy относительно суммы одиночных оценок: {bundle_synergy:.2f}."
+            )
         if expected_profit <= 0.0:
             conflicts.append("Текущая конфигурация не даёт положительного robust expected profit.")
         current_price_gap = 0.0
@@ -1853,7 +1970,9 @@ class UnifiedLotOptimizer:
         else:
             current_price_gap = max(0.0, hard_limit - current_tariff)
         drop_candidate_score = round(
-            current_price_gap + wind_uncertainty_penalty + (25.0 if topology_report.blocking else 0.0),
+            current_price_gap
+            + wind_uncertainty_penalty
+            + (25.0 if topology_report.blocking else 0.0),
             4,
         )
         return LotEvaluation(
@@ -1882,16 +2001,32 @@ class UnifiedLotOptimizer:
             mounting_requirements=mounting_requirements,
             conflicts=conflicts,
             assumptions=assumptions,
-            minimum_acceptable_tariff=round(break_even, 4) if direction == "descending_consumer_tariff" else None,
-            recommended_walkdown_tariff=round(optimal_price, 4) if direction == "descending_consumer_tariff" else None,
-            aggressive_floor=round(float(aggressive_floor or break_even), 4)
-            if direction == "descending_consumer_tariff"
-            else None,
+            minimum_acceptable_tariff=(
+                round(break_even, 4) if direction == "descending_consumer_tariff" else None
+            ),
+            recommended_walkdown_tariff=(
+                round(optimal_price, 4) if direction == "descending_consumer_tariff" else None
+            ),
+            aggressive_floor=(
+                round(float(aggressive_floor or break_even), 4)
+                if direction == "descending_consumer_tariff"
+                else None
+            ),
             hard_floor=round(break_even, 4) if direction == "descending_consumer_tariff" else None,
-            maximum_acceptable_service_tariff=round(break_even, 4) if direction != "descending_consumer_tariff" else None,
-            recommended_bid_ceiling=round(optimal_price, 4) if direction != "descending_consumer_tariff" else None,
-            soft_ceiling=round(max(0.0, optimal_price * 0.92), 4) if direction != "descending_consumer_tariff" else None,
-            hard_ceiling=round(break_even, 4) if direction != "descending_consumer_tariff" else None,
+            maximum_acceptable_service_tariff=(
+                round(break_even, 4) if direction != "descending_consumer_tariff" else None
+            ),
+            recommended_bid_ceiling=(
+                round(optimal_price, 4) if direction != "descending_consumer_tariff" else None
+            ),
+            soft_ceiling=(
+                round(max(0.0, optimal_price * 0.92), 4)
+                if direction != "descending_consumer_tariff"
+                else None
+            ),
+            hard_ceiling=(
+                round(break_even, 4) if direction != "descending_consumer_tariff" else None
+            ),
             recommended_opening_bid=round(opening_bid, 4),
             recommended_counter_bid=round(counter_bid, 4),
             hard_limit=round(hard_limit, 4),

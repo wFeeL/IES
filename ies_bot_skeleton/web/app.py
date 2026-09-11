@@ -48,6 +48,7 @@ def _bootstrap_local_sqlite(app: Flask) -> None:
         try:
             db.create_all()
             from .services.seed import ensure_seed_data
+
             ensure_seed_data()
             db.session.remove()
         except SQLAlchemyError:
@@ -90,13 +91,17 @@ def _configure_logging(app: Flask) -> None:
         app_file = log_dir / str(app.config.get("APP_LOG_FILE", "ies_web.log"))
         err_file = log_dir / str(app.config.get("ERROR_LOG_FILE", "ies_web.error.log"))
 
-        file_handler = RotatingFileHandler(app_file, maxBytes=1_500_000, backupCount=4, encoding="utf-8")
+        file_handler = RotatingFileHandler(
+            app_file, maxBytes=1_500_000, backupCount=4, encoding="utf-8"
+        )
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         file_handler.addFilter(request_filter)
         handlers.append(file_handler)
 
-        error_handler = RotatingFileHandler(err_file, maxBytes=1_500_000, backupCount=4, encoding="utf-8")
+        error_handler = RotatingFileHandler(
+            err_file, maxBytes=1_500_000, backupCount=4, encoding="utf-8"
+        )
         error_handler.setLevel(logging.ERROR)
         error_handler.setFormatter(formatter)
         error_handler.addFilter(request_filter)
@@ -139,7 +144,9 @@ def create_app(config_name: Optional[str] = None) -> Flask:
             g.current_user = user
             return user
         except SQLAlchemyError:
-            app.logger.warning("Failed to load user %s from database; resetting session lookup.", user_id)
+            app.logger.warning(
+                "Failed to load user %s from database; resetting session lookup.", user_id
+            )
             db.session.remove()
             return None
 

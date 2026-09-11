@@ -30,10 +30,7 @@ def _is_candidate(obj: EnergyObject) -> bool:
 
 def _point_from_payload(payload: Dict[str, object], fallback: str = "A") -> str:
     point = str(
-        payload.get("connection_point")
-        or payload.get("point")
-        or payload.get("slot")
-        or fallback
+        payload.get("connection_point") or payload.get("point") or payload.get("slot") or fallback
     ).strip()
     return (point or fallback).upper()
 
@@ -274,7 +271,9 @@ def _plan_network_once(
     available_ports: Dict[str, int] = {}
     usage = _used_ports(objects)
     for infra in infra_nodes:
-        available_ports[infra.object_id] = max(0, _ports_for_object(infra) - usage.get(infra.object_id, 0))
+        available_ports[infra.object_id] = max(
+            0, _ports_for_object(infra) - usage.get(infra.object_id, 0)
+        )
 
     for obj in objects:
         if not obj.is_active or not _is_candidate(obj):
@@ -323,8 +322,7 @@ def _plan_network_once(
         if obj.is_active and _is_candidate(obj) and obj.terminals
     }
     report.available_ports_by_node = {
-        object_id: max(0, int(value))
-        for object_id, value in available_ports.items()
+        object_id: max(0, int(value)) for object_id, value in available_ports.items()
     }
     return objects, report
 
@@ -405,7 +403,9 @@ def plan_network(
             report=report,
         )
         for index, (objects, report) in enumerate(candidates, start=1)
-        for summary in [((report.topology_candidates or [{}])[0] if report.topology_candidates else {})]
+        for summary in [
+            (report.topology_candidates or [{}])[0] if report.topology_candidates else {}
+        ]
     ]
     return selected_objects, selected_report
 
@@ -421,7 +421,9 @@ def validate_network(
     mains = [obj for obj in infra if _is_main(obj)]
     if not mains:
         report.issues.append(
-            TopologyIssue("NO_MAIN_SUBSTATION", "В системе отсутствует главная подстанция.", "critical")
+            TopologyIssue(
+                "NO_MAIN_SUBSTATION", "В системе отсутствует главная подстанция.", "critical"
+            )
         )
     if len(mains) > 1:
         report.issues.append(
@@ -457,9 +459,7 @@ def validate_network(
         return False
 
     if _dfs(root_id):
-        report.issues.append(
-            TopologyIssue("NETWORK_CYCLE", "Обнаружен цикл в сети.", "critical")
-        )
+        report.issues.append(TopologyIssue("NETWORK_CYCLE", "Обнаружен цикл в сети.", "critical"))
 
     reachable: set[str] = set()
 
@@ -525,14 +525,14 @@ def validate_network(
 
     for obj in active:
         if _is_infrastructure(obj):
-            report.usable_fraction_by_object[obj.object_id] = 1.0 if obj.object_id in reachable else 0.0
+            report.usable_fraction_by_object[obj.object_id] = (
+                1.0 if obj.object_id in reachable else 0.0
+            )
             continue
 
         connected_terminals = [terminal for terminal in obj.terminals if terminal.parent_id]
         valid_connected = [
-            terminal
-            for terminal in connected_terminals
-            if str(terminal.parent_id) in reachable
+            terminal for terminal in connected_terminals if str(terminal.parent_id) in reachable
         ]
 
         if _norm(obj.code) == "hospital":
@@ -620,7 +620,9 @@ def validate_network(
                     obj.object_id,
                 )
             )
-        terminal_points = {str(terminal.connection_point or "A").upper() for terminal in valid_connected}
+        terminal_points = {
+            str(terminal.connection_point or "A").upper() for terminal in valid_connected
+        }
         if terminal_points & {"C", "D"}:
             report.issues.append(
                 TopologyIssue(

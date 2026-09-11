@@ -856,7 +856,9 @@ def test_ordinary_lost_bid_does_not_consume_allpay_budget(client):
     session_after = client.get(f"/api/sessions/{session_id}").get_json()["item"]
     assert float(session_after["allpay_spent"]) == pytest.approx(0.0)
     assert float(session_after["purchase_spent"]) == pytest.approx(0.0)
-    assert float(session_after["cash_available"]) == pytest.approx(float(session_after["budget_total"]))
+    assert float(session_after["cash_available"]) == pytest.approx(
+        float(session_after["budget_total"])
+    )
 
     history = client.get(f"/api/sessions/{session_id}/auction/events").get_json()
     assert history["ok"] is True

@@ -94,7 +94,9 @@ def _energy_object(row: ObjectInstance) -> EnergyObject:
     )
 
 
-def _district_rows(objects: List[ObjectInstance], topology_candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _district_rows(
+    objects: List[ObjectInstance], topology_candidates: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
     district_map: Dict[str, Dict[str, Any]] = {}
     candidate_districts = {}
     if topology_candidates:
@@ -116,13 +118,15 @@ def _district_rows(objects: List[ObjectInstance], topology_candidates: List[Dict
             },
         )
         label = obj.custom_name or (object_type.name if object_type else f"Объект {obj.id}")
-        row["objects"].append({
-            "id": int(obj.id),
-            "label": label,
-            "code": str(getattr(object_type, "code", "") or ""),
-            "category": category,
-            "parent_id": int(obj.parent_instance_id) if obj.parent_instance_id else None,
-        })
+        row["objects"].append(
+            {
+                "id": int(obj.id),
+                "label": label,
+                "code": str(getattr(object_type, "code", "") or ""),
+                "category": category,
+                "parent_id": int(obj.parent_instance_id) if obj.parent_instance_id else None,
+            }
+        )
         if obj.parent_instance_id and row["upstream_node"] is None:
             row["upstream_node"] = int(obj.parent_instance_id)
     out: List[Dict[str, Any]] = []
@@ -136,7 +140,9 @@ def _district_rows(objects: List[ObjectInstance], topology_candidates: List[Dict
         elif "generator" in categories or "storage" in categories:
             row["district_type"] = "generation"
         elif "infrastructure" in categories:
-            row["district_type"] = row["district_type"] if row["district_type"] != "unknown" else "infrastructure"
+            row["district_type"] = (
+                row["district_type"] if row["district_type"] != "unknown" else "infrastructure"
+            )
         row["object_labels"] = [obj["label"] for obj in row["objects"]]
         out.append(row)
     return out
@@ -148,12 +154,15 @@ def _inventory_rows(objects: List[ObjectInstance]) -> List[Dict[str, Any]]:
         object_type = obj.object_type
         params = dict(obj.current_parameters_json or {})
         integration_state = params.get("integration_state") or (
-            "pending_connection" if obj.source_lot_id and not obj.parent_instance_id and obj.is_active else "integrated"
+            "pending_connection"
+            if obj.source_lot_id and not obj.parent_instance_id and obj.is_active
+            else "integrated"
         )
         rows.append(
             {
                 "id": int(obj.id),
-                "label": obj.custom_name or (object_type.name if object_type else f"Объект {obj.id}"),
+                "label": obj.custom_name
+                or (object_type.name if object_type else f"Объект {obj.id}"),
                 "code": str(getattr(object_type, "code", "") or ""),
                 "district": str(obj.district or "default"),
                 "status": str(integration_state),
@@ -164,14 +173,29 @@ def _inventory_rows(objects: List[ObjectInstance]) -> List[Dict[str, Any]]:
     return rows
 
 
-def _assembly_plan(objects: List[ObjectInstance], district_rows: List[Dict[str, Any]], issues: List[ValidationIssue]) -> List[str]:
+def _assembly_plan(
+    objects: List[ObjectInstance],
+    district_rows: List[Dict[str, Any]],
+    issues: List[ValidationIssue],
+) -> List[str]:
     plan: List[str] = []
-    if not any(_canonical_code(getattr(obj.object_type, "code", "")) == "main_substation" for obj in objects if obj.is_active):
-        plan.append("Установите главную подстанцию: без неё ни один объект не должен считаться корректно смонтированным.")
+    if not any(
+        _canonical_code(getattr(obj.object_type, "code", "")) == "main_substation"
+        for obj in objects
+        if obj.is_active
+    ):
+        plan.append(
+            "Установите главную подстанцию: без неё ни один объект не должен считаться корректно смонтированным."
+        )
     else:
         plan.append("Зафиксируйте главную подстанцию как единственный корневой узел дерева сети.")
-    if any(_canonical_code(getattr(obj.object_type, "code", "")) == "mini_substation" and obj.is_active for obj in objects):
-        plan.append("Подключите все купленные миниподстанции к допустимым upstream-узлам и не оставляйте их неустановленными.")
+    if any(
+        _canonical_code(getattr(obj.object_type, "code", "")) == "mini_substation" and obj.is_active
+        for obj in objects
+    ):
+        plan.append(
+            "Подключите все купленные миниподстанции к допустимым upstream-узлам и не оставляйте их неустановленными."
+        )
     for row in district_rows:
         district_type = row.get("district_type")
         labels = ", ".join(row.get("object_labels") or []) or row.get("district_id")
@@ -180,12 +204,18 @@ def _assembly_plan(objects: List[ObjectInstance], district_rows: List[Dict[str, 
         elif district_type == "load":
             plan.append(f"Сформируйте нагрузочную ветку {row['district_id']}: {labels}.")
         elif district_type == "invalid_mixed":
-            plan.append(f"Разделите энергорайон {row['district_id']}: сейчас в нём смешаны производители и потребители ({labels}).")
+            plan.append(
+                f"Разделите энергорайон {row['district_id']}: сейчас в нём смешаны производители и потребители ({labels})."
+            )
     if any("больница" in issue.message.lower() for issue in issues):
         plan.append("Проверьте больницы: каждая должна иметь два независимых ввода.")
     if any("завод" in issue.message.lower() for issue in issues):
-        plan.append("Проверьте заводы: второй ввод необязателен, но при его наличии нагрузка должна делиться между вводами.")
-    plan.append("После раскладки проверьте отсутствие циклов, островов и путь каждого объекта до главной подстанции.")
+        plan.append(
+            "Проверьте заводы: второй ввод необязателен, но при его наличии нагрузка должна делиться между вводами."
+        )
+    plan.append(
+        "После раскладки проверьте отсутствие циклов, островов и путь каждого объекта до главной подстанции."
+    )
     deduped: List[str] = []
     for step in plan:
         if step not in deduped:
@@ -215,7 +245,9 @@ def network_validation_summary(objects: List[ObjectInstance]) -> ValidationSumma
     issues = [
         ValidationIssue(
             code=issue.code,
-            message=("Обнаружен цикл в дереве сети." if issue.code == "NETWORK_CYCLE" else issue.message),
+            message=(
+                "Обнаружен цикл в дереве сети." if issue.code == "NETWORK_CYCLE" else issue.message
+            ),
             severity=issue.severity,
         )
         for issue in report.issues

@@ -224,8 +224,12 @@ def _validate_future_state(
             )
         )
     report = validate_network(future)
-    has_main = any(str(obj.code or "") == "main_substation" and bool(obj.is_active) for obj in future)
-    allow_connectivity_repairs = current_object_id is None and str(object_type.category or "") == "infrastructure"
+    has_main = any(
+        str(obj.code or "") == "main_substation" and bool(obj.is_active) for obj in future
+    )
+    allow_connectivity_repairs = (
+        current_object_id is None and str(object_type.category or "") == "infrastructure"
+    )
     critical = []
     for issue in report.issues:
         if issue.severity != "critical":
@@ -296,7 +300,9 @@ def update_session_object(row: ObjectInstance, payload: Dict[str, Any]) -> Objec
     next_object_type = row.object_type or _object_type_or_error(int(row.object_type_id))
     if "object_type_id" in payload:
         next_object_type = _object_type_or_error(int(payload["object_type_id"]))
-    next_parent_instance_id = int(row.parent_instance_id) if row.parent_instance_id is not None else None
+    next_parent_instance_id = (
+        int(row.parent_instance_id) if row.parent_instance_id is not None else None
+    )
     if "parent_instance_id" in payload:
         next_parent_instance_id = _normalize_parent(
             session_id=row.session_id,

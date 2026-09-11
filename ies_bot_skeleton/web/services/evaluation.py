@@ -16,14 +16,14 @@ BUDGET_PRESERVATION_NOTE = "Неиспользованный остаток бю
 class ForecastCompatibilityError(ValueError):
     def __init__(self, report: Dict[str, Any]) -> None:
         reasons = list(report.get("blocking_reasons") or [])
-        super().__init__("; ".join(reasons) if reasons else "Прогноз несовместим с объектами сессии.")
+        super().__init__(
+            "; ".join(reasons) if reasons else "Прогноз несовместим с объектами сессии."
+        )
         self.report = dict(report)
-
 
 
 def _norm(value: Any) -> str:
     return "".join(ch.lower() for ch in str(value or "").strip() if ch.isalnum() or ch == "_")
-
 
 
 def _canonical_code(code: str) -> str:
@@ -42,15 +42,12 @@ def _canonical_code(code: str) -> str:
     return aliases.get(normalized, normalized)
 
 
-
 def _session_lots(session: GameSession) -> Sequence[Lot]:
     return cast(Sequence[Lot], list(session.lots))
 
 
-
 def _lot_items(lot: Lot) -> Sequence[LotItem]:
     return cast(Sequence[LotItem], list(lot.items))
-
 
 
 def _compatibility_or_error(session: GameSession, forecast: Optional[Forecast]) -> Dict[str, Any]:
@@ -60,20 +57,19 @@ def _compatibility_or_error(session: GameSession, forecast: Optional[Forecast]) 
     return compatibility
 
 
-
-def _forecast_pack_for_session(session: GameSession, forecast: Optional[Forecast]) -> Dict[str, Any]:
+def _forecast_pack_for_session(
+    session: GameSession, forecast: Optional[Forecast]
+) -> Dict[str, Any]:
     if forecast is None:
         compatibility = session_forecast_compatibility(session=session, forecast=None)
         raise ForecastCompatibilityError(dict(compatibility.get("compatibility_report") or {}))
     return build_forecast_pack(forecast)
 
 
-
 def _parameters_for_lot_item(item: LotItem) -> Dict[str, Any]:
     params = dict(item.object_type.default_parameters_json or {}) if item.object_type else {}
     params.update(dict(item.overrides_json or {}))
     return params
-
 
 
 def _energy_object_from_instance(row: ObjectInstance) -> EnergyObject:
@@ -93,7 +89,6 @@ def _energy_object_from_instance(row: ObjectInstance) -> EnergyObject:
         parent_id=f"obj-{int(row.parent_instance_id)}" if row.parent_instance_id else None,
         terminals=[],
     )
-
 
 
 def _expanded_candidate_objects_from_lot(lot: Lot) -> List[EnergyObject]:
@@ -125,10 +120,8 @@ def _expanded_candidate_objects_from_lot(lot: Lot) -> List[EnergyObject]:
     return objects
 
 
-
 def _base_objects(session: GameSession) -> List[EnergyObject]:
     return [_energy_object_from_instance(row) for row in session.objects if row.is_active]
-
 
 
 def _role_breakdown(objects: Sequence[EnergyObject]) -> Dict[str, float]:
@@ -138,10 +131,13 @@ def _role_breakdown(objects: Sequence[EnergyObject]) -> Dict[str, float]:
     return counts
 
 
-
 def _system_check(evaluation) -> Dict[str, Any]:
-    critical = [issue.message for issue in evaluation.topology.issues if issue.severity == "critical"]
-    warnings = [issue.message for issue in evaluation.topology.issues if issue.severity == "warning"]
+    critical = [
+        issue.message for issue in evaluation.topology.issues if issue.severity == "critical"
+    ]
+    warnings = [
+        issue.message for issue in evaluation.topology.issues if issue.severity == "warning"
+    ]
     hints = [issue.message for issue in evaluation.topology.issues if issue.severity == "hint"]
     status = "supported"
     if critical:
@@ -152,13 +148,22 @@ def _system_check(evaluation) -> Dict[str, Any]:
         status = "warning"
     return {
         "status": status,
-        "message": critical[0] if critical else warnings[0] if warnings else str(evaluation.explanation),
+        "message": (
+            critical[0] if critical else warnings[0] if warnings else str(evaluation.explanation)
+        ),
         "critical_blocking_errors": critical,
         "warnings": warnings,
         "optimization_hints": hints,
         "topology_candidates": list(getattr(evaluation.topology, "topology_candidates", []) or []),
         "system_fit_score": round(max(0.0, 1.0 - (0.25 * len(critical) + 0.08 * len(warnings))), 4),
-        "recommended_points": sorted({t.connection_point for rows in evaluation.topology.recommended_connections.values() for t in rows if getattr(t, "connection_point", None)}),
+        "recommended_points": sorted(
+            {
+                t.connection_point
+                for rows in evaluation.topology.recommended_connections.values()
+                for t in rows
+                if getattr(t, "connection_point", None)
+            }
+        ),
         "recommended_connections": {
             str(key): [
                 {
@@ -172,7 +177,6 @@ def _system_check(evaluation) -> Dict[str, Any]:
         },
         "connection_block_reasons_count": len(critical),
     }
-
 
 
 # Single name for the valuation model, surfaced as decision_summary.bid_formula
@@ -193,7 +197,9 @@ def _risk_factor(expected_profit: float, risk_adjusted_profit: float) -> float:
 
 def _volatility_factor(evaluation, expected_profit: float) -> float:
     """Best/worst spread measured against the size of the expected profit."""
-    spread = abs(float(evaluation.best_case.delta_profit) - float(evaluation.worst_case.delta_profit))
+    spread = abs(
+        float(evaluation.best_case.delta_profit) - float(evaluation.worst_case.delta_profit)
+    )
     scale = max(abs(float(expected_profit)), 1.0)
     return round(spread / scale, 4)
 
@@ -314,9 +320,7 @@ def _financial_breakdown(
             "remaining_budget_after_recommended_bid": round(
                 float(budget_remaining) - float(recommended_bid), 4
             ),
-            "remaining_budget_after_max_bid": round(
-                float(budget_remaining) - float(max_bid), 4
-            ),
+            "remaining_budget_after_max_bid": round(float(budget_remaining) - float(max_bid), 4),
             "roi": round(roi, 4),
             "payback_ratio": round(payback_ratio, 4) if payback_ratio is not None else None,
         },
@@ -334,13 +338,17 @@ def _financial_breakdown(
     }
 
 
-
 def _risk_adjusted_profit(evaluation) -> float:
-    spread = abs(float(evaluation.best_case.delta_profit) - float(evaluation.worst_case.delta_profit))
+    spread = abs(
+        float(evaluation.best_case.delta_profit) - float(evaluation.worst_case.delta_profit)
+    )
     uncertainty = float(getattr(evaluation, "wind_uncertainty_penalty", 0.0) or 0.0)
-    expected = float(getattr(evaluation, "expected_profit_after_purchase", 0.0) or evaluation.expected_delta_profit or 0.0)
+    expected = float(
+        getattr(evaluation, "expected_profit_after_purchase", 0.0)
+        or evaluation.expected_delta_profit
+        or 0.0
+    )
     return round(expected - spread * 0.18 - uncertainty, 4)
-
 
 
 def _scenario_payload(label: str, report) -> Dict[str, Any]:
@@ -349,19 +357,30 @@ def _scenario_payload(label: str, report) -> Dict[str, Any]:
         "label": label.title(),
         "delta_profit": round(float(report.delta_profit), 4),
         "revenue_total": round(float(totals.consumer_revenue + totals.market_revenue), 4),
-        "cost_total": round(float(totals.service_cost + totals.market_purchase_cost + totals.loss_cost + totals.balancing_penalty + totals.unmet_load_penalty), 4),
+        "cost_total": round(
+            float(
+                totals.service_cost
+                + totals.market_purchase_cost
+                + totals.loss_cost
+                + totals.balancing_penalty
+                + totals.unmet_load_penalty
+            ),
+            4,
+        ),
         "net_profit": round(float(report.delta_profit), 4),
         "explanation": "; ".join(report.notes) if report.notes else "",
     }
-
 
 
 def _price_role(evaluation) -> str:
     explicit = str(getattr(evaluation, "price_role", "") or "").strip()
     if explicit:
         return explicit
-    return "consumer_floor" if evaluation.auction_direction == "descending_consumer_tariff" else "service_ceiling"
-
+    return (
+        "consumer_floor"
+        if evaluation.auction_direction == "descending_consumer_tariff"
+        else "service_ceiling"
+    )
 
 
 def _optimal_purchase_price(evaluation) -> float:
@@ -369,9 +388,16 @@ def _optimal_purchase_price(evaluation) -> float:
     if explicit > 0.0:
         return explicit
     if evaluation.auction_direction == "descending_consumer_tariff":
-        return float(getattr(evaluation, "recommended_walkdown_tariff", 0.0) or evaluation.recommended_bid_or_tariff or 0.0)
-    return float(getattr(evaluation, "recommended_bid_ceiling", 0.0) or evaluation.recommended_bid_or_tariff or 0.0)
-
+        return float(
+            getattr(evaluation, "recommended_walkdown_tariff", 0.0)
+            or evaluation.recommended_bid_or_tariff
+            or 0.0
+        )
+    return float(
+        getattr(evaluation, "recommended_bid_ceiling", 0.0)
+        or evaluation.recommended_bid_or_tariff
+        or 0.0
+    )
 
 
 def _hard_limit(evaluation) -> float:
@@ -381,7 +407,6 @@ def _hard_limit(evaluation) -> float:
     if evaluation.auction_direction == "descending_consumer_tariff":
         return float(getattr(evaluation, "hard_floor", 0.0) or evaluation.break_even_tariff or 0.0)
     return float(getattr(evaluation, "hard_ceiling", 0.0) or evaluation.break_even_tariff or 0.0)
-
 
 
 def _payload_from_evaluation(
@@ -396,14 +421,24 @@ def _payload_from_evaluation(
     current_price: float = 0.0,
 ) -> Dict[str, Any]:
     budget = budget_snapshot(session)
-    expected_profit = float(getattr(evaluation, "expected_profit_after_purchase", 0.0) or evaluation.expected_delta_profit or 0.0)
+    expected_profit = float(
+        getattr(evaluation, "expected_profit_after_purchase", 0.0)
+        or evaluation.expected_delta_profit
+        or 0.0
+    )
     risk_adjusted_profit = _risk_adjusted_profit(evaluation)
     price_role = _price_role(evaluation)
     optimal_purchase_price = _optimal_purchase_price(evaluation)
     hard_limit = _hard_limit(evaluation)
     system_check = _system_check(evaluation)
-    synergy_value = float(getattr(evaluation, "synergy_value", 0.0) or getattr(evaluation, "bundle_synergy_value", 0.0) or 0.0)
-    enabler_value = float(getattr(evaluation, "infrastructure_enabler_value", 0.0) or evaluation.enabler_value or 0.0)
+    synergy_value = float(
+        getattr(evaluation, "synergy_value", 0.0)
+        or getattr(evaluation, "bundle_synergy_value", 0.0)
+        or 0.0
+    )
+    enabler_value = float(
+        getattr(evaluation, "infrastructure_enabler_value", 0.0) or evaluation.enabler_value or 0.0
+    )
     wind_uncertainty_penalty = float(getattr(evaluation, "wind_uncertainty_penalty", 0.0) or 0.0)
 
     decision_summary = {
@@ -412,8 +447,20 @@ def _payload_from_evaluation(
         "price_role": price_role,
         "optimal_purchase_price": round(optimal_purchase_price, 4),
         "hard_limit": round(hard_limit, 4),
-        "opening_bid": round(float(getattr(evaluation, "recommended_opening_bid", optimal_purchase_price) or optimal_purchase_price), 4),
-        "counter_bid": round(float(getattr(evaluation, "recommended_counter_bid", optimal_purchase_price) or optimal_purchase_price), 4),
+        "opening_bid": round(
+            float(
+                getattr(evaluation, "recommended_opening_bid", optimal_purchase_price)
+                or optimal_purchase_price
+            ),
+            4,
+        ),
+        "counter_bid": round(
+            float(
+                getattr(evaluation, "recommended_counter_bid", optimal_purchase_price)
+                or optimal_purchase_price
+            ),
+            4,
+        ),
         "floor_or_ceiling_type": "floor" if price_role == "consumer_floor" else "ceiling",
         "hard_floor_tariff": round(float(getattr(evaluation, "hard_floor", 0.0) or 0.0), 4),
         "hard_ceiling_tariff": round(float(getattr(evaluation, "hard_ceiling", 0.0) or 0.0), 4),
@@ -543,10 +590,14 @@ def _payload_from_evaluation(
         "forecast_context": dict(forecast_context or {}),
         "forecast_summary": dict(forecast_summary or {}),
         "portfolio_context": {
-            "bought_lots_count": int(sum(1 for row in _session_lots(session) if str(row.status or "") == "bought")),
+            "bought_lots_count": int(
+                sum(1 for row in _session_lots(session) if str(row.status or "") == "bought")
+            ),
             "spent_total": float(budget.get("spent_total", 0.0) or 0.0),
             "remaining_budget": float(budget.get("remaining_budget", 0.0) or 0.0),
-            "cash_available": float(budget.get("cash_available", budget.get("remaining_budget", 0.0)) or 0.0),
+            "cash_available": float(
+                budget.get("cash_available", budget.get("remaining_budget", 0.0)) or 0.0
+            ),
             "owned_objects_count": len([row for row in session.objects if row.is_active]),
         },
         "scenario_breakdown": {
@@ -570,7 +621,9 @@ def _payload_from_evaluation(
         "synergy_value": round(synergy_value, 4),
         "enabler_value": round(enabler_value, 4),
         "wind_uncertainty_penalty": round(wind_uncertainty_penalty, 4),
-        "topology_feasibility": str(getattr(evaluation, "topology_feasibility", system_check.get("status", "feasible"))),
+        "topology_feasibility": str(
+            getattr(evaluation, "topology_feasibility", system_check.get("status", "feasible"))
+        ),
         "topology_risk": str(evaluation.topology_risk),
         "market_risk": str(evaluation.market_risk),
         "balancing_risk": str(evaluation.balancing_risk),
@@ -595,7 +648,10 @@ def _payload_from_evaluation(
         "hard_ceiling_bid": round(hard_limit, 4),
         "hard_cap": round(hard_limit, 4),
         "max_bid": round(hard_limit, 4),
-        "reasons": [str(evaluation.explanation), *list(getattr(evaluation, "synergy_notes", []) or [])],
+        "reasons": [
+            str(evaluation.explanation),
+            *list(getattr(evaluation, "synergy_notes", []) or []),
+        ],
         "budget_preservation_note": BUDGET_PRESERVATION_NOTE,
         "system_check": system_check,
         "metrics": {
@@ -609,7 +665,9 @@ def _payload_from_evaluation(
             "role_breakdown": _role_breakdown(candidate_objects),
             "synergy": {
                 "score": round(synergy_value + enabler_value, 4),
-                "standalone_expected_net_profit": round(float(evaluation.direct_delta_profit or 0.0), 4),
+                "standalone_expected_net_profit": round(
+                    float(evaluation.direct_delta_profit or 0.0), 4
+                ),
                 "marginal_expected_net_profit": round(expected_profit, 4),
             },
             "system_check": system_check,
@@ -617,7 +675,9 @@ def _payload_from_evaluation(
                 "arbitrage": round(float(evaluation.storage_value.arbitrage), 4),
                 "balancing": round(float(evaluation.storage_value.balancing), 4),
                 "reserve": round(float(evaluation.storage_value.reserve), 4),
-                "anti_dumping_support": round(float(getattr(evaluation.storage_value, 'anti_dumping_support', 0.0)), 4),
+                "anti_dumping_support": round(
+                    float(getattr(evaluation.storage_value, "anti_dumping_support", 0.0)), 4
+                ),
             },
             "bids": {
                 "optimal_purchase_price": round(optimal_purchase_price, 4),
@@ -642,9 +702,10 @@ def _payload_from_evaluation(
     return payload
 
 
-
 def _save_evaluation(*, session: GameSession, lot: Lot, payload: Dict[str, Any]) -> None:
-    db.session.query(EvaluationResult).filter_by(session_id=int(session.id), lot_id=int(lot.id), mode="ies_2026").delete(synchronize_session=False)
+    db.session.query(EvaluationResult).filter_by(
+        session_id=int(session.id), lot_id=int(lot.id), mode="ies_2026"
+    ).delete(synchronize_session=False)
     db.session.add(
         EvaluationResult(
             session_id=int(session.id),
@@ -664,7 +725,6 @@ def _save_evaluation(*, session: GameSession, lot: Lot, payload: Dict[str, Any])
     db.session.commit()
 
 
-
 def prepare_fast_scoring_context(
     *,
     session: GameSession,
@@ -679,7 +739,9 @@ def prepare_fast_scoring_context(
     compatibility = _compatibility_or_error(session, cast(Optional[Forecast], selected_forecast))
     return {
         "forecast": selected_forecast,
-        "forecast_pack": _forecast_pack_for_session(session, cast(Optional[Forecast], selected_forecast)),
+        "forecast_pack": _forecast_pack_for_session(
+            session, cast(Optional[Forecast], selected_forecast)
+        ),
         "forecast_context": dict(analysis_ctx.get("forecast_context") or {}),
         "forecast_summary": dict(analysis_ctx.get("forecast_summary") or {}),
         "compatibility": compatibility,
@@ -687,7 +749,6 @@ def prepare_fast_scoring_context(
         "rules_cfg": dict(session.ruleset.config_json or {}),
         "available_lots": list(available_lots or []),
     }
-
 
 
 def evaluate_lot_bundle(
@@ -705,7 +766,9 @@ def evaluate_lot_bundle(
     ordered_lots = sorted(list(lots), key=lambda row: int(row.id))
     if not ordered_lots:
         raise ValueError("Для bundle evaluation нужен хотя бы один лот")
-    context = fast_context or prepare_fast_scoring_context(session=session, forecast=forecast, available_lots=available_lots)
+    context = fast_context or prepare_fast_scoring_context(
+        session=session, forecast=forecast, available_lots=available_lots
+    )
     base_objects = list(context.get("base_objects") or _base_objects(session))
     forecast_pack = dict(context.get("forecast_pack") or {})
     forecast_context = dict(context.get("forecast_context") or {})
@@ -742,7 +805,6 @@ def evaluate_lot_bundle(
     )
 
 
-
 def evaluate_lot(
     *,
     session: GameSession,
@@ -756,12 +818,13 @@ def evaluate_lot(
         lots=[lot],
         strategy=strategy,
         forecast=forecast,
-        available_lots=[row for row in _session_lots(session) if str(row.status or "") == "available"],
+        available_lots=[
+            row for row in _session_lots(session) if str(row.status or "") == "available"
+        ],
     )
     if persist:
         _save_evaluation(session=session, lot=lot, payload=payload)
     return payload
-
 
 
 def rank_lots(
@@ -776,7 +839,13 @@ def rank_lots(
     rows = list(lots)
     if not rows:
         return []
-    fast_context = prepare_fast_scoring_context(session=session, forecast=forecast, available_lots=[row for row in _session_lots(session) if str(row.status or "") == "available"])
+    fast_context = prepare_fast_scoring_context(
+        session=session,
+        forecast=forecast,
+        available_lots=[
+            row for row in _session_lots(session) if str(row.status or "") == "available"
+        ],
+    )
     out: List[Dict[str, Any]] = []
     for lot in rows:
         payload = evaluate_lot_bundle(
@@ -790,9 +859,15 @@ def rank_lots(
         out.append(payload)
         if persist:
             _save_evaluation(session=session, lot=lot, payload=payload)
-    out.sort(key=lambda row: (float(row.get("risk_adjusted_profit", 0.0) or 0.0), float(row.get("expected_profit", 0.0) or 0.0), -float(row.get("wind_uncertainty_penalty", 0.0) or 0.0)), reverse=True)
+    out.sort(
+        key=lambda row: (
+            float(row.get("risk_adjusted_profit", 0.0) or 0.0),
+            float(row.get("expected_profit", 0.0) or 0.0),
+            -float(row.get("wind_uncertainty_penalty", 0.0) or 0.0),
+        ),
+        reverse=True,
+    )
     return out
-
 
 
 def recommend_best_lot(
@@ -802,10 +877,21 @@ def recommend_best_lot(
     strategy: Optional[str] = None,
     forecast: Optional[Forecast] = None,
 ) -> Dict[str, Any]:
-    ranked = rank_lots(session=session, lots=list(lots), strategy=strategy, forecast=forecast, persist=False)
+    ranked = rank_lots(
+        session=session, lots=list(lots), strategy=strategy, forecast=forecast, persist=False
+    )
     best = ranked[0] if ranked else None
-    return {"model": VALUATION_MODEL, "best": best, "best_lot": best, "ranked_lots": ranked, "summary": {"count": len(ranked), "best_lot_id": int(best.get("lot_id", 0) or 0) if best else None, "best_expected_profit": float(best.get("expected_profit", 0.0) or 0.0) if best else 0.0}}
-
+    return {
+        "model": VALUATION_MODEL,
+        "best": best,
+        "best_lot": best,
+        "ranked_lots": ranked,
+        "summary": {
+            "count": len(ranked),
+            "best_lot_id": int(best.get("lot_id", 0) or 0) if best else None,
+            "best_expected_profit": float(best.get("expected_profit", 0.0) or 0.0) if best else 0.0,
+        },
+    }
 
 
 def strategy_fit(
@@ -814,7 +900,9 @@ def strategy_fit(
     lot: Lot,
     forecast: Optional[Forecast] = None,
 ) -> Dict[str, Any]:
-    evaluation = evaluate_lot(session=session, lot=lot, strategy=None, forecast=forecast, persist=False)
+    evaluation = evaluate_lot(
+        session=session, lot=lot, strategy=None, forecast=forecast, persist=False
+    )
     return {
         "model": VALUATION_MODEL,
         "lot_id": int(lot.id),
@@ -829,9 +917,16 @@ def strategy_fit(
         "hard_limit": float(evaluation.get("hard_limit", 0.0) or 0.0),
         "system_check": dict(evaluation.get("system_check") or {}),
         "synergy": dict(((evaluation.get("metrics") or {}).get("synergy") or {})),
-        "mounting_requirements": list((evaluation.get("system_check") or {}).get("critical_blocking_errors") or []),
+        "mounting_requirements": list(
+            (evaluation.get("system_check") or {}).get("critical_blocking_errors") or []
+        ),
         "conflicts": list((evaluation.get("system_check") or {}).get("warnings") or []),
-        "assumptions": list((((evaluation.get("metrics") or {}).get("bids") or {}).get("valuation_model") or {}).get("assumptions") or []),
+        "assumptions": list(
+            (
+                ((evaluation.get("metrics") or {}).get("bids") or {}).get("valuation_model") or {}
+            ).get("assumptions")
+            or []
+        ),
         "explanation": str(evaluation.get("explanation") or ""),
     }
 

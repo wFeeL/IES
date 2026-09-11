@@ -65,9 +65,9 @@ def dataset_from_pack(
     illumination_series = dict(data.get("solar", {}) or {}).get("solar") or {}
     buy_series = market_bucket.get("price") or market_bucket.get("buy_price") or {}
     sell_series = market_bucket.get("sell_price") or {}
-    balancing_series = market_bucket.get("balancing_penalty_price") or market_bucket.get(
-        "balancing_penalty"
-    ) or {}
+    balancing_series = (
+        market_bucket.get("balancing_penalty_price") or market_bucket.get("balancing_penalty") or {}
+    )
     scenario_bucket = dict(data.get("scenarios") or {})
 
     wind_channels = sorted(str(key) for key in wind_bucket.keys() if str(key).strip())
@@ -126,7 +126,9 @@ def dataset_from_pack(
                 "load": list(LOAD_ALIASES.keys()),
                 "discovered_ticks": discovered_ticks,
             },
-            "forecast_scenarios": sorted(str(key) for key in scenario_bucket.keys() if str(key).strip()),
+            "forecast_scenarios": sorted(
+                str(key) for key in scenario_bucket.keys() if str(key).strip()
+            ),
         },
     )
 

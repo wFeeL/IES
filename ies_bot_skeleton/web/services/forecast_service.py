@@ -86,7 +86,9 @@ class ForecastParseError(ValueError):
 
 
 class ForecastDiagnostics:
-    def __init__(self, *, errors: List[str], warnings: List[str], column_map: Dict[str, Any]) -> None:
+    def __init__(
+        self, *, errors: List[str], warnings: List[str], column_map: Dict[str, Any]
+    ) -> None:
         self.errors = list(errors)
         self.warnings = list(warnings)
         self.column_map = dict(column_map)
@@ -99,10 +101,8 @@ class ForecastDiagnostics:
         }
 
 
-
 def _norm(value: Any) -> str:
     return "".join(ch.lower() for ch in str(value or "").strip() if ch.isalnum() or ch == "_")
-
 
 
 def _parse_float(value: Any) -> Optional[float]:
@@ -120,11 +120,9 @@ def _parse_float(value: Any) -> Optional[float]:
     return out
 
 
-
 def _detect_delimiter(sample: str) -> str:
     variants = [",", ";", "\t", "|"]
     return max(variants, key=sample.count)
-
 
 
 def _read_csv(content: bytes) -> Tuple[List[str], List[Dict[str, str]]]:
@@ -138,7 +136,6 @@ def _read_csv(content: bytes) -> Tuple[List[str], List[Dict[str, str]]]:
         if any(str(value or "").strip() for value in (row or {}).values())
     ]
     return headers, rows
-
 
 
 def _canonical_profile_key(raw_key: str) -> Optional[str]:
@@ -192,7 +189,6 @@ def _canonical_profile_key(raw_key: str) -> Optional[str]:
     return mapping.get(key)
 
 
-
 def _guess_columns(headers: Iterable[str]) -> Dict[str, Any]:
     guessed: Dict[str, Any] = {"tick": None, "factors": {}, "profiles": {}}
     normalized = {_norm(header): header for header in headers}
@@ -215,8 +211,9 @@ def _guess_columns(headers: Iterable[str]) -> Dict[str, Any]:
     return guessed
 
 
-
-def _resolved_column_map(guessed: Dict[str, Any], incoming_map: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _resolved_column_map(
+    guessed: Dict[str, Any], incoming_map: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
     resolved = {
         "tick": guessed.get("tick"),
         "factors": dict(guessed.get("factors") or {}),
@@ -236,8 +233,9 @@ def _resolved_column_map(guessed: Dict[str, Any], incoming_map: Optional[Dict[st
     return resolved
 
 
-
-def _canonical_rows(periods: Iterable[ForecastPeriod]) -> Tuple[Dict[str, Dict[int, float]], Dict[str, Dict[int, float]], List[int]]:
+def _canonical_rows(
+    periods: Iterable[ForecastPeriod],
+) -> Tuple[Dict[str, Dict[int, float]], Dict[str, Dict[int, float]], List[int]]:
     factors: Dict[str, Dict[int, float]] = {}
     profiles: Dict[str, Dict[int, float]] = {}
     ticks: List[int] = []
@@ -258,16 +256,13 @@ def _canonical_rows(periods: Iterable[ForecastPeriod]) -> Tuple[Dict[str, Dict[i
     return factors, profiles, sorted(set(ticks))
 
 
-
 def _empty_pack() -> Dict[str, Dict[str, Dict[int, float]]]:
     return {"wind": {}, "solar": {}, "load": {}, "market": {}}
-
 
 
 def load_bundled_forecast_pack() -> Dict[str, Dict[str, Dict[int, float]]]:
     # Боевой режим: встроенный прогноз полностью отключён.
     return _empty_pack()
-
 
 
 def is_forecast_pack_empty(pack: Optional[Dict[str, Dict[str, Dict[int, float]]]]) -> bool:
@@ -277,7 +272,6 @@ def is_forecast_pack_empty(pack: Optional[Dict[str, Dict[str, Dict[int, float]]]
         if isinstance(bucket, dict) and any(bucket.values()):
             return False
     return True
-
 
 
 def parse_and_store_forecast(
@@ -351,7 +345,11 @@ def parse_and_store_forecast(
                 illumination=factors_json.get("solar_factor"),
                 wind=factors_json.get("wind_factor"),
                 market_price=factors_json.get("market_price_buy"),
-                consumption_json={LOAD_FROM_PROFILE[k]: v for k, v in profiles_json.items() if k in LOAD_FROM_PROFILE},
+                consumption_json={
+                    LOAD_FROM_PROFILE[k]: v
+                    for k, v in profiles_json.items()
+                    if k in LOAD_FROM_PROFILE
+                },
                 factors_json=factors_json,
                 profiles_json=profiles_json,
                 extra_json={"raw_headers": list(headers), "raw_columns": raw_columns},
@@ -367,7 +365,12 @@ def parse_and_store_forecast(
         ticks=ticks,
         factors=factors,
         profiles=profiles,
-        unused_columns=[header for header in headers if header not in {tick_col, *resolved["factors"].values(), *resolved["profiles"].values()}],
+        unused_columns=[
+            header
+            for header in headers
+            if header
+            not in {tick_col, *resolved["factors"].values(), *resolved["profiles"].values()}
+        ],
         normalization_map=resolved,
     )
     forecast = Forecast(
@@ -384,8 +387,9 @@ def parse_and_store_forecast(
     forecast.periods = periods
     db.session.add(forecast)
     db.session.commit()
-    return forecast, ForecastDiagnostics(errors=[], warnings=diagnostics_warnings, column_map=resolved)
-
+    return forecast, ForecastDiagnostics(
+        errors=[], warnings=diagnostics_warnings, column_map=resolved
+    )
 
 
 def build_forecast_pack(forecast: Forecast) -> Dict[str, Dict[str, Dict[int, float]]]:
@@ -399,7 +403,11 @@ def build_forecast_pack(forecast: Forecast) -> Dict[str, Dict[str, Dict[int, flo
             load_bucket[load_key] = dict(profiles[profile_key])
     return {
         "wind": wind_bucket,
-        "solar": {"solar": dict(factors.get("solar_factor") or {})} if factors.get("solar_factor") else {},
+        "solar": (
+            {"solar": dict(factors.get("solar_factor") or {})}
+            if factors.get("solar_factor")
+            else {}
+        ),
         "load": load_bucket,
         "market": {
             key: dict(values)
@@ -413,7 +421,6 @@ def build_forecast_pack(forecast: Forecast) -> Dict[str, Dict[str, Dict[int, flo
     }
 
 
-
 def _basic_series_stats(series: Dict[int, float]) -> Optional[Dict[str, float]]:
     if not series:
         return None
@@ -423,7 +430,6 @@ def _basic_series_stats(series: Dict[int, float]) -> Optional[Dict[str, float]]:
         "max": round(max(values), 4),
         "avg": round(sum(values) / len(values), 4),
     }
-
 
 
 def _column_mapping_rows(forecast: Forecast) -> List[Dict[str, Any]]:
@@ -460,35 +466,59 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
         "count": len(ticks),
         "tick_from": ticks[0] if ticks else None,
         "tick_to": ticks[-1] if ticks else None,
-        "avg_wind": _basic_series_stats(factors.get("wind_factor") or {}) and _basic_series_stats(factors.get("wind_factor") or {})["avg"],
-        "avg_illumination": _basic_series_stats(factors.get("solar_factor") or {}) and _basic_series_stats(factors.get("solar_factor") or {})["avg"],
-        "avg_market_price": _basic_series_stats(factors.get("market_price_buy") or {}) and _basic_series_stats(factors.get("market_price_buy") or {})["avg"],
+        "avg_wind": _basic_series_stats(factors.get("wind_factor") or {})
+        and _basic_series_stats(factors.get("wind_factor") or {})["avg"],
+        "avg_illumination": _basic_series_stats(factors.get("solar_factor") or {})
+        and _basic_series_stats(factors.get("solar_factor") or {})["avg"],
+        "avg_market_price": _basic_series_stats(factors.get("market_price_buy") or {})
+        and _basic_series_stats(factors.get("market_price_buy") or {})["avg"],
         "factors_keys": sorted(factors.keys()),
         "profiles_keys": sorted(profiles.keys()),
-        "load_series": [LOAD_FROM_PROFILE[key] for key in sorted(profiles.keys()) if key in LOAD_FROM_PROFILE],
+        "load_series": [
+            LOAD_FROM_PROFILE[key] for key in sorted(profiles.keys()) if key in LOAD_FROM_PROFILE
+        ],
         "load_series_display": [
-            {"key": LOAD_FROM_PROFILE[key], "label": LOAD_FROM_PROFILE[key], "avg": _basic_series_stats(values)["avg"] if _basic_series_stats(values) else None, "is_service": False, "is_raw_label": False}
-            for key, values in sorted(profiles.items()) if key in LOAD_FROM_PROFILE
+            {
+                "key": LOAD_FROM_PROFILE[key],
+                "label": LOAD_FROM_PROFILE[key],
+                "avg": _basic_series_stats(values)["avg"] if _basic_series_stats(values) else None,
+                "is_service": False,
+                "is_raw_label": False,
+            }
+            for key, values in sorted(profiles.items())
+            if key in LOAD_FROM_PROFILE
         ],
         "load_series_raw": [],
         "raw_csv_columns": list((forecast.normalization_map_json or {}).get("headers") or []),
         "used_raw_columns": [
-            value for value in [
+            value
+            for value in [
                 (forecast.column_map_json or {}).get("tick"),
                 *((forecast.column_map_json or {}).get("factors") or {}).values(),
                 *((forecast.column_map_json or {}).get("profiles") or {}).values(),
-            ] if value
+            ]
+            if value
         ],
         "unsupported_raw_columns": _unsupported_raw_columns(forecast),
         "column_mapping_rows": _column_mapping_rows(forecast),
         "mapped_raw_columns": [row["raw_name"] for row in _column_mapping_rows(forecast)],
         "mapped_raw_stats_display": [],
         "mapped_tick_range_label": f"{ticks[0]}-{ticks[-1]}" if ticks else "—",
-        "consumer_averages": {LOAD_FROM_PROFILE[k]: _basic_series_stats(v)["avg"] for k, v in profiles.items() if k in LOAD_FROM_PROFILE and _basic_series_stats(v)},
-        "series_stats": {key: _basic_series_stats(values) for key, values in {**factors, **profiles}.items()},
+        "consumer_averages": {
+            LOAD_FROM_PROFILE[k]: _basic_series_stats(v)["avg"]
+            for k, v in profiles.items()
+            if k in LOAD_FROM_PROFILE and _basic_series_stats(v)
+        },
+        "series_stats": {
+            key: _basic_series_stats(values) for key, values in {**factors, **profiles}.items()
+        },
         "series_stats_display": [],
-        "internal_canonical_load_series": [LOAD_FROM_PROFILE[k] for k in profiles.keys() if k in LOAD_FROM_PROFILE],
-        "internal_canonical_series_stats": {key: _basic_series_stats(values) for key, values in {**factors, **profiles}.items()},
+        "internal_canonical_load_series": [
+            LOAD_FROM_PROFILE[k] for k in profiles.keys() if k in LOAD_FROM_PROFILE
+        ],
+        "internal_canonical_series_stats": {
+            key: _basic_series_stats(values) for key, values in {**factors, **profiles}.items()
+        },
         "column_display_labels": {},
         "resolved_column_map": dict(forecast.column_map_json or {}),
         "compatibility_report": compatibility,
@@ -499,7 +529,11 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
             "warnings": list((forecast.metadata_json or {}).get("warnings_detail") or []),
             "problem_columns": [],
             "empty_columns": [],
-            "text": "Прогноз загружен." if forecast.is_compatible else (forecast.incompatibility_reason or "Прогноз несовместим."),
+            "text": (
+                "Прогноз загружен."
+                if forecast.is_compatible
+                else (forecast.incompatibility_reason or "Прогноз несовместим.")
+            ),
         },
         "warnings": list((forecast.metadata_json or {}).get("warnings_detail") or []),
         "text": "Пользовательский прогноз загружен.",
@@ -510,7 +544,6 @@ def summarize_forecast(forecast: Forecast) -> Dict[str, Any]:
             ticks=ticks,
         ),
     }
-
 
 
 def summarize_forecast_for_session(*, session: GameSession, forecast: Forecast) -> Dict[str, Any]:
@@ -528,7 +561,6 @@ def summarize_forecast_for_session(*, session: GameSession, forecast: Forecast) 
     summary["is_compatible"] = bool(compatibility.get("is_compatible"))
     summary["incompatibility_reason"] = "; ".join(list(compatibility.get("blocking_reasons") or []))
     return summary
-
 
 
 def bundled_forecast_summary() -> Dict[str, Any]:
@@ -587,11 +619,9 @@ def bundled_forecast_summary() -> Dict[str, Any]:
     }
 
 
-
 def bundled_forecast_summary_for_session(session: GameSession) -> Dict[str, Any]:
     del session
     return bundled_forecast_summary()
-
 
 
 def build_forecast_compatibility_report(
@@ -603,11 +633,15 @@ def build_forecast_compatibility_report(
     unused_columns: List[str],
     normalization_map: Dict[str, Any],
 ) -> Dict[str, Any]:
-    horizon = int(((session.ruleset.config_json or {}).get("time", {}) or {}).get("horizon_ticks", 48) or 48)
+    horizon = int(
+        ((session.ruleset.config_json or {}).get("time", {}) or {}).get("horizon_ticks", 48) or 48
+    )
     rows: List[Dict[str, Any]] = []
     blocking_reasons: List[str] = []
     if len(ticks) != horizon:
-        blocking_reasons.append(f"Горизонт прогноза {len(ticks)} тактов не совпадает с ruleset ({horizon}).")
+        blocking_reasons.append(
+            f"Горизонт прогноза {len(ticks)} тактов не совпадает с ruleset ({horizon})."
+        )
 
     used_codes: List[str] = []
     for obj in session.objects:
@@ -665,7 +699,10 @@ def build_forecast_compatibility_report(
             }
         )
     if missing_types:
-        blocking_reasons.append("Нет полного покрытия прогноза для типов объектов: " + ", ".join(sorted(set(missing_types))))
+        blocking_reasons.append(
+            "Нет полного покрытия прогноза для типов объектов: "
+            + ", ".join(sorted(set(missing_types)))
+        )
     return {
         "is_compatible": len(blocking_reasons) == 0,
         "blocking_reasons": blocking_reasons,
@@ -681,8 +718,9 @@ def build_forecast_compatibility_report(
     }
 
 
-
-def session_forecast_compatibility(*, session: GameSession, forecast: Optional[Forecast]) -> Dict[str, Any]:
+def session_forecast_compatibility(
+    *, session: GameSession, forecast: Optional[Forecast]
+) -> Dict[str, Any]:
     if forecast is None:
         summary = bundled_forecast_summary_for_session(session)
     else:
@@ -738,7 +776,9 @@ WEATHER_SERIES_LABELS: Dict[str, str] = {
 }
 
 
-def _empty_weather_analysis(message: str = "Недостаточно данных для анализа прогноза.") -> Dict[str, Any]:
+def _empty_weather_analysis(
+    message: str = "Недостаточно данных для анализа прогноза.",
+) -> Dict[str, Any]:
     charts = {
         "generation_vs_consumption": {
             "title": "Генерация и потребление",
@@ -834,7 +874,9 @@ def _empty_weather_analysis(message: str = "Недостаточно данны�
     }
 
 
-def _weather_raw_series_from_periods(periods: Iterable[ForecastPeriod]) -> Dict[str, Dict[int, float]]:
+def _weather_raw_series_from_periods(
+    periods: Iterable[ForecastPeriod],
+) -> Dict[str, Dict[int, float]]:
     raw_series: Dict[str, Dict[int, float]] = {}
     for period in periods:
         tick = int(period.tick)
@@ -926,7 +968,9 @@ def _compute_solar_from_east_west(
     }
 
 
-def _compute_solar_from_single_factor(ticks: List[int], solar_factor: Dict[int, float]) -> Dict[str, Dict[int, float]]:
+def _compute_solar_from_single_factor(
+    ticks: List[int], solar_factor: Dict[int, float]
+) -> Dict[str, Dict[int, float]]:
     solar_improved: Dict[int, float] = {}
     solar_min: Dict[int, float] = {}
     solar_max: Dict[int, float] = {}
@@ -948,7 +992,9 @@ def _compute_solar_from_single_factor(ticks: List[int], solar_factor: Dict[int, 
     }
 
 
-def _compute_wind_from_average(ticks: List[int], wind_avg_source: Dict[int, float]) -> Dict[str, Dict[int, float]]:
+def _compute_wind_from_average(
+    ticks: List[int], wind_avg_source: Dict[int, float]
+) -> Dict[str, Dict[int, float]]:
     wind_avg: Dict[int, float] = {}
     wind_gen: Dict[int, float] = {}
     for tick in ticks:
@@ -1028,7 +1074,9 @@ def _compute_generation_balance_metrics(
     status: Dict[int, str] = {}
 
     for tick in ticks:
-        generation = _sum_available(_series_value(solar_improved, tick), _series_value(wind_gen, tick))
+        generation = _sum_available(
+            _series_value(solar_improved, tick), _series_value(wind_gen, tick)
+        )
         consumption = _series_value(total_consumption, tick)
         if generation is not None:
             total_generation[tick] = float(generation)
@@ -1105,12 +1153,16 @@ def _build_weather_table_row(
     return row
 
 
-def _build_weather_tables(series_payload: Dict[str, Any], kpis: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+def _build_weather_tables(
+    series_payload: Dict[str, Any], kpis: Dict[str, Any]
+) -> Dict[str, List[Dict[str, Any]]]:
     main_stats: List[Dict[str, Any]] = []
     generator_stats: List[Dict[str, Any]] = []
 
     for key in ("total_consumption", "total_generation", "balance", "wind_avg", "solar_improved"):
-        row = _build_weather_table_row(key, WEATHER_SERIES_LABELS[key], series_payload.get(key) or [])
+        row = _build_weather_table_row(
+            key, WEATHER_SERIES_LABELS[key], series_payload.get(key) or []
+        )
         if row is not None:
             main_stats.append(row)
 
@@ -1163,32 +1215,38 @@ def _build_weather_charts(
     series_payload: Dict[str, Any],
 ) -> Dict[str, Dict[str, Any]]:
     category_consumption = dict(series_payload.get("category_consumption") or {})
-    category_has_values = any(_weather_chart_available(values) for values in category_consumption.values())
+    category_has_values = any(
+        _weather_chart_available(values) for values in category_consumption.values()
+    )
     has_generation = _weather_chart_available(series_payload.get("total_generation"))
     has_consumption = _weather_chart_available(series_payload.get("total_consumption"))
     has_balance = _weather_chart_available(series_payload.get("balance"))
     has_balance_min = _weather_chart_available(series_payload.get("balance_min"))
     has_balance_max = _weather_chart_available(series_payload.get("balance_max"))
     has_wind = _weather_chart_available(series_payload.get("wind_avg"))
-    has_solar_mix = _weather_chart_available(series_payload.get("solar_improved")) or _weather_chart_available(
-        series_payload.get("wind_gen")
-    )
+    has_solar_mix = _weather_chart_available(
+        series_payload.get("solar_improved")
+    ) or _weather_chart_available(series_payload.get("wind_gen"))
 
     return {
         "generation_vs_consumption": {
             "title": "Генерация и потребление",
             "available": has_generation and has_consumption,
-            "reason": None
-            if has_generation and has_consumption
-            else "Недостаточно рядов для одновременного сравнения генерации и потребления.",
+            "reason": (
+                None
+                if has_generation and has_consumption
+                else "Недостаточно рядов для одновременного сравнения генерации и потребления."
+            ),
             "priority": "primary",
         },
         "balance_uncertainty": {
             "title": "Баланс с коридором неопределённости",
             "available": has_balance and has_balance_min and has_balance_max,
-            "reason": None
-            if has_balance and has_balance_min and has_balance_max
-            else "Не удалось рассчитать полный коридор неопределённости.",
+            "reason": (
+                None
+                if has_balance and has_balance_min and has_balance_max
+                else "Не удалось рассчитать полный коридор неопределённости."
+            ),
             "priority": "primary",
         },
         "wind_forecast": {
@@ -1200,9 +1258,11 @@ def _build_weather_charts(
         "consumption_categories": {
             "title": "Потребление по категориям",
             "available": category_has_values,
-            "reason": None
-            if category_has_values
-            else "В прогнозе нет разбивки потребления по категориям.",
+            "reason": (
+                None
+                if category_has_values
+                else "В прогнозе нет разбивки потребления по категориям."
+            ),
             "priority": "primary",
         },
         "solar_models": {
@@ -1210,11 +1270,13 @@ def _build_weather_charts(
             "available": availability.get("has_solar_east_west", False)
             and _weather_chart_available(series_payload.get("solar_simple"))
             and _weather_chart_available(series_payload.get("solar_improved")),
-            "reason": None
-            if availability.get("has_solar_east_west", False)
-            and _weather_chart_available(series_payload.get("solar_simple"))
-            and _weather_chart_available(series_payload.get("solar_improved"))
-            else "Нужны отдельные ряды sun_east и sun_west.",
+            "reason": (
+                None
+                if availability.get("has_solar_east_west", False)
+                and _weather_chart_available(series_payload.get("solar_simple"))
+                and _weather_chart_available(series_payload.get("solar_improved"))
+                else "Нужны отдельные ряды sun_east и sun_west."
+            ),
             "priority": "secondary",
         },
         "solar_activity": {
@@ -1222,27 +1284,33 @@ def _build_weather_charts(
             "available": availability.get("has_solar_east_west", False)
             and _weather_chart_available(series_payload.get("sun_east"))
             and _weather_chart_available(series_payload.get("sun_west")),
-            "reason": None
-            if availability.get("has_solar_east_west", False)
-            and _weather_chart_available(series_payload.get("sun_east"))
-            and _weather_chart_available(series_payload.get("sun_west"))
-            else "Для этого графика нужны отдельные ряды east/west.",
+            "reason": (
+                None
+                if availability.get("has_solar_east_west", False)
+                and _weather_chart_available(series_payload.get("sun_east"))
+                and _weather_chart_available(series_payload.get("sun_west"))
+                else "Для этого графика нужны отдельные ряды east/west."
+            ),
             "priority": "secondary",
         },
         "generation_types": {
             "title": "Сравнение источников генерации",
             "available": has_solar_mix,
-            "reason": None
-            if has_solar_mix
-            else "Недостаточно данных по солнечной или ветровой генерации.",
+            "reason": (
+                None
+                if has_solar_mix
+                else "Недостаточно данных по солнечной или ветровой генерации."
+            ),
             "priority": "secondary",
         },
         "source_mix": {
             "title": "Структура генерации и потребление",
             "available": has_consumption and has_solar_mix,
-            "reason": None
-            if has_consumption and has_solar_mix
-            else "Нужны и потребление, и хотя бы один источник генерации.",
+            "reason": (
+                None
+                if has_consumption and has_solar_mix
+                else "Нужны и потребление, и хотя бы один источник генерации."
+            ),
             "priority": "secondary",
         },
     }
@@ -1258,7 +1326,8 @@ def _top_balance_ticks(
     pairs = [
         (int(tick), float(value))
         for tick, value in zip(ticks, balance_series)
-        if value is not None and ((sign == "deficit" and value < 0) or (sign == "surplus" and value > 0))
+        if value is not None
+        and ((sign == "deficit" and value < 0) or (sign == "surplus" and value > 0))
     ]
     if sign == "deficit":
         ordered = sorted(pairs, key=lambda item: item[1])
@@ -1289,7 +1358,9 @@ def _build_weather_decision_support(
     elif avg_balance is not None and float(avg_balance) > 0.1:
         headline = "С генерацией запас есть: покупать её можно точечно, без перегруза портфеля."
     else:
-        headline = "Баланс близок к нейтральному: лучше смотреть на устойчивость и качество профиля."
+        headline = (
+            "Баланс близок к нейтральному: лучше смотреть на устойчивость и качество профиля."
+        )
 
     strengthen_parts: List[str] = []
     if solar_share is not None and wind_share is not None:
@@ -1308,9 +1379,13 @@ def _build_weather_decision_support(
     if wind_off_count > 0:
         caution_parts.append("ветровые лоты рискованнее из-за отключения турбины при сильном ветре")
     if mode == "partial":
-        caution_parts.append("прогноз неполный, поэтому покупать узкоспециализированные лоты стоит осторожнее")
+        caution_parts.append(
+            "прогноз неполный, поэтому покупать узкоспециализированные лоты стоит осторожнее"
+        )
     if not caution_parts:
-        caution_parts.append("не видно явного провала по источникам, но перегружать портфель одним типом генерации не стоит")
+        caution_parts.append(
+            "не видно явного провала по источникам, но перегружать портфель одним типом генерации не стоит"
+        )
 
     timing_parts: List[str] = []
     if deficit_ticks:
@@ -1325,7 +1400,11 @@ def _build_weather_decision_support(
         "cards": [
             {"tone": "buy", "title": "Что усиливать", "text": "; ".join(strengthen_parts) + "."},
             {"tone": "watch", "title": "С чем осторожно", "text": "; ".join(caution_parts) + "."},
-            {"tone": "timing", "title": "По каким тактам смотреть", "text": "; ".join(timing_parts) + "."},
+            {
+                "tone": "timing",
+                "title": "По каким тактам смотреть",
+                "text": "; ".join(timing_parts) + ".",
+            },
         ],
     }
 
@@ -1359,7 +1438,9 @@ def _build_weather_insights(
         )
 
     if not availability.get("has_solar_east_west"):
-        insights.append("Графики east/west отключены, потому что прогноз не содержит отдельных рядов sun_east и sun_west.")
+        insights.append(
+            "Графики east/west отключены, потому что прогноз не содержит отдельных рядов sun_east и sun_west."
+        )
 
     if avg_balance is not None:
         if float(avg_balance) < -0.1:
@@ -1389,11 +1470,17 @@ def _build_weather_insights(
 
     generation_max = _series_max(series_payload.get("total_generation") or [])
     consumption_max = _series_max(series_payload.get("total_consumption") or [])
-    if generation_max is not None and consumption_max is not None and consumption_max > generation_max:
+    if (
+        generation_max is not None
+        and consumption_max is not None
+        and consumption_max > generation_max
+    ):
         insights.append("Пик потребления заметно выше пиковой генерации.")
 
     if not availability.get("has_category_breakdown"):
-        insights.append("Детальная разбивка потребления по категориям недоступна для этого формата прогноза.")
+        insights.append(
+            "Детальная разбивка потребления по категориям недоступна для этого формата прогноза."
+        )
 
     unique_insights: List[str] = []
     for item in insights:
@@ -1434,9 +1521,15 @@ def build_weather_analysis_from_periods(
         {int(tick): float(value) for tick, value in (profiles.get("house_b_load") or {}).items()},
     )
     canonical_category_series = {
-        "hospital": {int(tick): float(value) for tick, value in (profiles.get("hospital_load") or {}).items()},
-        "factory": {int(tick): float(value) for tick, value in (profiles.get("factory_load") or {}).items()},
-        "office": {int(tick): float(value) for tick, value in (profiles.get("office_load") or {}).items()},
+        "hospital": {
+            int(tick): float(value) for tick, value in (profiles.get("hospital_load") or {}).items()
+        },
+        "factory": {
+            int(tick): float(value) for tick, value in (profiles.get("factory_load") or {}).items()
+        },
+        "office": {
+            int(tick): float(value) for tick, value in (profiles.get("office_load") or {}).items()
+        },
         "house_load": canonical_house_series,
     }
 
@@ -1446,7 +1539,9 @@ def build_weather_analysis_from_periods(
         _series_has_values(raw_category_series.get(key))
         for key in ("hospital", "factory", "house_a", "house_b")
     )
-    has_canonical_generation = bool((factors.get("wind_factor") or {}) and (factors.get("solar_factor") or {}))
+    has_canonical_generation = bool(
+        (factors.get("wind_factor") or {}) and (factors.get("solar_factor") or {})
+    )
     has_canonical_loads = any(values for values in canonical_category_series.values())
 
     if has_wind_range and has_solar_east_west and has_full_categories:
@@ -1568,12 +1663,14 @@ def build_weather_analysis_from_periods(
         "wind_full_power_count": sum(
             1 for value in wind_gen_series if value is not None and value >= 8.0
         ),
-        "solar_share_pct": round((solar_generation_sum / generation_sum) * 100.0, 2)
-        if generation_sum > 0
-        else None,
-        "wind_share_pct": round((wind_generation_sum / generation_sum) * 100.0, 2)
-        if generation_sum > 0
-        else None,
+        "solar_share_pct": (
+            round((solar_generation_sum / generation_sum) * 100.0, 2)
+            if generation_sum > 0
+            else None
+        ),
+        "wind_share_pct": (
+            round((wind_generation_sum / generation_sum) * 100.0, 2) if generation_sum > 0 else None
+        ),
     }
 
     availability = {

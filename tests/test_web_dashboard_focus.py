@@ -103,7 +103,10 @@ def test_theme_toggle_and_css_tokens_present(client):
     html = resp.get_data(as_text=True)
     assert 'id="themeToggle"' in html
     assert 'const KEY = "ies-theme";' in html
-    assert 'document.documentElement.setAttribute("data-theme", normalize(localStorage.getItem(KEY)) || "light");' in html
+    assert (
+        'document.documentElement.setAttribute("data-theme", normalize(localStorage.getItem(KEY)) || "light");'
+        in html
+    )
 
     css_resp = client.get("/static/css/tailwind.css")
     assert css_resp.status_code == 200
