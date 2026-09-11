@@ -1018,6 +1018,7 @@ def test_allpay_flow_bid_won_keeps_allpay_zero_and_purchases_once(client):
 def test_quick_auction_pass_is_soft_and_keeps_lot_available(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Soft pass")
+    upload_forecast(client, session_id)
     wind_id = _type_id_by_code(client, "wind")
 
     lot_resp = client.post(

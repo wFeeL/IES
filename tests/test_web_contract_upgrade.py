@@ -958,7 +958,10 @@ def test_evaluation_never_uses_district_even_if_it_matches_point_code(client, ap
                 {
                     "object_type_id": tmap["house"],
                     "quantity": 1,
-                    "overrides": {"district": "A"},
+                    # District "A" deliberately collides with point code "A"
+                    # while the object is wired to "B". The point must follow
+                    # connection_point, never the district that looks like one.
+                    "overrides": {"district": "A", "connection_point": "B"},
                 }
             ],
         },

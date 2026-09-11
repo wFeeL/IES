@@ -393,8 +393,10 @@ def _payload_from_evaluation(
     # safe_bid is the most you can pay and still break even in the worst case,
     # target_bid is the optimal price, hard_cap is the break-even limit, and
     # budget_adjusted_bid is the target clipped by what is left to spend.
-    safe_bid = max(0.0, float(evaluation.worst_case.delta_profit))
     target_bid = optimal_purchase_price
+    # Never bid above the optimal price, so the cautious rung is the worst-case
+    # break-even clipped by the target.
+    safe_bid = min(max(0.0, float(evaluation.worst_case.delta_profit)), target_bid)
     budget_adjusted_bid = min(optimal_purchase_price, budget_remaining)
     working_bid = max(0.0, budget_adjusted_bid)
     if working_bid <= 0.0:
@@ -511,6 +513,10 @@ def _payload_from_evaluation(
         "recommended_bid_soft": round(optimal_purchase_price, 4),
         "recommended_bid_hard": round(hard_limit, 4),
         "safe_bid": round(safe_bid, 4),
+        "cautious_bid": round(safe_bid, 4),
+        "recommended_bid_safe": round(safe_bid, 4),
+        "recommended_bid_balanced": round(target_bid, 4),
+        "recommended_bid_aggressive": round(hard_limit, 4),
         "target_bid": round(target_bid, 4),
         "budget_adjusted_bid": round(budget_adjusted_bid, 4),
         "hard_ceiling_bid": round(hard_limit, 4),
