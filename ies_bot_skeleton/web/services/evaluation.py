@@ -159,6 +159,14 @@ def _system_check(evaluation) -> Dict[str, Any]:
         "topology_candidates": list(getattr(evaluation.topology, "topology_candidates", []) or []),
         "system_fit_score": round(max(0.0, 1.0 - (0.25 * len(critical) + 0.08 * len(warnings))), 4),
         "recommended_points": sorted({t.connection_point for rows in evaluation.topology.recommended_connections.values() for t in rows if getattr(t, "connection_point", None)}),
+        "recommended_connections": {
+            str(key): [
+                str(getattr(row, "connection_point", "") or "")
+                for row in rows
+                if getattr(row, "connection_point", None)
+            ]
+            for key, rows in (evaluation.topology.recommended_connections or {}).items()
+        },
         "connection_block_reasons_count": len(critical),
     }
 
@@ -167,6 +175,15 @@ def _system_check(evaluation) -> Dict[str, Any]:
 # Single name for the valuation model, surfaced as decision_summary.bid_formula
 # and metrics.bids.valuation_model.model so the two can never drift apart.
 VALUATION_MODEL = "unified_lot_optimizer_2026"
+
+
+def _cap_reason(*, target_bid: float, budget_adjusted_bid: float, hard_limit: float) -> str:
+    """Say which limit, if any, is holding the bid back."""
+    if budget_adjusted_bid < target_bid - 1e-9:
+        return "Ставка ограничена остатком бюджета."
+    if target_bid > hard_limit + 1e-9:
+        return "Ставка ограничена пределом безубыточности."
+    return ""
 
 
 def _risk_total(evaluation) -> float:
@@ -376,6 +393,19 @@ def _payload_from_evaluation(
     safe_bid = max(0.0, float(evaluation.worst_case.delta_profit))
     target_bid = optimal_purchase_price
     budget_adjusted_bid = min(optimal_purchase_price, budget_remaining)
+    working_bid = max(0.0, budget_adjusted_bid)
+    if working_bid <= 0.0:
+        working_bid_source = "zero"
+    elif budget_adjusted_bid < target_bid - 1e-9:
+        working_bid_source = "budget_adjusted"
+    else:
+        working_bid_source = "target"
+    blocking_messages = list(system_check.get("critical_blocking_errors") or [])
+    working_bid_reason = (
+        f"{blocking_messages[0]} {evaluation.explanation}"
+        if blocking_messages
+        else str(evaluation.explanation)
+    )
     financial_breakdown = _financial_breakdown(
         evaluation,
         budget_remaining=budget_remaining,
@@ -415,6 +445,18 @@ def _payload_from_evaluation(
             "minimum_acceptable_tariff": round(hard_limit, 4),
             "recommended_walkdown_tariff": round(optimal_purchase_price, 4),
             "bid_formula": VALUATION_MODEL,
+            "working_bid": round(working_bid, 4),
+            "working_bid_source": working_bid_source,
+            "working_bid_reason": working_bid_reason,
+            "max_bid_reason": "Предел безубыточности по базовому сценарию.",
+            "zero_bid_reason": (
+                str(evaluation.explanation) if optimal_purchase_price <= 0.0 else ""
+            ),
+            "cap_reason": _cap_reason(
+                target_bid=target_bid,
+                budget_adjusted_bid=budget_adjusted_bid,
+                hard_limit=hard_limit,
+            ),
         }
     )
 
@@ -455,9 +497,13 @@ def _payload_from_evaluation(
         "market_risk": str(evaluation.market_risk),
         "balancing_risk": str(evaluation.balancing_risk),
         "loss_risk": str(evaluation.loss_risk),
-        "working_bid": round(optimal_purchase_price, 4),
-        "working_bid_source": "optimal_purchase_price",
-        "working_bid_reason": str(evaluation.explanation),
+        "working_bid": round(working_bid, 4),
+        "working_bid_source": working_bid_source,
+        "working_bid_reason": working_bid_reason,
+        "recommended_bid_reason": str(evaluation.explanation),
+        "max_bid_reason": decision_summary["max_bid_reason"],
+        "zero_bid_reason": decision_summary["zero_bid_reason"],
+        "cap_reason": decision_summary["cap_reason"],
         "recommended_bid": round(optimal_purchase_price, 4),
         "recommended_bid_soft": round(optimal_purchase_price, 4),
         "recommended_bid_hard": round(hard_limit, 4),
@@ -675,7 +721,7 @@ def recommend_best_lot(
 ) -> Dict[str, Any]:
     ranked = rank_lots(session=session, lots=list(lots), strategy=strategy, forecast=forecast, persist=False)
     best = ranked[0] if ranked else None
-    return {"model": VALUATION_MODEL, "best_lot": best, "ranked_lots": ranked, "summary": {"count": len(ranked), "best_lot_id": int(best.get("lot_id", 0) or 0) if best else None, "best_expected_profit": float(best.get("expected_profit", 0.0) or 0.0) if best else 0.0}}
+    return {"model": VALUATION_MODEL, "best": best, "best_lot": best, "ranked_lots": ranked, "summary": {"count": len(ranked), "best_lot_id": int(best.get("lot_id", 0) or 0) if best else None, "best_expected_profit": float(best.get("expected_profit", 0.0) or 0.0) if best else 0.0}}
 
 
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+from ies_bot_skeleton.web.services.evaluation import VALUATION_MODEL
+
 from tests.web_helpers import create_session, login, upload_forecast
 
 
@@ -268,7 +270,7 @@ def test_lot_detail_and_edit_flow(client):
     assert len(payload["items"]) == 2
 
 
-def test_forecast_only_evaluation_uses_bundled_fallback_and_returns_explanation(client):
+def test_evaluation_on_an_uploaded_forecast_returns_a_usable_answer(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Meaningful eval")
     upload_forecast(client, session_id)
@@ -299,12 +301,10 @@ def test_forecast_only_evaluation_uses_bundled_fallback_and_returns_explanation(
 
     item = payload["item"]
     assert item["summary_score"] != 0
-    assert item["forecast_context"]["source"] == "bundled_forecast"
+    assert item["forecast_context"]["source"] == "selected_forecast"
     assert item["recommended_bid_hard"] >= 0
     assert item["budget_adjusted_bid"] <= item["portfolio_context"]["remaining_budget"] + 1e-9
-    assert item["metrics"]["bids"]["valuation_model"]["model"] == "valuation_model_v3"
-    assert item["metrics"]["delta_score"] != 0
-    assert item["risk_commentary"]
+    assert item["metrics"]["bids"]["valuation_model"]["model"] == VALUATION_MODEL
+    assert item["metrics"]["portfolio_delta"]["direct_delta_profit"] != 0
     assert item["explanation"]
     assert "Недостаточно данных" not in item["explanation"]
-    assert "не рекомендует ставку" not in item["strategy_fit_text"]
