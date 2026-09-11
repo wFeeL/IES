@@ -23,12 +23,13 @@ def test_session_pages_render_2026_navigation(client, app):
     assert "Прогнозы" in session_html
     assert "Консолидированная оценка лотов" in lots_html
     assert "Прогноз ИЭС 2026" in forecast_html
-    assert "Валидация сети 2026" in system_html
+    assert "Сборка энергосистемы" in system_html
 
 
 def test_lot_detail_marks_topology_risk_as_non_recommendable(client, app):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Topology risk")
+    upload_forecast(client, session_id)
 
     with app.app_context():
         session = db.session.get(GameSession, session_id)
@@ -56,13 +57,16 @@ def test_lot_detail_marks_topology_risk_as_non_recommendable(client, app):
 def test_strategy_selection_and_post_auction_plan_export_work(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Strategy and plan")
+    upload_forecast(client, session_id)
 
+    # Manual strategy switching is gone: the unified optimizer is the only mode,
+    # so the old route must not exist and the session stays on "unified".
     strategy_switch = client.post(
         f"/sessions/{session_id}/strategy-selection",
         data={"selected_strategy": "storage"},
         follow_redirects=False,
     )
-    assert strategy_switch.status_code in (302, 303)
+    assert strategy_switch.status_code == 404
 
     session_payload = client.get(f"/api/sessions/{session_id}").get_json()["item"]
     assert session_payload["selected_strategy"] == "unified"
@@ -93,8 +97,8 @@ def test_main_user_flow_hides_strategy_selector_and_uses_unified_optimizer(clien
 
     assert "sessionStrategySelect" not in dashboard_html
     assert "/strategy-selection" not in session_html
-    assert "Единый оптимизатор" in dashboard_html
-    assert "Единый оптимизатор" in session_html
+    assert "unified lot optimizer" in dashboard_html
+    assert "Unified optimizer 2026" in session_html
 
 
 def test_strategy_endpoint_returns_unified_catalog_with_groups(client):
@@ -138,6 +142,7 @@ def test_strategy_endpoint_returns_unified_catalog_with_groups(client):
 def test_lot_detail_shows_stage_split_and_wind_uncertainty(client, app):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Wind detail")
+    upload_forecast(client, session_id)
 
     with app.app_context():
         wind_type = db.session.query(ObjectType).filter_by(code="wind").one()

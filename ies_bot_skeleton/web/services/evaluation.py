@@ -332,6 +332,7 @@ def _payload_from_evaluation(
     forecast_context: Dict[str, Any],
     compatibility: Dict[str, Any],
     candidate_objects: Sequence[EnergyObject],
+    forecast_summary: Optional[Dict[str, Any]] = None,
     current_price: float = 0.0,
 ) -> Dict[str, Any]:
     budget = budget_snapshot(session)
@@ -421,6 +422,7 @@ def _payload_from_evaluation(
         "financial_breakdown": financial_breakdown,
         "summary_score": round(risk_adjusted_profit, 4),
         "forecast_context": dict(forecast_context or {}),
+        "forecast_summary": dict(forecast_summary or {}),
         "portfolio_context": {
             "bought_lots_count": int(sum(1 for row in _session_lots(session) if str(row.status or "") == "bought")),
             "spent_total": float(budget.get("spent_total", 0.0) or 0.0),
@@ -550,6 +552,7 @@ def prepare_fast_scoring_context(
         "forecast": selected_forecast,
         "forecast_pack": _forecast_pack_for_session(session, cast(Optional[Forecast], selected_forecast)),
         "forecast_context": dict(analysis_ctx.get("forecast_context") or {}),
+        "forecast_summary": dict(analysis_ctx.get("forecast_summary") or {}),
         "compatibility": compatibility,
         "base_objects": _base_objects(session),
         "rules_cfg": dict(session.ruleset.config_json or {}),
@@ -577,6 +580,7 @@ def evaluate_lot_bundle(
     base_objects = list(context.get("base_objects") or _base_objects(session))
     forecast_pack = dict(context.get("forecast_pack") or {})
     forecast_context = dict(context.get("forecast_context") or {})
+    forecast_summary = dict(context.get("forecast_summary") or {})
     compatibility = dict(context.get("compatibility") or _compatibility_or_error(session, forecast))
     candidate_objects: List[EnergyObject] = []
     for lot in ordered_lots:
@@ -602,6 +606,7 @@ def evaluate_lot_bundle(
         lot_name=" + ".join(lot.name for lot in ordered_lots),
         evaluation=evaluation,
         forecast_context=forecast_context,
+        forecast_summary=forecast_summary,
         compatibility=compatibility,
         candidate_objects=candidate_objects,
         current_price=float(sum(float(lot.current_bid or 0.0) for lot in ordered_lots)),
