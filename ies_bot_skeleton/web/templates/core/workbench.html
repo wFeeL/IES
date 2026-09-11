@@ -46,6 +46,11 @@
       <div><strong>Куплено лотов:</strong> {{ portfolio.bought_lots_count }}</div>
       <div><strong>Портфельный delta-profit:</strong> {{ fmt_num(portfolio.aggregate_net_profit, 2) }}</div>
     </div>
+    <p class="section-kicker mt-3">Экспорт сессии</p>
+    <div class="actions mt-2">
+      <a class="btn btn-secondary" href="{{ export_json_url }}">Выгрузить сессию, JSON</a>
+      <a class="btn btn-secondary" href="{{ export_csv_url }}">Выгрузить оценки, CSV</a>
+    </div>
   </article>
   <article class="card">
     <p class="section-kicker">Готовность данных</p>
@@ -159,6 +164,18 @@
     <strong>48 тактов, погода и рынок</strong>
     <span class="muted">Загрузите боевой прогноз и проверьте покрытие нагрузки, солнца, ветра и market rows.</span>
     <a class="btn btn-secondary mt-3" href="{{ url_for('pages.forecast_page', session_id=session.id) }}">Открыть прогноз</a>
+  </article>
+  <article class="action-card">
+    <p class="section-kicker">Торги</p>
+    <strong>Ставки в реальном времени</strong>
+    <span class="muted">Оценивайте и покупайте лоты по ходу аукциона, не уходя со страницы.</span>
+    <a class="btn btn-secondary mt-3" href="{{ url_for('pages.quick_auction_page', session_id=session.id) }}">Быстрый аукцион</a>
+  </article>
+  <article class="action-card">
+    <p class="section-kicker">Сеть</p>
+    <strong>Топология и блокирующие ошибки</strong>
+    <span class="muted">Дерево до главной подстанции, острова, двойной ввод больниц и предупреждения по заводам.</span>
+    <a class="btn btn-secondary mt-3" href="{{ url_for('pages.system_view', session_id=session.id) }}">Проверить энергосистему</a>
   </article>
   <article class="action-card">
     <p class="section-kicker">Результаты</p>

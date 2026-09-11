@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.web_helpers import create_session, login
+from tests.web_helpers import create_session, login, upload_forecast
 
 
 def _type_map(client):
@@ -20,6 +20,7 @@ def _h48_csv_legacy_loads() -> bytes:
 def test_lots_table_uses_compact_headers_and_actions_menu(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Lots table")
+    upload_forecast(client, session_id)
     type_map = _type_map(client)
     type_rows = client.get("/api/object-types").get_json()["items"]
     type_name = {row["code"]: row["name"] for row in type_rows}
@@ -67,6 +68,7 @@ def test_lots_table_uses_compact_headers_and_actions_menu(client):
 def test_session_dashboard_shows_forecast_portfolio_and_quick_actions(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Dashboard focus")
+    upload_forecast(client, session_id)
 
     resp = client.get(f"/sessions/{session_id}")
     assert resp.status_code == 200

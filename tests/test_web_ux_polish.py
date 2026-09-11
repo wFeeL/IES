@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 
-from tests.web_helpers import create_session, login
+from tests.web_helpers import create_session, login, upload_forecast
 
 
 def test_dashboard_uses_session_terms_and_unified_analysis_help(client):
     login(client, "admin", "admin123")
 
     session_id = create_session(client, title="UX session", selected_strategy="eco")
+    upload_forecast(client, session_id)
 
     resp = client.get("/dashboard")
     assert resp.status_code == 200
@@ -17,7 +18,7 @@ def test_dashboard_uses_session_terms_and_unified_analysis_help(client):
     assert "Создать сессию" in html
     assert "Как читается оценка" in html
     assert "Открыть рабочую панель" in html
-    assert "Единый оптимизатор" in html
+    assert "unified lot optimizer" in html
     assert f"/sessions/{session_id}" in html
 
 
@@ -94,6 +95,7 @@ def test_system_and_lot_edit_pages_hide_unwanted_analysis_noise(client):
 def test_workbench_focuses_on_forecast_portfolio_and_export_actions(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Workbench actions")
+    upload_forecast(client, session_id)
 
     resp = client.get(f"/sessions/{session_id}")
     assert resp.status_code == 200
@@ -133,6 +135,7 @@ def test_dashboard_imports_session_via_ssr_form(client):
 def test_quick_auction_uses_user_facing_actions_without_debug_block(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Quick UX")
+    upload_forecast(client, session_id)
     type_rows = client.get("/api/object-types").get_json()["items"]
     wind_id = next(row["id"] for row in type_rows if row["code"] == "wind")
 
@@ -228,6 +231,7 @@ def test_quick_auction_script_keeps_selected_lot_after_refresh(client):
 def test_layout_contract_for_compact_lots_and_quick_auction_tables(client):
     login(client, "admin", "admin123")
     session_id = create_session(client, title="Layout contract session")
+    upload_forecast(client, session_id)
     type_rows = client.get("/api/object-types").get_json()["items"]
     wind_id = next(row["id"] for row in type_rows if row["code"] == "wind")
     client.post(
