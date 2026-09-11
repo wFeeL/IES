@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Результаты {{ session.id }} | IES{% endblock %}
+{% block page_title %}Результаты сессии #{{ session.id }}{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Stage A · Results</p>
+      <h1 class="h1">Лучшие одиночки, пары и группы</h1>
+      <p class="muted">Раздел показывает итоговый ranking по единому unified optimizer: комбинации отсортированы по risk-adjusted profit, затем по expected profit. Это аукционная справка до Stage B сборки энергосистемы.</p>
+    </div>
+  </div>
+  {% if forecast_blocked %}
+  <div class="risk-block mt-3">
+    <strong>Результаты временно заблокированы.</strong>
+    <div class="mt-2">{{ compatibility_guidance.primary_message }}</div>
+    <div class="actions mt-3">
+      <a class="btn btn-primary" href="{{ compatibility_guidance.forecast_url }}">Исправить прогноз</a>
+    </div>
+  </div>
+  {% elif not snapshot %}
+  <div class="empty-state mt-3">Снимок комбинаций пока не сформирован.</div>
+  {% endif %}
+</section>
+
+{% if snapshot and not forecast_blocked %}
+<section class="kpi-grid mt-4">
+  <article class="kpi-card"><span class="metric-label">Лучшая комбинация</span><strong>{{ snapshot.best_combination.display_title if snapshot.best_combination else '—' }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Optimal purchase price</span><strong>{{ fmt_num(snapshot.best_combination.optimal_purchase_price_total if snapshot.best_combination else 0, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Expected profit</span><strong>{{ fmt_num(snapshot.best_combination.expected_profit if snapshot.best_combination else 0, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Risk-adjusted profit</span><strong>{{ fmt_num(snapshot.best_combination.risk_adjusted_profit if snapshot.best_combination else 0, 2) }}</strong></article>
+</section>
+
+{% macro combo_table(title, rows) -%}
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Unified ranking</p>
+      <h2 class="h2">{{ title }}</h2>
+    </div>
+  </div>
+  <div class="table-wrap mt-3">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Комбинация</th>
+          <th>Цена покупки</th>
+          <th>Expected profit</th>
+          <th>Risk-adjusted</th>
+          <th>Синергия</th>
+          <th>Topology</th>
+          <th>Budget fit</th>
+          <th>Wind penalty</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            <strong>{{ row.display_title }}</strong>
+            <div class="table-secondary">{{ row.explanation or row.reason or '—' }}</div>
+          </td>
+          <td>{{ fmt_num(row.optimal_purchase_price_total or row.total_price, 2) }}</td>
+          <td>{{ fmt_num(row.expected_profit or row.total_profit, 2) }}</td>
+          <td>{{ fmt_num(row.risk_adjusted_profit or row.risk_adjusted_net_profit, 2) }}</td>
+          <td>{{ fmt_num(row.synergy or row.synergy_score, 2) }}</td>
+          <td>{{ row.topology_status or row.topology_feasibility or '—' }}</td>
+          <td>
+            {% set fit = row.budget_fit or {} %}
+            {{ 'ok' if fit.is_affordable else 'overflow' }}
+            <div class="table-secondary">headroom: {{ fmt_num(fit.headroom or 0, 2) }}</div>
+          </td>
+          <td>{{ fmt_num(row.wind_uncertainty_penalty or 0, 2) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="muted">Нет комбинаций для отображения.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{%- endmacro %}
+
+{{ combo_table('Лучшие одиночки', snapshot.best_singles or []) }}
+{{ combo_table('Лучшие пары', snapshot.best_pairs or []) }}
+{{ combo_table('Лучшие группы', snapshot.best_groups or []) }}
+
+<section class="page-grid mt-4">
+  {% for key, scenario in (snapshot.scenarios or {}).items() %}
+  <article class="card">
+    <p class="section-kicker">{{ scenario.title or key }}</p>
+    <h2 class="h2">{{ scenario.best_combination.display_title if scenario.best_combination else 'Комбинация не выбрана' }}</h2>
+    <div class="stack gap-2 mt-3">
+      <div><strong>Optimal purchase price:</strong> {{ fmt_num(scenario.best_combination.optimal_purchase_price_total if scenario.best_combination else 0, 2) }}</div>
+      <div><strong>Expected profit:</strong> {{ fmt_num(scenario.best_combination.expected_profit if scenario.best_combination else 0, 2) }}</div>
+      <div><strong>Risk-adjusted:</strong> {{ fmt_num(scenario.best_combination.risk_adjusted_profit if scenario.best_combination else 0, 2) }}</div>
+      <div class="table-secondary">{{ scenario.note or '—' }}</div>
+    </div>
+  </article>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

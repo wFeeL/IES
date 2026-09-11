@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block head_extra %}
+<script defer src="{{ url_for('static', filename='js/analysis/strategy_snapshot.js') }}"></script>
+{% endblock %}
+{% block title %}Сессия {{ session.id }} | IES{% endblock %}
+{% block page_title %}Сессия #{{ session.id }}{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+{% set top_lot = available_rows[0] if available_rows else none %}
+{% set top_is_consumer_floor = top_lot and (top_lot.price_role == 'consumer_floor') %}
+
+<section class="page-grid mt-4">
+  <article class="card accent-card">
+    <p class="section-kicker">Главное решение</p>
+    <h2 class="h2">Следующий приоритетный лот</h2>
+    {% if forecast_blocked %}
+    <div class="risk-block mt-3">
+      <strong>Оценка временно заблокирована прогнозом.</strong>
+      <div class="mt-2">{{ compatibility_guidance.primary_message }}</div>
+      <div class="actions mt-3">
+        <a class="btn btn-primary" href="{{ compatibility_guidance.forecast_url }}">Исправить прогноз</a>
+      </div>
+    </div>
+    {% elif top_lot %}
+    <p class="muted mt-2">{{ top_lot.name }} · {{ top_lot.composition_label }}</p>
+    <div class="insight-grid mt-3">
+      <div class="metric-card"><span class="metric-label">{{ 'Consumer floor' if top_is_consumer_floor else 'Service ceiling' }}</span><strong>{{ fmt_num(top_lot.optimal_purchase_price or top_lot.recommended_bid_or_tariff, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">{{ 'Hard floor' if top_is_consumer_floor else 'Hard ceiling' }}</span><strong>{{ fmt_num(top_lot.hard_limit or top_lot.break_even_tariff, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Expected profit</span><strong>{{ fmt_num(top_lot.expected_profit or top_lot.expected_delta_profit, 2) }}</strong></div>
+    </div>
+    <div class="risk-block mt-3">
+      <strong>{{ 'Потребительский floor-аукцион' if top_is_consumer_floor else 'Provider ceiling-аукцион' }}</strong>
+      <div class="mt-2">{{ top_lot.decision_reason or top_lot.working_bid_reason or 'Причина не указана.' }}</div>
+    </div>
+    {% else %}
+    <div class="empty-state mt-3">Доступных лотов пока нет.</div>
+    {% endif %}
+  </article>
+</section>
+{% endblock %}

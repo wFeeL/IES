@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block head_extra %}
+<script defer src="{{ url_for('static', filename='js/analysis/strategy_snapshot.js') }}"></script>
+{% endblock %}
+{% block title %}{{ lot.name }} | Лот {{ lot.id }} | IES{% endblock %}
+{% block page_title %}Лот #{{ lot.id }}{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+{% include "components/analysis_context.html" %}
+{% set price_role = evaluation.price_role or 'service_ceiling' %}
+{% set is_consumer_floor = price_role == 'consumer_floor' %}
+
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Stage A · Лот #{{ lot.id }}</p>
+      <h1 class="h1">{{ lot.name }}</h1>
+      <p class="muted mt-2">{{ lot_scope_label(lot.scope) }} · {{ lot_status_label(lot.status) }} · текущая цена {{ fmt_num(lot.current_bid, 2) }}</p>
+      <p class="muted">Состав: {{ lot_summary.structure }}</p>
+      <p class="muted">Аукционная цена зависит от состава лота: consumer lot получает floor-рекомендацию, generator/storage/infrastructure lot — ceiling-рекомендацию.</p>
+    </div>
+    <div class="actions">
+      {% if lot.status == 'available' and not forecast_blocked %}
+      <a class="btn btn-primary" href="{{ url_for('pages.lot_buy_confirm_page', lot_id=lot.id) }}">Купить лот</a>
+      {% endif %}
+      <a class="btn btn-secondary" href="{{ url_for('pages.lot_edit_page', lot_id=lot.id) }}">Редактировать</a>
+    </div>
+  </div>
+  {% if forecast_blocked %}
+  <div class="risk-block mt-3">
+    <strong>Оценка недоступна.</strong>
+    <div class="mt-2">{{ compatibility_guidance.primary_message }}</div>
+  </div>
+  {% endif %}
+</section>
+
+<section class="kpi-grid mt-4">
+  <article class="kpi-card"><span class="metric-label">{{ 'Consumer floor' if is_consumer_floor else 'Service ceiling' }}</span><strong>{{ fmt_num(evaluation.optimal_purchase_price or evaluation.recommended_bid_or_tariff, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">{{ 'Hard floor' if is_consumer_floor else 'Hard ceiling' }}</span><strong>{{ fmt_num(evaluation.hard_limit or evaluation.break_even_tariff, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Expected profit</span><strong>{{ fmt_num(evaluation.expected_profit_after_purchase or evaluation.expected_delta_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Risk-adjusted profit</span><strong>{{ fmt_num(evaluation.risk_adjusted_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Base case</span><strong>{{ fmt_num(evaluation.base_case.delta_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Best case</span><strong>{{ fmt_num(evaluation.best_case.delta_profit, 2) }}</strong></article>
+  <article class="kpi-card"><span class="metric-label">Worst case</span><strong>{{ fmt_num(evaluation.worst_case.delta_profit, 2) }}</strong></article>
+</section>
+
+<section class="page-grid mt-4">
+  <article class="card">
+    <p class="section-kicker">Рекомендация</p>
+    <h2 class="h2">Итог по аукциону</h2>
+    <div class="risk-block mt-3">
+      <strong>{{ 'Потребительский floor-аукцион' if is_consumer_floor else 'Provider ceiling-аукцион' }}</strong>
+      <div class="mt-2">{{ evaluation.decision_summary.recommended_bid_reason or evaluation.explanation }}</div>
+      <div class="mt-2">Профиль лота: {{ evaluation.lot_profile }}. Роль цены: {{ evaluation.price_role }}.</div>
+      <div class="mt-2">Основная цена: {{ fmt_num(evaluation.optimal_purchase_price or evaluation.recommended_bid_or_tariff or evaluation.recommended_bid, 2) }}. {{ 'Ниже этого floor опускаться нельзя.' if is_consumer_floor else 'Выше этого ceiling подниматься нельзя.' }}</div>
+      <div class="mt-2">Предельный уровень: {{ fmt_num(evaluation.hard_limit or evaluation.break_even_tariff, 2) }}.</div>
+      <div class="mt-2">Expected profit: {{ fmt_num(evaluation.expected_profit_after_purchase or evaluation.expected_delta_profit, 2) }}. Risk-adjusted: {{ fmt_num(evaluation.risk_adjusted_profit, 2) }}.</div>
+      <div class="mt-2">Wind uncertainty penalty: {{ fmt_num(evaluation.wind_uncertainty_penalty, 2) }}.</div>
+    </div>
+    <div class="pill-row mt-3">
+      <span class="pill risk-pill risk-pill-{{ evaluation.topology_risk }}">Topology: {{ evaluation.topology_risk }}</span>
+      <span class="pill risk-pill risk-pill-{{ evaluation.market_risk }}">Market: {{ evaluation.market_risk }}</span>
+      <span class="pill risk-pill risk-pill-{{ evaluation.balancing_risk }}">Balance: {{ evaluation.balancing_risk }}</span>
+      <span class="pill risk-pill risk-pill-{{ evaluation.loss_risk }}">Loss: {{ evaluation.loss_risk }}</span>
+    </div>
+  </article>
+
+  <article class="card">
+    <p class="section-kicker">Синергия и fit</p>
+    <h2 class="h2">Как лот встраивается в систему</h2>
+    <div class="table-wrap mt-3">
+      <table class="table">
+        <tbody>
+          <tr><th>Stage</th><td>{{ evaluation.analysis_stage }}</td></tr>
+          <tr><th>Topology feasibility</th><td>{{ evaluation.topology_feasibility }}</td></tr>
+          <tr><th>Direct vs enabler value</th><td>{{ fmt_num(evaluation.direct_delta_profit, 2) }} / {{ fmt_num(evaluation.enabler_value, 2) }}</td></tr>
+          <tr><th>Комментарий сети</th><td>{{ evaluation.system_check.message }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </article>
+</section>
+{% endblock %}

@@ -164,6 +164,11 @@ def _system_check(evaluation) -> Dict[str, Any]:
 
 
 
+# Single name for the valuation model, surfaced as decision_summary.bid_formula
+# and metrics.bids.valuation_model.model so the two can never drift apart.
+VALUATION_MODEL = "unified_lot_optimizer_2026"
+
+
 def _risk_total(evaluation) -> float:
     totals = evaluation.base_case.totals
     return float(totals.loss_cost + totals.balancing_penalty + totals.unmet_load_penalty)
@@ -404,6 +409,11 @@ def _payload_from_evaluation(
             "hard_ceiling_bid": round(hard_limit, 4),
             "hard_cap": round(hard_limit, 4),
             "max_bid": round(hard_limit, 4),
+            # In a descending consumer auction the tariff is walked down to the
+            # floor, so the floor is the lowest tariff still worth accepting.
+            "minimum_acceptable_tariff": round(hard_limit, 4),
+            "recommended_walkdown_tariff": round(optimal_purchase_price, 4),
+            "bid_formula": VALUATION_MODEL,
         }
     )
 
@@ -425,6 +435,11 @@ def _payload_from_evaluation(
         "decision_summary": decision_summary,
         "optimal_purchase_price": round(optimal_purchase_price, 4),
         "expected_profit": round(expected_profit, 4),
+        "expected_delta_profit": round(float(evaluation.expected_delta_profit or 0.0), 4),
+        "break_even_tariff": round(float(getattr(evaluation, "break_even_tariff", 0.0) or 0.0), 4),
+        "recommended_bid_or_tariff": round(
+            float(getattr(evaluation, "recommended_bid_or_tariff", 0.0) or 0.0), 4
+        ),
         "risk_adjusted_profit": round(risk_adjusted_profit, 4),
         "hard_limit": round(hard_limit, 4),
         "price_role": price_role,
@@ -478,7 +493,7 @@ def _payload_from_evaluation(
                 "optimal_purchase_price": round(optimal_purchase_price, 4),
                 "hard_limit": round(hard_limit, 4),
                 "valuation_model": {
-                    "model": "unified_lot_optimizer_2026",
+                    "model": VALUATION_MODEL,
                     "profile": str(evaluation.lot_profile),
                     "price_role": price_role,
                     "optimal_purchase_price": round(optimal_purchase_price, 4),
@@ -655,7 +670,7 @@ def recommend_best_lot(
 ) -> Dict[str, Any]:
     ranked = rank_lots(session=session, lots=list(lots), strategy=strategy, forecast=forecast, persist=False)
     best = ranked[0] if ranked else None
-    return {"model": "unified_lot_optimizer_2026", "best_lot": best, "ranked_lots": ranked, "summary": {"count": len(ranked), "best_lot_id": int(best.get("lot_id", 0) or 0) if best else None, "best_expected_profit": float(best.get("expected_profit", 0.0) or 0.0) if best else 0.0}}
+    return {"model": VALUATION_MODEL, "best_lot": best, "ranked_lots": ranked, "summary": {"count": len(ranked), "best_lot_id": int(best.get("lot_id", 0) or 0) if best else None, "best_expected_profit": float(best.get("expected_profit", 0.0) or 0.0) if best else 0.0}}
 
 
 
@@ -667,7 +682,7 @@ def strategy_fit(
 ) -> Dict[str, Any]:
     evaluation = evaluate_lot(session=session, lot=lot, strategy=None, forecast=forecast, persist=False)
     return {
-        "model": "unified_lot_optimizer_2026",
+        "model": VALUATION_MODEL,
         "lot_id": int(lot.id),
         "lot_name": lot.name,
         "topology_risk": str(evaluation.get("topology_risk") or "low"),

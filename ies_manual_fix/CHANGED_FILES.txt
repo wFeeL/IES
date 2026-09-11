@@ -1,0 +1,6 @@
+ies_bot_skeleton/web/forms/analysis.py
+ies_bot_skeleton/web/templates/components/session_nav.html
+ies_bot_skeleton/web/templates/analysis/results.html
+ies_bot_skeleton/web/templates/analysis/lots.html
+ies_bot_skeleton/web/templates/analysis/lot_detail.html
+ies_bot_skeleton/web/templates/core/workbench.html

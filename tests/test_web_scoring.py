@@ -5,7 +5,7 @@ import pytest
 from ies_bot_skeleton.application.portfolio import buy_lot
 from ies_bot_skeleton.web.extensions import db
 from ies_bot_skeleton.web.models import Forecast, GameSession, Lot, LotItem, ObjectInstance, ObjectType
-from ies_bot_skeleton.web.services.evaluation import evaluate_lot
+from ies_bot_skeleton.web.services.evaluation import VALUATION_MODEL, evaluate_lot
 from ies_bot_skeleton.web.services.forecast_service import parse_and_store_forecast
 
 
@@ -78,7 +78,7 @@ def test_evaluate_lot_returns_2026_delta_profit_payload(app):
         assert "recommended_bid_or_tariff" in payload
         assert "system_check" in payload
         assert "storage_value" in payload["metrics"]
-        assert payload["decision_summary"]["bid_formula"] == "unified_lot_optimizer_v2"
+        assert payload["decision_summary"]["bid_formula"] == VALUATION_MODEL
 
 
 def test_evaluate_lot_flags_topology_risk_when_main_substation_missing(app):
@@ -193,6 +193,18 @@ def test_cannot_buy_more_than_one_main_substation(app):
         db.session.add(lot)
         db.session.flush()
         db.session.add(LotItem(lot_id=lot.id, object_type_id=type_map["main_substation"].id, quantity=1))
+        db.session.commit()
+
+        # Buying evaluates first, and evaluation needs a forecast, otherwise the
+        # purchase fails on the missing forecast instead of the rule under test.
+        forecast_row, _ = parse_and_store_forecast(
+            session_id=session.id,
+            name="Scoring 2026",
+            source_file="scoring.csv",
+            content=_forecast_csv(),
+        )
+        session.selected_forecast_id = forecast_row.id
+        db.session.add(session)
         db.session.commit()
 
         with pytest.raises(ValueError, match="Нельзя купить более одной главной подстанции"):

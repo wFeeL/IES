@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Лоты {{ session.id }} | IES{% endblock %}
+{% block page_title %}Лоты сессии #{{ session.id }}{% endblock %}
+{% block content %}
+{% include "components/session_hero.html" %}
+{% include "components/analysis_context.html" %}
+
+<section class="card mt-4">
+  <div class="section-head">
+    <div>
+      <p class="section-kicker">Stage A · Аукцион 2026</p>
+      <h1 class="h1">Консолидированная оценка лотов</h1>
+      <p class="muted">Для каждого лота сайт показывает один основной результат — optimal purchase price — но тип этой цены зависит от состава лота: для consumer lot это floor, для generator/storage/infrastructure lot это ceiling.</p>
+    </div>
+    <div class="actions">
+      <a class="btn btn-primary" href="{{ url_for('pages.lots_edit', session_id=session.id) }}">Добавить лот</a>
+      <button class="btn btn-secondary" id="recalculateLotsBtn" type="button" {% if forecast_blocked %}disabled{% endif %}>Пересчитать все</button>
+    </div>
+  </div>
+  {% if forecast_blocked %}
+  <div class="risk-block mt-3">
+    <strong>Оценка лотов заблокирована.</strong>
+    <div class="mt-2">{{ compatibility_guidance.primary_message }}</div>
+    <div class="actions mt-3">
+      <a class="btn btn-primary" href="{{ compatibility_guidance.forecast_url }}">Исправить прогноз</a>
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+<section class="stack gap-4 mt-4">
+  {% for row in lot_rows %}
+  {% set price_role = row.price_role or 'service_ceiling' %}
+  {% set is_consumer_floor = price_role == 'consumer_floor' %}
+  <article class="card">
+    <div class="section-head">
+      <div>
+        <p class="section-kicker">{{ row.composition_label }}</p>
+        <h2 class="h2">{{ row.name }}</h2>
+        <p class="muted mt-2">{{ row.structure }}</p>
+      </div>
+      <div class="actions">
+        <span class="status-badge {{ 'status-fresh' if row.can_recommend else 'status-stale' }}">{{ row.decision_status_label }}</span>
+        <a class="btn btn-secondary" href="{{ url_for('pages.lot_detail_page', lot_id=row.lot_id) }}">Открыть анализ</a>
+      </div>
+    </div>
+
+    <div class="insight-grid mt-3">
+      <div class="metric-card"><span class="metric-label">Текущая цена/тариф</span><strong>{{ fmt_num(row.price, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">{{ 'Consumer floor' if is_consumer_floor else 'Service ceiling' }}</span><strong>{{ fmt_num(row.optimal_purchase_price or row.recommended_bid_or_tariff, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">{{ 'Hard floor' if is_consumer_floor else 'Hard ceiling' }}</span><strong>{{ fmt_num(row.hard_limit or row.break_even_tariff, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Expected profit</span><strong>{{ fmt_num(row.expected_profit_after_purchase or row.expected_delta_profit, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Risk-adjusted</span><strong>{{ fmt_num(row.risk_adjusted_profit or row.summary_score, 2) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Base / best / worst</span><strong>{{ fmt_num(row.base_case_delta_profit, 1) }} / {{ fmt_num(row.best_case_delta_profit, 1) }} / {{ fmt_num(row.worst_case_delta_profit, 1) }}</strong></div>
+      <div class="metric-card"><span class="metric-label">Synergy / wind penalty</span><strong>{{ fmt_num(row.synergy_score, 2) }} / {{ fmt_num(row.wind_uncertainty_penalty, 2) }}</strong></div>
+    </div>
+
+    <div class="page-grid mt-3">
+      <div class="risk-block">
+        <strong>{{ 'Потребительский floor-аукцион' if is_consumer_floor else 'Provider ceiling-аукцион' }}</strong>
+        <div class="mt-2">{{ row.recommended_bid_reason or row.decision_reason or 'Объяснение отсутствует.' }}</div>
+        <div class="table-secondary mt-2">
+          Price role: {{ price_role }} · topology: {{ row.topology_feasibility }} ·
+          consumer revenue: {{ fmt_num(row.consumer_revenue, 2) }} · market: {{ fmt_num(row.market_net, 2) }} ·
+          service cost: {{ fmt_num(row.service_cost, 2) }} · losses: {{ fmt_num(row.loss_cost, 2) }} ·
+          balancing: {{ fmt_num(row.balancing_penalty, 2) }}
+        </div>
+      </div>
+      <div class="risk-block">
+        <strong>Монтаж и конфликты</strong>
+        {% if row.mounting_requirements %}
+        <ul class="stack gap-1 mt-2">
+          {% for item in row.mounting_requirements %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+        {% elif row.conflicts %}
+        <ul class="stack gap-1 mt-2">
+          {% for item in row.conflicts %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="mt-2 muted">Критических монтажных ограничений не найдено.</div>
+        {% endif %}
+      </div>
+    </div>
+  </article>
+  {% else %}
+  <div class="empty-state">Лоты ещё не добавлены.</div>
+  {% endfor %}
+</section>
+{% endblock %}
